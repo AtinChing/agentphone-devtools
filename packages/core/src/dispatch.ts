@@ -1,17 +1,21 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { AgentPhoneEnvelope, AgentResponseChunk, DispatchOptions, DispatchResult, ParsedAgentResponse } from "./types.js";
+import type { AgentPhoneEnvelope, AgentResponseChunk, DispatchOptions, DispatchResult, ParsedAgentResponse, SignedDelivery } from "./types.js";
 import { buildSignedDelivery } from "./signer.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
 
 export async function dispatchWebhook(payload: AgentPhoneEnvelope, options: DispatchOptions): Promise<DispatchResult> {
-  const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const signed = buildSignedDelivery(payload, {
     secret: options.secret,
     timestampSeconds: options.timestampSeconds,
     webhookId: options.webhookId
   });
 
+  return dispatchSignedDelivery(signed, options);
+}
+
+export async function dispatchSignedDelivery(signed: SignedDelivery, options: Omit<DispatchOptions, "secret" | "webhookId" | "timestampSeconds">): Promise<DispatchResult> {
+  const timeoutSeconds = options.timeoutSeconds ?? DEFAULT_TIMEOUT_SECONDS;
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort(), timeoutSeconds * 1000);
   const started = performance.now();
