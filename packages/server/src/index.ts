@@ -196,12 +196,7 @@ export class DevtoolsRuntime {
     });
     const delivery = await this.dispatchAndRecord(payload);
     this.session.callEnded = payload.data;
-    this.session.evalResult = evaluateConversation({
-      transcript: this.session.transcript,
-      callEnded: payload.data,
-      responses: this.session.deliveries.flatMap((item) => item.response.parsed.chunks),
-      deadAirTurns: this.session.deliveries.filter((item) => item.warnings.some((warning) => warning.includes("silence") || warning.includes("dead air"))).length
-    });
+    this.session.evalResult = this.buildEvalResult(payload.data);
     this.emit("state", this.getState());
     return delivery;
   }
@@ -227,6 +222,9 @@ export class DevtoolsRuntime {
     }
 
     await this.endCall();
+    if (this.session.callEnded) {
+      this.session.evalResult = this.buildEvalResult(this.session.callEnded, scenario.expectedOutcome);
+    }
     if (this.session.evalResult && scenario.expectedOutcome && this.session.evalResult.outcome !== scenario.expectedOutcome) {
       this.session.warnings.push(`Scenario expected ${scenario.expectedOutcome}, eval observed ${this.session.evalResult.outcome}`);
     }
@@ -297,6 +295,18 @@ export class DevtoolsRuntime {
     const responseText = parsed.final?.text ?? parsed.chunks.find((chunk) => chunk.text && !chunk.interim)?.text ?? fallbackSmsText(delivery);
     if (!responseText) return;
     this.pushTranscript({ role: "agent", content: responseText }, isoNow(), channel);
+  }
+
+  private buildEvalResult(callEnded?: CallEndedEnvelope["data"], expectedOutcome?: EvalResult["outcome"]): EvalResult {
+    return evaluateConversation({
+      transcript: this.session.transcript,
+      callEnded,
+      expectedOutcome,
+      responses: this.session.deliveries.filter((item) => item.event === "agent.message").flatMap((item) => item.response.parsed.chunks),
+      deadAirTurns: this.session.deliveries
+        .filter((item) => item.event === "agent.message")
+        .filter((item) => item.warnings.some((warning) => warning.includes("silence") || warning.includes("dead air"))).length
+    });
   }
 
   private pushTranscript(turn: TranscriptTurn, at: string, channel: "sms" | "voice"): void {

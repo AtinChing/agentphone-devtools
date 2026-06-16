@@ -28,7 +28,10 @@ export async function dispatchSignedDelivery(signed: SignedDelivery, options: Om
       signal: controller.signal
     });
     const contentType = response.headers.get("content-type") ?? "";
-    const parsed = await parseAgentResponse(response, contentType, options.onChunk);
+    const parsed =
+      signed.payload.event === "agent.call_ended"
+        ? { rawBody: await response.text(), response: emptyParsed() }
+        : await parseAgentResponse(response, contentType, options.onChunk);
     const latencyMs = Math.round(performance.now() - started);
 
     return {
