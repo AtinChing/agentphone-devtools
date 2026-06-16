@@ -1,0 +1,87 @@
+export interface AgentResponseChunk {
+  text?: string;
+  hangup?: boolean;
+  action?: string;
+  transferNumber?: string;
+  digits?: string;
+  press_digit?: string;
+  dtmf?: string;
+  interim?: boolean;
+  [key: string]: unknown;
+}
+
+export interface ParsedAgentResponse {
+  mode: "empty" | "json" | "ndjson" | "text" | "invalid";
+  final?: AgentResponseChunk;
+  chunks: AgentResponseChunk[];
+  warnings: string[];
+}
+
+export interface InspectorDelivery {
+  id: string;
+  event: "agent.message" | "agent.call_ended" | "agent.reaction";
+  channel: "sms" | "mms" | "imessage" | "voice";
+  direction: "inbound";
+  timestamp: string;
+  webhookId: string;
+  request: {
+    headers: Record<string, string>;
+    rawBody: string;
+    body: unknown;
+  };
+  response: {
+    status: number;
+    statusText: string;
+    headers: Record<string, string>;
+    rawBody: string;
+    parsed: ParsedAgentResponse;
+  };
+  latencyMs: number;
+  timedOut: boolean;
+  ok: boolean;
+  warnings: string[];
+  retries: number;
+}
+
+export interface TranscriptTurn {
+  role: "agent" | "user";
+  content: string;
+}
+
+export interface EvalResult {
+  outcome: "resolved" | "handed_off" | "failed";
+  stayedOnTask: boolean;
+  correctActions: boolean | null;
+  score: number;
+  reasons: string[];
+  metrics: {
+    turnCount: number;
+    agentTurns: number;
+    userTurns: number;
+    deadAirTurns: number;
+    durationSeconds?: number;
+  };
+}
+
+export interface InspectorSession {
+  id: string;
+  targetUrl: string;
+  secretPreview: string;
+  channel: "sms" | "voice";
+  status: "idle" | "running" | "ended";
+  startedAt: string;
+  endedAt?: string;
+  conversationId: string;
+  callId: string;
+  transcript: TranscriptTurn[];
+  deliveries: InspectorDelivery[];
+  callEnded?: {
+    summary: string;
+    userSentiment: string;
+    callSuccessful: boolean;
+    durationSeconds: number;
+    disconnectionReason: string;
+  };
+  evalResult?: EvalResult;
+  warnings: string[];
+}
