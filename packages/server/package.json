@@ -1,0 +1,22 @@
+{
+  "name": "@agentphone-devtools/server",
+  "version": "0.1.0",
+  "type": "module",
+  "license": "MIT",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js"
+    }
+  },
+  "scripts": {
+    "build": "tsc -p tsconfig.json"
+  },
+  "dependencies": {
+    "@agentphone-devtools/core": "0.1.0",
+    "@fastify/cors": "^10.0.1",
+    "fastify": "^5.3.3"
+  }
+}

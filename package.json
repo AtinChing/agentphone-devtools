@@ -1,0 +1,26 @@
+{
+  "name": "agentphone-devtools-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local simulator, inspector, and eval tools for AgentPhone webhook development.",
+  "license": "MIT",
+  "workspaces": [
+    "packages/core",
+    "packages/server",
+    "packages/ui",
+    "packages/cli",
+    "examples/handler-express"
+  ],
+  "scripts": {
+    "build": "npm run build --workspaces --if-present",
+    "dev": "npx agentphone-devtools",
+    "test": "vitest run",
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "start:example": "npm --workspace examples/handler-express start"
+  },
+  "devDependencies": {
+    "@types/node": "^22.15.30",
+    "typescript": "^5.8.3",
+    "vitest": "^3.2.3"
+  }
+}
