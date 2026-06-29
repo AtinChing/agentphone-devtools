@@ -22,6 +22,7 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
 - Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and eval card.
+- Persistent run history with read-only session inspection, bounded retention, and deletion controls.
 - Scenario replay from YAML or JSON with Zod validation.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
@@ -42,6 +43,8 @@ Useful options:
 --timeout <seconds>        Voice webhook timeout, 5 to 120 seconds
 --context-limit <0-50>     recentHistory size
 --retry-on-non-200         Retry failed deliveries with compressed backoff
+--history-path <path>      Override the local run history file
+--history-limit <count>    Runs to retain, 1 to 1000 (default 100)
 --no-open                  Keep the browser closed
 --exit-after-scenario      Exit after scenario replay, useful for CI
 ```
@@ -62,6 +65,14 @@ Critical detail: the simulator serializes once, signs that exact string, and sen
 ## Zero-Cost Defaults
 
 The default workflow uses no AgentPhone account, no real number, no carrier traffic, and no paid model call. Optional model-judge eval is intentionally disabled unless a provider key is explicitly configured.
+
+## Run History
+
+Sessions are saved locally as they change and remain available in the inspector after restarting the CLI. Open the **Runs** tab to inspect a previous transcript, delivery timeline, payloads, warnings, and eval result without affecting the live session.
+
+By default, history is stored at `.agentphone-devtools/history.json` in the directory where the CLI starts. Writes use a temporary file and atomic rename, the file is created with owner-only permissions, and only the masked secret preview is stored. The signing secret is never written to history.
+
+The default retention limit is 100 runs. Override the location or limit with CLI flags or environment variables. Completely untouched idle sessions are omitted from the Runs list.
 
 ## Repo Layout
 
@@ -101,6 +112,8 @@ Use `.env.example` values in your shell or pass options directly to the CLI:
 AGENTPHONE_DEVTOOLS_TARGET=http://localhost:3000/webhook
 AGENTPHONE_WEBHOOK_SECRET=whsec_demo
 AGENTPHONE_DEVTOOLS_CHANNEL=voice
+AGENTPHONE_DEVTOOLS_HISTORY_PATH=.agentphone-devtools/history.json
+AGENTPHONE_DEVTOOLS_HISTORY_LIMIT=100
 ```
 
 ## License
