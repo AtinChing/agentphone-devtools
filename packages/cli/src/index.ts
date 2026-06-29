@@ -20,6 +20,8 @@ interface CliOptions {
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
   interactive: boolean;
+  historyPath: string;
+  historyLimit: number;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -39,7 +41,9 @@ async function main() {
     timeoutSeconds: options.timeoutSeconds,
     contextLimit: options.contextLimit,
     port: options.port,
-    retryOnNon200: options.retryOnNon200
+    retryOnNon200: options.retryOnNon200,
+    historyPath: options.historyPath,
+    historyLimit: options.historyLimit
   };
 
   const server = await startDevtoolsServer(serverConfig);
@@ -160,7 +164,9 @@ function parseArgs(args: string[]): CliOptions {
     noOpen: false,
     exitAfterScenario: false,
     retryOnNon200: false,
-    interactive: true
+    interactive: true,
+    historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
+    historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100)
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -191,6 +197,12 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--ui-port":
         options.uiPort = Number(requireValue(args, ++i, arg));
+        break;
+      case "--history-path":
+        options.historyPath = resolve(requireValue(args, ++i, arg));
+        break;
+      case "--history-limit":
+        options.historyLimit = Number(requireValue(args, ++i, arg));
         break;
       case "--scenario":
         options.scenario = requireValue(args, ++i, arg);
@@ -223,6 +235,9 @@ function parseArgs(args: string[]): CliOptions {
   if (!Number.isFinite(options.timeoutSeconds) || options.timeoutSeconds < 5 || options.timeoutSeconds > 120) {
     throw new Error("--timeout must be between 5 and 120 seconds");
   }
+  if (!Number.isInteger(options.historyLimit) || options.historyLimit < 1 || options.historyLimit > 1000) {
+    throw new Error("--history-limit must be between 1 and 1000");
+  }
   return options;
 }
 
@@ -253,6 +268,8 @@ Options:
   --context-limit <0-50>     recentHistory limit, default 10
   --server-port <port>       Simulator API port, default 4318
   --ui-port <port>           Inspector UI port, default 4319
+  --history-path <path>      Run history file, default .agentphone-devtools/history.json
+  --history-limit <count>    Runs to retain, default 100
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
   --exit-after-scenario      Exit after scenario completes

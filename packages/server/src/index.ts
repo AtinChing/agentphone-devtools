@@ -1,5 +1,6 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { SessionHistoryStore } from "./history.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -33,7 +34,11 @@ export interface DevtoolsServerConfig {
   port: number;
   host?: string;
   retryOnNon200?: boolean;
+  historyPath: string;
+  historyLimit: number;
 }
+
+type RuntimeConfigUpdate = Partial<Omit<DevtoolsServerConfig, "port" | "historyPath" | "historyLimit">>;
 
 export interface InspectorRequest {
   headers: Record<string, string>;
@@ -82,6 +87,19 @@ export interface InspectorSession {
   warnings: string[];
 }
 
+export interface InspectorSessionSummary {
+  id: string;
+  targetUrl: string;
+  channel: "sms" | "voice";
+  status: InspectorSession["status"];
+  startedAt: string;
+  endedAt?: string;
+  transcriptTurns: number;
+  deliveries: number;
+  outcome?: EvalResult["outcome"];
+  score?: number;
+}
+
 type SseClient = {
   write: (event: string, data: unknown) => void;
   close: () => void;
@@ -92,13 +110,17 @@ type HistoryTurn = TranscriptTurn & { at: string; channel: "sms" | "voice" };
 export class DevtoolsRuntime {
   private readonly clients = new Set<SseClient>();
   private readonly history: HistoryTurn[] = [];
+  private readonly sessionStore: SessionHistoryStore;
   private config: DevtoolsServerConfig;
   private conversationState: ConversationState = null;
   private session: InspectorSession;
 
   constructor(config: DevtoolsServerConfig) {
     this.config = config;
+    this.sessionStore = new SessionHistoryStore(config.historyPath, config.historyLimit);
     this.session = this.newSession();
+    if (this.sessionStore.loadWarning) this.session.warnings.push(this.sessionStore.loadWarning);
+    this.persistSession();
   }
 
   getState(): InspectorSession {
@@ -110,16 +132,34 @@ export class DevtoolsRuntime {
     return { ...safe, secretPreview: maskSecret(this.config.secret) };
   }
 
-  updateConfig(update: Partial<Omit<DevtoolsServerConfig, "port">>): InspectorSession {
+  getHistory(): InspectorSessionSummary[] {
+    return this.sessionStore
+      .list()
+      .filter((session) => session.id === this.session.id || session.status !== "idle" || session.transcript.length > 0 || session.deliveries.length > 0)
+      .map(summarizeSession);
+  }
+
+  getHistorySession(sessionId: string): InspectorSession | undefined {
+    return sessionId === this.session.id ? this.getState() : this.sessionStore.get(sessionId);
+  }
+
+  deleteHistorySession(sessionId: string): boolean {
+    if (sessionId === this.session.id) return false;
+    const deleted = this.sessionStore.delete(sessionId);
+    if (deleted) this.emit("history", this.getHistory());
+    return deleted;
+  }
+
+  updateConfig(update: RuntimeConfigUpdate): InspectorSession {
     this.config = { ...this.config, ...compact(update) };
     this.session.targetUrl = this.config.targetUrl;
     this.session.secretPreview = maskSecret(this.config.secret);
     this.session.channel = this.config.channel;
-    this.emit("state", this.getState());
+    this.publishState();
     return this.getState();
   }
 
-  reset(update?: Partial<Omit<DevtoolsServerConfig, "port">> & { conversationState?: ConversationState }): InspectorSession {
+  reset(update?: RuntimeConfigUpdate & { conversationState?: ConversationState }): InspectorSession {
     if (update) {
       const { conversationState, ...configUpdate } = update;
       this.config = { ...this.config, ...compact(configUpdate) };
@@ -129,13 +169,14 @@ export class DevtoolsRuntime {
     }
     this.history.length = 0;
     this.session = this.newSession();
-    this.emit("state", this.getState());
+    this.publishState();
     return this.getState();
   }
 
   subscribe(client: SseClient): () => void {
     this.clients.add(client);
     client.write("state", this.getState());
+    client.write("history", this.getHistory());
     return () => {
       client.close();
       this.clients.delete(client);
@@ -169,7 +210,7 @@ export class DevtoolsRuntime {
     this.pushTranscript({ role: "user", content: text }, timestamp, channel);
     const delivery = await this.dispatchAndRecord(payload);
     this.recordAgentResponse(delivery, channel);
-    this.emit("state", this.getState());
+    this.publishState();
     return delivery;
   }
 
@@ -182,7 +223,7 @@ export class DevtoolsRuntime {
         transcript: this.session.transcript,
         responses: this.session.deliveries.flatMap((delivery) => delivery.response.parsed.chunks)
       });
-      this.emit("state", this.getState());
+      this.publishState();
       return null;
     }
 
@@ -197,11 +238,11 @@ export class DevtoolsRuntime {
     const delivery = await this.dispatchAndRecord(payload);
     this.session.callEnded = payload.data;
     this.session.evalResult = this.buildEvalResult(payload.data);
-    this.emit("state", this.getState());
+    this.publishState();
     return delivery;
   }
 
-  async runScenario(scenarioPathOrObject: string | Scenario, overrides: Partial<Omit<DevtoolsServerConfig, "port">> = {}): Promise<InspectorSession> {
+  async runScenario(scenarioPathOrObject: string | Scenario, overrides: RuntimeConfigUpdate = {}): Promise<InspectorSession> {
     const scenario = typeof scenarioPathOrObject === "string" ? await loadScenarioFile(scenarioPathOrObject) : scenarioPathOrObject;
     this.reset({
       targetUrl: overrides.targetUrl ?? this.config.targetUrl,
@@ -214,7 +255,7 @@ export class DevtoolsRuntime {
     });
 
     this.session.warnings.push(`Running scenario: ${scenario.name}`);
-    this.emit("state", this.getState());
+    this.publishState();
 
     for (const turn of scenario.turns) {
       await this.sendCallerTurn(turn.caller, scenario.channel);
@@ -228,7 +269,7 @@ export class DevtoolsRuntime {
     if (this.session.evalResult && scenario.expectedOutcome && this.session.evalResult.outcome !== scenario.expectedOutcome) {
       this.session.warnings.push(`Scenario expected ${scenario.expectedOutcome}, eval observed ${this.session.evalResult.outcome}`);
     }
-    this.emit("state", this.getState());
+    this.publishState();
     return this.getState();
   }
 
@@ -262,6 +303,7 @@ export class DevtoolsRuntime {
     };
 
     this.session.deliveries.push(delivery);
+    this.persistSession();
     this.emit("delivery", delivery);
     return delivery;
   }
@@ -282,7 +324,7 @@ export class DevtoolsRuntime {
       if (attempt < delays.length - 1) {
         retries += 1;
         this.session.warnings.push(`Retry ${retries} scheduled for ${signed.webhookId} after HTTP ${result.status}`);
-        this.emit("state", this.getState());
+        this.publishState();
       }
     }
 
@@ -331,6 +373,16 @@ export class DevtoolsRuntime {
     };
   }
 
+  private persistSession(): void {
+    this.sessionStore.upsert(this.session);
+  }
+
+  private publishState(): void {
+    this.persistSession();
+    this.emit("state", this.getState());
+    this.emit("history", this.getHistory());
+  }
+
   private emit(event: string, data: unknown): void {
     for (const client of this.clients) client.write(event, data);
   }
@@ -345,13 +397,30 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   app.get("/health", async () => ({ ok: true }));
   app.get("/api/config", async () => runtime.getConfig());
   app.get("/api/state", async () => runtime.getState());
+  app.get("/api/history", async () => runtime.getHistory());
+
+  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
+    const session = runtime.getHistorySession(request.params.sessionId);
+    if (!session) return reply.code(404).send({ error: "session not found" });
+    return session;
+  });
+
+  app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
+    if (request.params.sessionId === runtime.getState().id) {
+      return reply.code(409).send({ error: "the active session cannot be deleted" });
+    }
+    if (!runtime.deleteHistorySession(request.params.sessionId)) {
+      return reply.code(404).send({ error: "session not found" });
+    }
+    return reply.code(204).send();
+  });
 
   app.post<{
-    Body: Partial<Omit<DevtoolsServerConfig, "port">>;
+    Body: RuntimeConfigUpdate;
   }>("/api/config", async (request) => runtime.updateConfig(request.body));
 
   app.post<{
-    Body: Partial<Omit<DevtoolsServerConfig, "port">> & { conversationState?: ConversationState };
+    Body: RuntimeConfigUpdate & { conversationState?: ConversationState };
   }>("/api/reset", async (request) => runtime.reset(request.body));
 
   app.post<{
@@ -366,7 +435,7 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   }>("/api/end-call", async (request) => runtime.endCall(request.body ?? {}));
 
   app.post<{
-    Body: { path?: string; scenario?: Scenario; overrides?: Partial<Omit<DevtoolsServerConfig, "port">> };
+    Body: { path?: string; scenario?: Scenario; overrides?: RuntimeConfigUpdate };
   }>("/api/scenario", async (request, reply) => {
     const body = request.body ?? {};
     if (!body.path && !body.scenario) return reply.code(400).send({ error: "path or scenario is required" });
@@ -436,4 +505,19 @@ function maskSecret(secret: string): string {
 
 function compact<T extends Record<string, unknown>>(input: T): Partial<T> {
   return Object.fromEntries(Object.entries(input).filter(([, value]) => value !== undefined)) as Partial<T>;
+}
+
+function summarizeSession(session: InspectorSession): InspectorSessionSummary {
+  return {
+    id: session.id,
+    targetUrl: session.targetUrl,
+    channel: session.channel,
+    status: session.status,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    transcriptTurns: session.transcript.length,
+    deliveries: session.deliveries.length,
+    outcome: session.evalResult?.outcome,
+    score: session.evalResult?.score
+  };
 }
