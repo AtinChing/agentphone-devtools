@@ -1,41 +1,58 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock3, PhoneOff, Play, RotateCcw, Send, Square } from "lucide-react";
-import type { InspectorDelivery, InspectorSession } from "@/lib/types";
+import { Activity, AlertTriangle, CheckCircle2, Clock3, History, PhoneOff, Play, Radio, RotateCcw, Send, Square, Trash2 } from "lucide-react";
+import type { InspectorDelivery, InspectorSession, InspectorSessionSummary } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
 export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
+  const [liveSession, setLiveSession] = useState<InspectorSession | null>(null);
+  const [runs, setRuns] = useState<InspectorSessionSummary[]>([]);
+  const [leftView, setLeftView] = useState<"timeline" | "runs">("timeline");
+  const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
   const [channel, setChannel] = useState<"sms" | "voice">("voice");
   const [connected, setConnected] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const viewingSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     fetch(`${SERVER_URL}/api/state`)
       .then((response) => response.json())
       .then((state: InspectorSession) => {
+        setLiveSession(state);
         setSession(state);
         setChannel(state.channel);
         setSelectedId(state.deliveries.at(-1)?.id ?? null);
       })
       .catch(() => setConnected(false));
 
+    fetch(`${SERVER_URL}/api/history`)
+      .then((response) => response.json())
+      .then((history: InspectorSessionSummary[]) => setRuns(history))
+      .catch(() => undefined);
+
     const source = new EventSource(`${SERVER_URL}/api/events`);
     source.addEventListener("open", () => setConnected(true));
     source.addEventListener("error", () => setConnected(false));
     source.addEventListener("state", (event) => {
       const state = JSON.parse((event as MessageEvent).data) as InspectorSession;
-      setSession(state);
-      setChannel(state.channel);
-      setSelectedId((current) => current ?? state.deliveries.at(-1)?.id ?? null);
+      setLiveSession(state);
+      if (viewingSessionIdRef.current === null) {
+        setSession(state);
+        setChannel(state.channel);
+        setSelectedId((current) => current ?? state.deliveries.at(-1)?.id ?? null);
+      }
     });
     source.addEventListener("delivery", (event) => {
       const delivery = JSON.parse((event as MessageEvent).data) as InspectorDelivery;
-      setSelectedId(delivery.id);
+      if (viewingSessionIdRef.current === null) setSelectedId(delivery.id);
+    });
+    source.addEventListener("history", (event) => {
+      setRuns(JSON.parse((event as MessageEvent).data) as InspectorSessionSummary[]);
     });
 
     return () => source.close();
@@ -76,9 +93,43 @@ export function Inspector() {
       body: JSON.stringify({ channel })
     });
     const state = (await response.json()) as InspectorSession;
+    viewingSessionIdRef.current = null;
+    setViewingSessionId(null);
+    setLiveSession(state);
     setSession(state);
     setSelectedId(null);
   }
+
+  async function openRun(run: InspectorSessionSummary) {
+    if (run.id === liveSession?.id) {
+      viewingSessionIdRef.current = null;
+      setViewingSessionId(null);
+      setSession(liveSession);
+      setChannel(liveSession.channel);
+      setSelectedId(liveSession.deliveries.at(-1)?.id ?? null);
+      return;
+    }
+
+    const response = await fetch(`${SERVER_URL}/api/history/${run.id}`);
+    if (!response.ok) return;
+    const saved = (await response.json()) as InspectorSession;
+    viewingSessionIdRef.current = saved.id;
+    setViewingSessionId(saved.id);
+    setSession(saved);
+    setChannel(saved.channel);
+    setSelectedId(saved.deliveries.at(-1)?.id ?? null);
+    setLeftView("timeline");
+  }
+
+  async function deleteRun(run: InspectorSessionSummary) {
+    if (run.id === liveSession?.id || !window.confirm("Delete this saved run?")) return;
+    const response = await fetch(`${SERVER_URL}/api/history/${run.id}`, { method: "DELETE" });
+    if (!response.ok) return;
+    setRuns((current) => current.filter((item) => item.id !== run.id));
+    if (viewingSessionId === run.id && liveSession) await openRun(runs.find((item) => item.id === liveSession.id) ?? summarizeLive(liveSession));
+  }
+
+  const viewingLive = viewingSessionId === null;
 
   return (
     <main className="min-h-screen">
@@ -110,7 +161,8 @@ export function Inspector() {
             </select>
             <button
               onClick={reset}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400"
+              disabled={!viewingLive}
+              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
               title="Reset session"
               aria-label="Reset session"
             >
@@ -118,7 +170,8 @@ export function Inspector() {
             </button>
             <button
               onClick={endCall}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400"
+              disabled={!viewingLive}
+              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
               title="End call"
               aria-label="End call"
             >
@@ -130,9 +183,13 @@ export function Inspector() {
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={<Clock3 size={16} />} title="Timeline" meta={`${session?.deliveries.length ?? 0} deliveries`} />
-          <div className="max-h-[calc(100vh-170px)] overflow-auto px-3 pb-3">
-            {session?.deliveries.length ? (
+          <PanelHeader icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />} title={leftView === "timeline" ? "Timeline" : "Runs"} meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`} />
+          <div className="grid grid-cols-2 border-b border-line p-2">
+            <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
+            <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
+          </div>
+          <div className="max-h-[calc(100vh-220px)] overflow-auto px-3 py-3">
+            {leftView === "timeline" && session?.deliveries.length ? (
               session.deliveries.map((delivery) => (
                 <button
                   key={delivery.id}
@@ -152,14 +209,36 @@ export function Inspector() {
                   </span>
                 </button>
               ))
-            ) : (
+            ) : leftView === "timeline" ? (
               <EmptyLine label="No deliveries yet" />
+            ) : runs.length ? (
+              runs.map((run) => (
+                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"}`}>
+                  <button onClick={() => void openRun(run)} className="min-w-0 flex-1 px-3 py-2 text-left">
+                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                      {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
+                      <span className="truncate">{formatRunDate(run.startedAt)}</span>
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">
+                      {run.channel} / {run.transcriptTurns} turns / {run.deliveries} deliveries
+                    </span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">{run.outcome ? `${run.outcome} / ${run.score ?? 0}` : run.status}</span>
+                  </button>
+                  {run.id !== liveSession?.id ? (
+                    <button onClick={() => void deleteRun(run)} className="mr-2 grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-danger" title="Delete run" aria-label="Delete run">
+                      <Trash2 size={15} />
+                    </button>
+                  ) : null}
+                </div>
+              ))
+            ) : (
+              <EmptyLine label="No saved runs yet" />
             )}
           </div>
         </section>
 
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={<Play size={16} />} title="Transcript" meta={session?.status ?? "idle"} />
+          <PanelHeader icon={<Play size={16} />} title="Transcript" meta={viewingLive ? session?.status ?? "idle" : "saved run"} />
           <div ref={transcriptRef} className="h-[calc(100vh-245px)] min-h-[360px] overflow-auto px-4 py-4">
             {session?.transcript.length ? (
               <div className="space-y-3">
@@ -184,17 +263,19 @@ export function Inspector() {
             <div className="flex gap-2">
               <input
                 value={text}
+                disabled={!viewingLive}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void sendTurn();
                 }}
-                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern"
-                placeholder="Type caller turn"
+                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
+                placeholder={viewingLive ? "Type caller turn" : "Saved run is read-only"}
                 aria-label="Caller turn"
               />
               <button
                 onClick={sendTurn}
-                className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white hover:bg-slate-700"
+                disabled={!viewingLive}
+                className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
                 title="Send turn"
                 aria-label="Send turn"
               >
@@ -257,6 +338,18 @@ function PanelHeader({ icon, title, meta }: { icon: React.ReactNode; title: stri
   );
 }
 
+function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: () => void; icon: React.ReactNode; label: string }) {
+  return (
+    <button
+      onClick={onClick}
+      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-ink"}`}
+    >
+      {icon}
+      {label}
+    </button>
+  );
+}
+
 function PayloadBlock({ value }: { value: unknown | null }) {
   return (
     <pre className="max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5 text-slate-700">
@@ -301,4 +394,28 @@ function KeyValue({ name, value }: { name: string; value: string }) {
 
 function EmptyLine({ label }: { label: string }) {
   return <div className="grid min-h-[160px] place-items-center text-sm text-slate-400">{label}</div>;
+}
+
+function formatRunDate(timestamp: string): string {
+  return new Intl.DateTimeFormat(undefined, {
+    month: "short",
+    day: "numeric",
+    hour: "numeric",
+    minute: "2-digit"
+  }).format(new Date(timestamp));
+}
+
+function summarizeLive(session: InspectorSession): InspectorSessionSummary {
+  return {
+    id: session.id,
+    targetUrl: session.targetUrl,
+    channel: session.channel,
+    status: session.status,
+    startedAt: session.startedAt,
+    endedAt: session.endedAt,
+    transcriptTurns: session.transcript.length,
+    deliveries: session.deliveries.length,
+    outcome: session.evalResult?.outcome,
+    score: session.evalResult?.score
+  };
 }

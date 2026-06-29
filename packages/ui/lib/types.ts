@@ -85,3 +85,16 @@ export interface InspectorSession {
   evalResult?: EvalResult;
   warnings: string[];
 }
+
+export interface InspectorSessionSummary {
+  id: string;
+  targetUrl: string;
+  channel: "sms" | "voice";
+  status: InspectorSession["status"];
+  startedAt: string;
+  endedAt?: string;
+  transcriptTurns: number;
+  deliveries: number;
+  outcome?: EvalResult["outcome"];
+  score?: number;
+}
