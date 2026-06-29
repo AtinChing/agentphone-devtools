@@ -116,6 +116,8 @@ AGENTPHONE_DEVTOOLS_HISTORY_PATH=.agentphone-devtools/history.json
 AGENTPHONE_DEVTOOLS_HISTORY_LIMIT=100
 ```
 
+These defaults keep the simulator fully local. They do not place calls, send texts, or require paid services.
+
 ## License
 
 MIT.
