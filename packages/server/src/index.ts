@@ -1,6 +1,7 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { SessionHistoryStore } from "./history.js";
+import { buildJsonReport, buildMarkdownReport } from "./report.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -405,6 +406,24 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     return session;
   });
 
+  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/report.json", async (request, reply) => {
+    const session = runtime.getHistorySession(request.params.sessionId);
+    if (!session) return reply.code(404).send({ error: "session not found" });
+    return reply
+      .header("Content-Disposition", `attachment; filename="${reportFilename(session.id, "json")}"`)
+      .type("application/json")
+      .send(buildJsonReport(session));
+  });
+
+  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/report.md", async (request, reply) => {
+    const session = runtime.getHistorySession(request.params.sessionId);
+    if (!session) return reply.code(404).send({ error: "session not found" });
+    return reply
+      .header("Content-Disposition", `attachment; filename="${reportFilename(session.id, "md")}"`)
+      .type("text/markdown; charset=utf-8")
+      .send(buildMarkdownReport(session));
+  });
+
   app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     if (request.params.sessionId === runtime.getState().id) {
       return reply.code(409).send({ error: "the active session cannot be deleted" });
@@ -501,6 +520,10 @@ function fallbackSmsText(delivery: InspectorDelivery): string | undefined {
 function maskSecret(secret: string): string {
   if (secret.length <= 8) return "***";
   return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
+}
+
+function reportFilename(sessionId: string, extension: "json" | "md"): string {
+  return `agentphone-run-${sessionId}.${extension}`;
 }
 
 function compact<T extends Record<string, unknown>>(input: T): Partial<T> {

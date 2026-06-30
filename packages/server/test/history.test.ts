@@ -74,6 +74,42 @@ describe("persistent run history", () => {
     expect(deleted.statusCode).toBe(204);
     expect(missing.statusCode).toBe(404);
   });
+
+  it("exports saved sessions as JSON and Markdown reports", async () => {
+    const directory = temporaryDirectory();
+    const target = await webhookTarget();
+    const { app, runtime } = await createDevtoolsServer(testConfig(directory, target));
+    cleanup.push(() => app.close());
+
+    await runtime.sendCallerTurn("Can you check charger 12?", "sms");
+    await runtime.endCall();
+    const sessionId = runtime.getState().id;
+
+    const json = await app.inject({ method: "GET", url: `/api/history/${sessionId}/report.json` });
+    const markdown = await app.inject({ method: "GET", url: `/api/history/${sessionId}/report.md` });
+    const missing = await app.inject({ method: "GET", url: "/api/history/missing/report.md" });
+
+    expect(json.statusCode).toBe(200);
+    expect(json.headers["content-disposition"]).toBe(`attachment; filename="agentphone-run-${sessionId}.json"`);
+    const jsonReport = json.json();
+    expect(jsonReport).toMatchObject({
+      schemaVersion: 1,
+      session: {
+        id: sessionId,
+        secretPreview: "whsec_...alue"
+      }
+    });
+    expect(jsonReport.session.transcript.map((turn: { content: string }) => turn.content)).toEqual(["Can you check charger 12?", "Charger 12 is back online."]);
+    expect(json.body).not.toContain("whsec_super_secret_value");
+
+    expect(markdown.statusCode).toBe(200);
+    expect(markdown.headers["content-disposition"]).toBe(`attachment; filename="agentphone-run-${sessionId}.md"`);
+    expect(markdown.body).toContain(`# AgentPhone Run Report: ${sessionId}`);
+    expect(markdown.body).toContain("## Transcript");
+    expect(markdown.body).toContain("Charger 12 is back online.");
+    expect(markdown.body).not.toContain("whsec_super_secret_value");
+    expect(missing.statusCode).toBe(404);
+  });
 });
 
 function temporaryDirectory(): string {
