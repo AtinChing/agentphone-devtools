@@ -22,7 +22,7 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
 - Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and eval card.
-- Persistent run history with read-only session inspection, bounded retention, and deletion controls.
+- Persistent run history with read-only session inspection, report exports, bounded retention, and deletion controls.
 - Scenario replay from YAML or JSON with Zod validation.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
@@ -73,6 +73,17 @@ Sessions are saved locally as they change and remain available in the inspector 
 By default, history is stored at `.agentphone-devtools/history.json` in the directory where the CLI starts. Writes use a temporary file and atomic rename, the file is created with owner-only permissions, and only the masked secret preview is stored. The signing secret is never written to history.
 
 The default retention limit is 100 runs. Override the location or limit with CLI flags or environment variables. Completely untouched idle sessions are omitted from the Runs list.
+
+## Run Reports
+
+Open any live or saved run in the inspector and use the JSON or Markdown export buttons in the header. Reports include the session summary, transcript, deliveries, response parsing, warnings, call-ended summary, and eval result. They keep the same secret handling as history: only the masked `secretPreview` is included.
+
+The same reports are available from the local API:
+
+```text
+GET /api/history/:sessionId/report.json
+GET /api/history/:sessionId/report.md
+```
 
 ## Repo Layout
 
