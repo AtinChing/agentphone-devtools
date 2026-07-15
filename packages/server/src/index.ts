@@ -2,6 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
+import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -142,6 +143,17 @@ export class DevtoolsRuntime {
 
   getHistorySession(sessionId: string): InspectorSession | undefined {
     return sessionId === this.session.id ? this.getState() : this.sessionStore.get(sessionId);
+  }
+
+  getScenarioExport(sessionId: string): Scenario | undefined {
+    const session = this.getHistorySession(sessionId);
+    if (!session) return undefined;
+    const active = sessionId === this.session.id;
+    return buildScenarioFromSession(session, {
+      contextLimit: active ? this.config.contextLimit : 10,
+      timeoutSeconds: active ? this.config.timeoutSeconds : 30,
+      conversationState: active ? this.conversationState : null
+    });
   }
 
   deleteHistorySession(sessionId: string): boolean {
@@ -424,6 +436,26 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
       .send(buildMarkdownReport(session));
   });
 
+  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.json", async (request, reply) => {
+    const scenario = runtime.getScenarioExport(request.params.sessionId);
+    if (!scenario) return reply.code(404).send({ error: "session not found" });
+    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+    return reply
+      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "json")}"`)
+      .type("application/json")
+      .send(stringifyScenarioJson(scenario));
+  });
+
+  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.yaml", async (request, reply) => {
+    const scenario = runtime.getScenarioExport(request.params.sessionId);
+    if (!scenario) return reply.code(404).send({ error: "session not found" });
+    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+    return reply
+      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "yaml")}"`)
+      .type("application/yaml; charset=utf-8")
+      .send(stringifyScenarioYaml(scenario));
+  });
+
   app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     if (request.params.sessionId === runtime.getState().id) {
       return reply.code(409).send({ error: "the active session cannot be deleted" });
@@ -524,6 +556,10 @@ function maskSecret(secret: string): string {
 
 function reportFilename(sessionId: string, extension: "json" | "md"): string {
   return `agentphone-run-${sessionId}.${extension}`;
+}
+
+function scenarioFilename(sessionId: string, extension: "json" | "yaml"): string {
+  return `agentphone-scenario-${sessionId}.${extension}`;
 }
 
 function compact<T extends Record<string, unknown>>(input: T): Partial<T> {

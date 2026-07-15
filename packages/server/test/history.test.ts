@@ -3,6 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { parseScenario } from "@agentphone-devtools/core";
 import { createDevtoolsServer, DevtoolsRuntime, type DevtoolsServerConfig } from "../src/index.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -109,6 +110,45 @@ describe("persistent run history", () => {
     expect(markdown.body).toContain("Charger 12 is back online.");
     expect(markdown.body).not.toContain("whsec_super_secret_value");
     expect(missing.statusCode).toBe(404);
+  });
+
+  it("exports replayable scenarios from recorded caller turns", async () => {
+    const directory = temporaryDirectory();
+    const target = await webhookTarget();
+    const { app, runtime } = await createDevtoolsServer({ ...testConfig(directory, target), channel: "voice" });
+    cleanup.push(() => app.close());
+
+    await runtime.sendCallerTurn("My charger stopped.", "voice");
+    await runtime.sendCallerTurn("It is charger EV-2204.", "voice");
+    await runtime.endCall();
+    const sessionId = runtime.getState().id;
+
+    const json = await app.inject({ method: "GET", url: `/api/history/${sessionId}/scenario.json` });
+    const yaml = await app.inject({ method: "GET", url: `/api/history/${sessionId}/scenario.yaml` });
+    const empty = await app.inject({ method: "GET", url: `/api/history/${runtime.reset().id}/scenario.yaml` });
+
+    expect(json.statusCode).toBe(200);
+    expect(json.headers["content-disposition"]).toBe(`attachment; filename="agentphone-scenario-${sessionId}.json"`);
+    expect(json.body).not.toContain("whsec_super_secret_value");
+    expect(parseScenario(json.body, "recorded.json")).toMatchObject({
+      name: `Recorded run ${sessionId}`,
+      channel: "voice",
+      expectedOutcome: "failed",
+      turns: [
+        { caller: "My charger stopped." },
+        { caller: "It is charger EV-2204.", expect: { outcome: "failed" } }
+      ]
+    });
+
+    expect(yaml.statusCode).toBe(200);
+    expect(yaml.headers["content-disposition"]).toBe(`attachment; filename="agentphone-scenario-${sessionId}.yaml"`);
+    expect(parseScenario(yaml.body, "recorded.yaml")).toMatchObject({
+      channel: "voice",
+      contextLimit: 10,
+      timeoutSeconds: 5,
+      turns: [{ caller: "My charger stopped." }, { caller: "It is charger EV-2204." }]
+    });
+    expect(empty.statusCode).toBe(422);
   });
 });
 
