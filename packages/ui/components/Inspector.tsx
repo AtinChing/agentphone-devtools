@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock3, FileJson, FileText, History, PhoneOff, Play, Radio, RotateCcw, Send, Square, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RotateCcw, Send, Square, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
@@ -134,6 +134,11 @@ export function Inspector() {
     window.open(`${SERVER_URL}/api/history/${session.id}/report.${format}`, "_blank", "noopener,noreferrer");
   }
 
+  function exportScenario() {
+    if (!session || !session.transcript.some((turn) => turn.role === "user")) return;
+    window.open(`${SERVER_URL}/api/history/${session.id}/scenario.yaml`, "_blank", "noopener,noreferrer");
+  }
+
   const viewingLive = viewingSessionId === null;
 
   return (
@@ -181,6 +186,15 @@ export function Inspector() {
               aria-label="Export Markdown report"
             >
               <FileText size={16} />
+            </button>
+            <button
+              onClick={exportScenario}
+              disabled={!session || !session.transcript.some((turn) => turn.role === "user")}
+              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              title="Export scenario YAML"
+              aria-label="Export scenario YAML"
+            >
+              <FileCode2 size={16} />
             </button>
             <button
               onClick={reset}
