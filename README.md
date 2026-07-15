@@ -23,6 +23,7 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
 - Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and eval card.
 - Persistent run history with read-only session inspection, report exports, bounded retention, and deletion controls.
+- Scenario recording from live or saved runs into replayable YAML or JSON.
 - Scenario replay from YAML or JSON with Zod validation.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
@@ -83,6 +84,26 @@ The same reports are available from the local API:
 ```text
 GET /api/history/:sessionId/report.json
 GET /api/history/:sessionId/report.md
+```
+
+## Scenario Recording
+
+Use the inspector to walk through a manual run, then click the scenario export button to download replayable YAML. The generated scenario keeps the caller turns, channel, expected outcome when an eval exists, and the live run's timeout/context settings. Saved runs that were created before these settings were stored use the normal defaults.
+
+The same scenario exports are available from the local API:
+
+```text
+GET /api/history/:sessionId/scenario.yaml
+GET /api/history/:sessionId/scenario.json
+```
+
+Replay the exported file with the CLI:
+
+```bash
+npx agentphone-devtools \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo \
+  --scenario path/to/exported-scenario.yaml
 ```
 
 ## Repo Layout
