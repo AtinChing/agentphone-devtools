@@ -17,11 +17,13 @@ describe("headless scenario CI", () => {
     const directory = temporaryDirectory();
     const scenarioPath = writeScenario(directory, "resolved");
     const reportPath = join(directory, "reports", "run.json");
+    const junitPath = join(directory, "reports", "run.xml");
     const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set.", hangup: true });
 
     const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {
       minimumScore: 80,
-      reportPath
+      reportPath,
+      junitPath
     });
 
     expect(result.summary).toMatchObject({
@@ -33,6 +35,10 @@ describe("headless scenario CI", () => {
     const report = readFileSync(reportPath, "utf8");
     expect(JSON.parse(report)).toMatchObject({ schemaVersion: 1, ci: { passed: true, scorePassed: true } });
     expect(report).not.toContain("whsec_super_secret_value");
+    const junit = readFileSync(junitPath, "utf8");
+    expect(junit).toContain('<testsuite name="AgentPhone: scenario.json" tests="3" failures="0"');
+    expect(junit).toContain('<testcase classname="agentphone.scenario" name="turn 1 delivery">');
+    expect(junit).toContain('<testcase classname="agentphone.scenario" name="minimum eval score">');
   });
 
   it("fails when webhook delivery and outcome expectations are unmet", async () => {
@@ -59,6 +65,21 @@ describe("headless scenario CI", () => {
     expect(result.session.scenarioResult?.passed).toBe(true);
     expect(result.scorePassed).toBe(false);
     expect(result.passed).toBe(false);
+  });
+
+  it("escapes assertion failures in JUnit reports", async () => {
+    const directory = temporaryDirectory();
+    const scenarioPath = writeScenario(directory, "resolved");
+    const junitPath = join(directory, "failure.xml");
+    const targetUrl = await webhookTarget(500, { error: "bad <response> & retry" });
+
+    await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 90, junitPath });
+
+    const junit = readFileSync(junitPath, "utf8");
+    expect(junit).toContain('failures="');
+    expect(junit).toContain("<failure message=");
+    expect(junit).toContain("Expected: successful webhook delivery");
+    expect(junit).not.toContain("bad <response>");
   });
 });
 

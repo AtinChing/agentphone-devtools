@@ -26,6 +26,7 @@ interface CliOptions {
   ci: boolean;
   minimumScore: number;
   reportJson?: string;
+  reportJunit?: string;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -39,7 +40,8 @@ async function main() {
   if (options.ci) {
     const result = await runScenarioInCi(serverConfig, resolve(process.cwd(), options.scenario!), {
       minimumScore: options.minimumScore,
-      reportPath: options.reportJson
+      reportPath: options.reportJson,
+      junitPath: options.reportJunit
     });
     console.log(JSON.stringify(result.summary, null, 2));
     if (!result.passed) process.exitCode = 1;
@@ -232,6 +234,9 @@ function parseArgs(args: string[]): CliOptions {
       case "--report-json":
         options.reportJson = requireValue(args, ++i, arg);
         break;
+      case "--report-junit":
+        options.reportJunit = requireValue(args, ++i, arg);
+        break;
       case "--retry-on-non-200":
         options.retryOnNon200 = true;
         break;
@@ -261,6 +266,7 @@ function parseArgs(args: string[]): CliOptions {
   }
   if (options.ci && !options.scenario) throw new Error("--ci requires --scenario");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
+  if (options.reportJunit && !options.ci) throw new Error("--report-junit requires --ci");
   return options;
 }
 
@@ -313,6 +319,7 @@ Options:
   --ci                       Run one scenario headlessly and fail on unmet expectations
   --min-score <0-100>        Minimum eval score required in CI mode, default 0
   --report-json <path>       Write the full run report in CI mode
+  --report-junit <path>      Write JUnit XML with one test per assertion
 `);
 }
 
