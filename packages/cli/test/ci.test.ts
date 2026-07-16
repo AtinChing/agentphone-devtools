@@ -1,0 +1,117 @@
+import { createServer, type Server } from "node:http";
+import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+import { afterEach, describe, expect, it } from "vitest";
+import type { DevtoolsServerConfig } from "@agentphone-devtools/server";
+import { runScenarioInCi } from "../src/ci.js";
+
+const cleanup: Array<() => void | Promise<void>> = [];
+
+afterEach(async () => {
+  while (cleanup.length) await cleanup.pop()?.();
+});
+
+describe("headless scenario CI", () => {
+  it("passes assertions and writes a secret-safe JSON report", async () => {
+    const directory = temporaryDirectory();
+    const scenarioPath = writeScenario(directory, "resolved");
+    const reportPath = join(directory, "reports", "run.json");
+    const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set.", hangup: true });
+
+    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {
+      minimumScore: 80,
+      reportPath
+    });
+
+    expect(result.summary).toMatchObject({
+      passed: true,
+      outcome: "resolved",
+      minimumScore: 80,
+      assertions: { failed: 0 }
+    });
+    const report = readFileSync(reportPath, "utf8");
+    expect(JSON.parse(report)).toMatchObject({ schemaVersion: 1, ci: { passed: true, scorePassed: true } });
+    expect(report).not.toContain("whsec_super_secret_value");
+  });
+
+  it("fails when webhook delivery and outcome expectations are unmet", async () => {
+    const directory = temporaryDirectory();
+    const scenarioPath = writeScenario(directory, "resolved");
+    const targetUrl = await webhookTarget(500, { error: "nope" });
+
+    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 0 });
+
+    expect(result.passed).toBe(false);
+    expect(result.summary.assertions.failed).toBeGreaterThan(0);
+    expect(result.session.scenarioResult?.assertions).toEqual(
+      expect.arrayContaining([expect.objectContaining({ kind: "delivery", passed: false, observed: "HTTP 500" })])
+    );
+  });
+
+  it("fails runs below the configured score even when assertions pass", async () => {
+    const directory = temporaryDirectory();
+    const scenarioPath = writeScenario(directory, "failed");
+    const targetUrl = await webhookTarget(200, {});
+
+    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 80 });
+
+    expect(result.session.scenarioResult?.passed).toBe(true);
+    expect(result.scorePassed).toBe(false);
+    expect(result.passed).toBe(false);
+  });
+});
+
+function temporaryDirectory(): string {
+  const directory = mkdtempSync(join(tmpdir(), "agentphone-ci-"));
+  cleanup.push(() => rmSync(directory, { recursive: true, force: true }));
+  return directory;
+}
+
+function writeScenario(directory: string, expectedOutcome: "resolved" | "failed"): string {
+  const path = join(directory, "scenario.json");
+  writeFileSync(
+    path,
+    JSON.stringify({
+      name: "CI charger check",
+      channel: "sms",
+      agentId: "agt_local",
+      numberId: "num_local",
+      from: "+15559876543",
+      to: "+15551234567",
+      conversationState: null,
+      contextLimit: 10,
+      timeoutSeconds: 5,
+      expectedOutcome,
+      turns: [{ caller: "Please check charger 12" }]
+    }),
+    "utf8"
+  );
+  return path;
+}
+
+function config(directory: string, targetUrl: string): DevtoolsServerConfig {
+  return {
+    targetUrl,
+    secret: "whsec_super_secret_value",
+    channel: "sms",
+    timeoutSeconds: 5,
+    contextLimit: 10,
+    port: 0,
+    retryOnNon200: false,
+    historyPath: join(directory, "history.json"),
+    historyLimit: 10
+  };
+}
+
+async function webhookTarget(status: number, body: Record<string, unknown>): Promise<string> {
+  const server: Server = createServer((_request, response) => {
+    response.writeHead(status, { "Content-Type": "application/json" });
+    response.end(JSON.stringify(body));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
+  return `http://127.0.0.1:${address.port}/webhook`;
+}

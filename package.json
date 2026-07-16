@@ -14,7 +14,7 @@
   "scripts": {
     "build": "npm run build --workspaces --if-present",
     "dev": "npx agentphone-devtools",
-    "test": "npm --workspace packages/core run build && vitest run",
+    "test": "npm --workspace packages/core run build && npm --workspace packages/server run build && vitest run",
     "typecheck": "tsc -p tsconfig.json --noEmit",
     "start:example": "npm --workspace examples/handler-express start"
   },

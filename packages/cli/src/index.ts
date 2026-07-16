@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
 import { startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
+import { runScenarioInCi } from "./ci.js";
 
 interface CliOptions {
   targetUrl: string;
@@ -22,6 +23,9 @@ interface CliOptions {
   interactive: boolean;
   historyPath: string;
   historyLimit: number;
+  ci: boolean;
+  minimumScore: number;
+  reportJson?: string;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -30,21 +34,21 @@ const nextBin = join(repoRoot, "node_modules/next/dist/bin/next");
 
 async function main() {
   const options = parseArgs(process.argv.slice(2));
+  const serverConfig = buildServerConfig(options);
+
+  if (options.ci) {
+    const result = await runScenarioInCi(serverConfig, resolve(process.cwd(), options.scenario!), {
+      minimumScore: options.minimumScore,
+      reportPath: options.reportJson
+    });
+    console.log(JSON.stringify(result.summary, null, 2));
+    if (!result.passed) process.exitCode = 1;
+    return;
+  }
+
   if (!existsSync(nextBin)) {
     throw new Error("Next.js binary was not found. Run `npm install` in this repo before starting AgentPhone DevTools.");
   }
-
-  const serverConfig: DevtoolsServerConfig = {
-    targetUrl: options.targetUrl,
-    secret: options.secret,
-    channel: options.channel,
-    timeoutSeconds: options.timeoutSeconds,
-    contextLimit: options.contextLimit,
-    port: options.port,
-    retryOnNon200: options.retryOnNon200,
-    historyPath: options.historyPath,
-    historyLimit: options.historyLimit
-  };
 
   const server = await startDevtoolsServer(serverConfig);
   const ui = startUi(options.uiPort, server.url);
@@ -166,7 +170,9 @@ function parseArgs(args: string[]): CliOptions {
     retryOnNon200: false,
     interactive: true,
     historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
-    historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100)
+    historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
+    ci: false,
+    minimumScore: 0
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -214,6 +220,18 @@ function parseArgs(args: string[]): CliOptions {
       case "--exit-after-scenario":
         options.exitAfterScenario = true;
         break;
+      case "--ci":
+        options.ci = true;
+        options.noOpen = true;
+        options.exitAfterScenario = true;
+        options.interactive = false;
+        break;
+      case "--min-score":
+        options.minimumScore = Number(requireValue(args, ++i, arg));
+        break;
+      case "--report-json":
+        options.reportJson = requireValue(args, ++i, arg);
+        break;
       case "--retry-on-non-200":
         options.retryOnNon200 = true;
         break;
@@ -238,7 +256,26 @@ function parseArgs(args: string[]): CliOptions {
   if (!Number.isInteger(options.historyLimit) || options.historyLimit < 1 || options.historyLimit > 1000) {
     throw new Error("--history-limit must be between 1 and 1000");
   }
+  if (!Number.isFinite(options.minimumScore) || options.minimumScore < 0 || options.minimumScore > 100) {
+    throw new Error("--min-score must be between 0 and 100");
+  }
+  if (options.ci && !options.scenario) throw new Error("--ci requires --scenario");
+  if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
   return options;
+}
+
+function buildServerConfig(options: CliOptions): DevtoolsServerConfig {
+  return {
+    targetUrl: options.targetUrl,
+    secret: options.secret,
+    channel: options.channel,
+    timeoutSeconds: options.timeoutSeconds,
+    contextLimit: options.contextLimit,
+    port: options.port,
+    retryOnNon200: options.retryOnNon200,
+    historyPath: options.historyPath,
+    historyLimit: options.historyLimit
+  };
 }
 
 function parseChannel(value: string): "sms" | "voice" {
@@ -273,6 +310,9 @@ Options:
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
   --exit-after-scenario      Exit after scenario completes
+  --ci                       Run one scenario headlessly and fail on unmet expectations
+  --min-score <0-100>        Minimum eval score required in CI mode, default 0
+  --report-json <path>       Write the full run report in CI mode
 `);
 }
 

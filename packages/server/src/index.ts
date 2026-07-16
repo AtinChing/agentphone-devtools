@@ -29,6 +29,8 @@ import {
   type TranscriptTurn
 } from "@agentphone-devtools/core";
 
+export { buildJsonReport, buildMarkdownReport } from "./report.js";
+
 export interface DevtoolsServerConfig {
   targetUrl: string;
   secret: string;
