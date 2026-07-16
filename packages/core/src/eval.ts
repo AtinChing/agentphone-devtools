@@ -1,4 +1,5 @@
 import type { AgentResponseChunk, EvalInput, EvalResult } from "./types.js";
+import { collectObservedActions } from "./scenario-eval.js";
 
 export function evaluateConversation(input: EvalInput): EvalResult {
   const responses = input.responses ?? [];
@@ -121,7 +122,7 @@ function importantWords(text: string): string[] {
 
 function scoreExpectedActions(expectedActions: string[] | undefined, responses: AgentResponseChunk[]): boolean | null {
   if (!expectedActions || expectedActions.length === 0) return null;
-  const observed = responses.flatMap((response) => [response.action, response.digits, response.press_digit, response.dtmf]).filter(Boolean).map(String);
+  const observed = collectObservedActions(responses);
   return expectedActions.every((expected) => observed.includes(expected));
 }
 

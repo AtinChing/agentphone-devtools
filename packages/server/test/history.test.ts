@@ -32,17 +32,30 @@ describe("persistent run history", () => {
     expect(readFileSync(config.historyPath, "utf8")).not.toContain(config.secret);
   });
 
-  it("retains only the configured number of sessions", () => {
+  it("retains only the configured number of sessions", async () => {
     const directory = temporaryDirectory();
-    const config = { ...testConfig(directory, "http://127.0.0.1:1/webhook"), historyLimit: 2 };
+    const config = { ...testConfig(directory, await webhookTarget()), historyLimit: 2 };
     const runtime = new DevtoolsRuntime(config);
 
-    runtime.updateConfig({ targetUrl: "http://127.0.0.1:2/webhook" });
-    runtime.reset();
-    runtime.updateConfig({ targetUrl: "http://127.0.0.1:3/webhook" });
-    runtime.reset();
+    for (let index = 0; index < 3; index += 1) {
+      await runtime.sendCallerTurn(`Run ${index + 1}`, "sms");
+      await runtime.endCall();
+      if (index < 2) runtime.reset();
+    }
 
     expect(JSON.parse(readFileSync(config.historyPath, "utf8")).sessions).toHaveLength(2);
+  });
+
+  it("does not retain untouched sessions when resetting", () => {
+    const directory = temporaryDirectory();
+    const config = testConfig(directory, "http://127.0.0.1:1/webhook");
+    const runtime = new DevtoolsRuntime(config);
+
+    runtime.reset();
+    runtime.reset();
+
+    const stored = JSON.parse(readFileSync(config.historyPath, "utf8")) as { sessions: Array<{ id: string }> };
+    expect(stored.sessions.map((session) => session.id)).toEqual([runtime.getState().id]);
   });
 
   it("starts with a warning when the history file is damaged", () => {
@@ -57,11 +70,11 @@ describe("persistent run history", () => {
 
   it("serves session details and protects the active session from deletion", async () => {
     const directory = temporaryDirectory();
-    const { app, runtime } = await createDevtoolsServer(testConfig(directory, "http://127.0.0.1:1/webhook"));
+    const { app, runtime } = await createDevtoolsServer(testConfig(directory, await webhookTarget()));
     cleanup.push(() => app.close());
     const activeId = runtime.getState().id;
 
-    runtime.updateConfig({ targetUrl: "http://127.0.0.1:2/webhook" });
+    await runtime.sendCallerTurn("Save this run", "sms");
     const historicalId = activeId;
     runtime.reset();
 

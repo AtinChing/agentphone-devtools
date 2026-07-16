@@ -185,6 +185,7 @@ export class DevtoolsRuntime {
     } else {
       this.conversationState = null;
     }
+    if (isUntouchedSession(this.session)) this.sessionStore.delete(this.session.id);
     this.history.length = 0;
     this.session = this.newSession();
     this.publishState();
@@ -598,6 +599,10 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     outcome: session.evalResult?.outcome,
     score: session.evalResult?.score
   };
+}
+
+function isUntouchedSession(session: InspectorSession): boolean {
+  return session.status === "idle" && session.transcript.length === 0 && session.deliveries.length === 0;
 }
 
 function toScenarioTurnObservation(delivery: InspectorDelivery) {

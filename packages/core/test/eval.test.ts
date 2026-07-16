@@ -39,4 +39,14 @@ describe("deterministic eval", () => {
 
     expect(result.outcome).toBe("handed_off");
   });
+
+  it("recognizes boolean hangup and transfer-number action aliases", () => {
+    const result = evaluateConversation({
+      transcript: [{ role: "user", content: "Please transfer me when this is done" }],
+      responses: [{ hangup: true }, { transferNumber: "+15551234567" }],
+      expectedActions: ["hangup", "transfer"]
+    });
+
+    expect(result.correctActions).toBe(true);
+  });
 });
