@@ -167,6 +167,22 @@ export interface Scenario {
   expectedOutcome?: "resolved" | "handed_off" | "failed";
 }
 
+export interface ScenarioAssertion {
+  kind: "delivery" | "outcome" | "action";
+  passed: boolean;
+  expected: string;
+  observed: string;
+  turnIndex?: number;
+  message: string;
+}
+
+export interface ScenarioResult {
+  passed: boolean;
+  assertions: ScenarioAssertion[];
+  passedCount: number;
+  failedCount: number;
+}
+
 export interface EvalInput {
   transcript: TranscriptTurn[];
   callEnded?: CallEndedData;

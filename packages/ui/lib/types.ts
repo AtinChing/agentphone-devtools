@@ -63,6 +63,22 @@ export interface EvalResult {
   };
 }
 
+export interface ScenarioAssertion {
+  kind: "delivery" | "outcome" | "action";
+  passed: boolean;
+  expected: string;
+  observed: string;
+  turnIndex?: number;
+  message: string;
+}
+
+export interface ScenarioResult {
+  passed: boolean;
+  assertions: ScenarioAssertion[];
+  passedCount: number;
+  failedCount: number;
+}
+
 export interface InspectorSession {
   id: string;
   targetUrl: string;
@@ -83,6 +99,7 @@ export interface InspectorSession {
     disconnectionReason: string;
   };
   evalResult?: EvalResult;
+  scenarioResult?: ScenarioResult;
   warnings: string[];
 }
 

@@ -150,6 +150,30 @@ describe("persistent run history", () => {
     });
     expect(empty.statusCode).toBe(422);
   });
+
+  it("records per-turn scenario assertions and expected actions", async () => {
+    const directory = temporaryDirectory();
+    const target = await webhookTarget({ action: "transfer" });
+    const runtime = new DevtoolsRuntime({ ...testConfig(directory, target), channel: "voice" });
+
+    const session = await runtime.runScenario({
+      name: "Transfer to support",
+      channel: "voice",
+      agentId: "agt_local",
+      numberId: "num_local",
+      from: "+15559876543",
+      to: "+15551234567",
+      conversationState: null,
+      contextLimit: 10,
+      timeoutSeconds: 5,
+      expectedOutcome: "handed_off",
+      turns: [{ caller: "Get me a specialist", expect: { actions: ["transfer"] } }]
+    });
+
+    expect(session.evalResult).toMatchObject({ outcome: "handed_off", correctActions: true });
+    expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
+    expect(session.scenarioResult?.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery", "outcome"]);
+  });
 });
 
 function temporaryDirectory(): string {
@@ -172,10 +196,10 @@ function testConfig(directory: string, targetUrl: string): DevtoolsServerConfig 
   };
 }
 
-async function webhookTarget(): Promise<string> {
+async function webhookTarget(responseBody: Record<string, unknown> = { text: "Charger 12 is back online." }): Promise<string> {
   const server: Server = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "application/json" });
-    response.end(JSON.stringify({ text: "Charger 12 is back online." }));
+    response.end(JSON.stringify(responseBody));
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));

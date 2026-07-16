@@ -31,7 +31,11 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
       ["Transcript turns", String(session.transcript.length)],
       ["Deliveries", String(session.deliveries.length)],
       ["Eval outcome", session.evalResult?.outcome ?? "n/a"],
-      ["Eval score", session.evalResult ? String(session.evalResult.score) : "n/a"]
+      ["Eval score", session.evalResult ? String(session.evalResult.score) : "n/a"],
+      [
+        "Scenario assertions",
+        session.scenarioResult ? `${session.scenarioResult.passedCount} passed, ${session.scenarioResult.failedCount} failed` : "n/a"
+      ]
     ]),
     "",
     "## Transcript",
@@ -66,6 +70,13 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
     if (session.evalResult.reasons.length) {
       lines.push("### Reasons", "");
       for (const reason of session.evalResult.reasons) lines.push(`- ${singleLine(reason)}`);
+    }
+  }
+
+  if (session.scenarioResult) {
+    lines.push("", "## Scenario Assertions", "");
+    for (const assertion of session.scenarioResult.assertions) {
+      lines.push(`- ${assertion.passed ? "PASS" : "FAIL"}: ${singleLine(assertion.message)}`);
     }
   }
 

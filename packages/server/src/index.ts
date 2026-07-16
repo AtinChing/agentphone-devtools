@@ -10,6 +10,7 @@ import {
   buildVoiceMessageEvent,
   dispatchSignedDelivery,
   evaluateConversation,
+  evaluateScenario,
   id,
   isoNow,
   loadScenarioFile,
@@ -23,6 +24,7 @@ import {
   type DispatchResult,
   type EvalResult,
   type Scenario,
+  type ScenarioResult,
   type SignedDelivery,
   type TranscriptTurn
 } from "@agentphone-devtools/core";
@@ -86,6 +88,7 @@ export interface InspectorSession {
   deliveries: InspectorDelivery[];
   callEnded?: CallEndedEnvelope["data"];
   evalResult?: EvalResult;
+  scenarioResult?: ScenarioResult;
   warnings: string[];
 }
 
@@ -270,17 +273,26 @@ export class DevtoolsRuntime {
     this.session.warnings.push(`Running scenario: ${scenario.name}`);
     this.publishState();
 
+    const turnDeliveries: InspectorDelivery[] = [];
     for (const turn of scenario.turns) {
-      await this.sendCallerTurn(turn.caller, scenario.channel);
+      turnDeliveries.push(await this.sendCallerTurn(turn.caller, scenario.channel));
       if (turn.waitMs) await new Promise((resolve) => setTimeout(resolve, turn.waitMs));
     }
 
-    await this.endCall();
+    const callEndedDelivery = await this.endCall();
+    const expectedActions = scenario.turns.flatMap((turn) => turn.expect?.actions ?? []);
     if (this.session.callEnded) {
-      this.session.evalResult = this.buildEvalResult(this.session.callEnded, scenario.expectedOutcome);
+      this.session.evalResult = this.buildEvalResult(this.session.callEnded, scenario.expectedOutcome, expectedActions);
+    } else {
+      this.session.evalResult = this.buildEvalResult(undefined, scenario.expectedOutcome, expectedActions);
     }
-    if (this.session.evalResult && scenario.expectedOutcome && this.session.evalResult.outcome !== scenario.expectedOutcome) {
-      this.session.warnings.push(`Scenario expected ${scenario.expectedOutcome}, eval observed ${this.session.evalResult.outcome}`);
+    this.session.scenarioResult = evaluateScenario(scenario, {
+      turns: turnDeliveries.map(toScenarioTurnObservation),
+      ...(callEndedDelivery ? { callEnded: toScenarioTurnObservation(callEndedDelivery) } : {}),
+      evalResult: this.session.evalResult
+    });
+    for (const assertion of this.session.scenarioResult.assertions) {
+      if (!assertion.passed) this.session.warnings.push(assertion.message);
     }
     this.publishState();
     return this.getState();
@@ -352,11 +364,16 @@ export class DevtoolsRuntime {
     this.pushTranscript({ role: "agent", content: responseText }, isoNow(), channel);
   }
 
-  private buildEvalResult(callEnded?: CallEndedEnvelope["data"], expectedOutcome?: EvalResult["outcome"]): EvalResult {
+  private buildEvalResult(
+    callEnded?: CallEndedEnvelope["data"],
+    expectedOutcome?: EvalResult["outcome"],
+    expectedActions?: string[]
+  ): EvalResult {
     return evaluateConversation({
       transcript: this.session.transcript,
       callEnded,
       expectedOutcome,
+      expectedActions,
       responses: this.session.deliveries.filter((item) => item.event === "agent.message").flatMap((item) => item.response.parsed.chunks),
       deadAirTurns: this.session.deliveries
         .filter((item) => item.event === "agent.message")
@@ -578,5 +595,14 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     deliveries: session.deliveries.length,
     outcome: session.evalResult?.outcome,
     score: session.evalResult?.score
+  };
+}
+
+function toScenarioTurnObservation(delivery: InspectorDelivery) {
+  return {
+    ok: delivery.ok,
+    status: delivery.response.status,
+    timedOut: delivery.timedOut,
+    responses: delivery.response.parsed.chunks
   };
 }

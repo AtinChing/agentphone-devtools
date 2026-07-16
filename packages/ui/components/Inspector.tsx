@@ -347,6 +347,8 @@ export function Inspector() {
 
           {session?.evalResult ? <EvalCard result={session.evalResult} /> : null}
 
+          {session?.scenarioResult ? <ScenarioCard result={session.scenarioResult} /> : null}
+
           {session?.warnings.length ? (
             <section className="rounded-lg border border-amber-200 bg-amber-50">
               <PanelHeader icon={<AlertTriangle size={16} />} title="Warnings" meta={String(session.warnings.length)} />
@@ -416,6 +418,26 @@ function EvalCard({ result }: { result: NonNullable<InspectorSession["evalResult
           </ul>
         ) : null}
       </div>
+    </section>
+  );
+}
+
+function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenarioResult"]> }) {
+  return (
+    <section className="rounded-lg border border-line bg-white shadow-soft">
+      <PanelHeader
+        icon={result.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
+        title="Scenario"
+        meta={result.passed ? "passed" : `${result.failedCount} failed`}
+      />
+      <ul className="space-y-2 px-4 pb-4 text-xs leading-5">
+        {result.assertions.map((assertion, index) => (
+          <li key={`${assertion.kind}-${assertion.turnIndex ?? "final"}-${index}`} className="flex gap-2">
+            <span className={assertion.passed ? "text-fern" : "text-danger"}>{assertion.passed ? "PASS" : "FAIL"}</span>
+            <span className="text-slate-600">{assertion.message}</span>
+          </li>
+        ))}
+      </ul>
     </section>
   );
 }
