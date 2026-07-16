@@ -17,3 +17,5 @@ turns:
   - caller: "Thanks, it is working now."
     expect:
       outcome: resolved
+      actions:
+        - hangup

@@ -25,6 +25,8 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Persistent run history with read-only session inspection, report exports, bounded retention, and deletion controls.
 - Scenario recording from live or saved runs into replayable YAML or JSON.
 - Scenario replay from YAML or JSON with Zod validation.
+- Per-turn delivery and action assertions plus final outcome assertions.
+- Headless CI runs with minimum-score gates, JSON reports, JUnit XML, and meaningful exit codes.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
 
@@ -48,6 +50,10 @@ Useful options:
 --history-limit <count>    Runs to retain, 1 to 1000 (default 100)
 --no-open                  Keep the browser closed
 --exit-after-scenario      Exit after scenario replay, useful for CI
+--ci                       Run a scenario headlessly and fail unmet expectations
+--min-score <0-100>        Require a minimum deterministic eval score
+--report-json <path>       Write a complete machine-readable run report
+--report-junit <path>      Write one JUnit test case per scenario assertion
 ```
 
 ## How Fidelity Is Guaranteed
@@ -105,6 +111,40 @@ npx agentphone-devtools \
   --secret whsec_demo \
   --scenario path/to/exported-scenario.yaml
 ```
+
+## Scenario Assertions
+
+Every scenario run now checks that each caller turn reached the webhook successfully. Add `expect.actions` to a turn to require an action in that turn's handler response. Action aliases are normalized, so `hangup: true` satisfies `hangup` and a `transferNumber` satisfies `transfer`.
+
+```yaml
+expectedOutcome: resolved
+turns:
+  - caller: "Thanks, it is working now."
+    expect:
+      actions:
+        - hangup
+```
+
+The completed run contains a scenario result with each delivery, action, and outcome assertion. The Inspector shows every assertion as PASS or FAIL, and JSON/Markdown run exports retain the same details.
+
+## Headless CI
+
+Use `--ci` to run without starting Next.js, opening a browser, or binding the simulator API port. The command exits with status `1` when a webhook delivery fails, an expected action or outcome is missing, or the eval score is below `--min-score`.
+
+```bash
+npx agentphone-devtools \
+  --ci \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo \
+  --scenario examples/scenarios/ev-support.yaml \
+  --min-score 80 \
+  --report-json .agentphone-devtools/ci/run.json \
+  --report-junit .agentphone-devtools/ci/junit.xml
+```
+
+Standard output is a compact JSON summary suitable for logs. The JSON artifact contains the full secret-safe run report, while JUnit contains one test case per assertion plus the score gate so existing CI test reporters can show the exact failed turn.
+
+This path remains zero-cost and local: it calls only the target webhook you provide and never invokes a model, AgentPhone number, carrier, or paid API.
 
 ## Repo Layout
 
