@@ -1,5 +1,5 @@
 import { setTimeout as sleep } from "node:timers/promises";
-import type { AgentPhoneEnvelope, AgentResponseChunk, DispatchOptions, DispatchResult, ParsedAgentResponse, SignedDelivery } from "./types.js";
+import type { AgentPhoneChannel, AgentPhoneEnvelope, AgentResponseChunk, DispatchOptions, DispatchResult, ParsedAgentResponse, SignedDelivery } from "./types.js";
 import { buildSignedDelivery } from "./signer.js";
 
 const DEFAULT_TIMEOUT_SECONDS = 30;
@@ -31,7 +31,7 @@ export async function dispatchSignedDelivery(signed: SignedDelivery, options: Om
     const parsed =
       signed.payload.event === "agent.call_ended"
         ? { rawBody: await response.text(), response: emptyParsed() }
-        : await parseAgentResponse(response, contentType, options.onChunk);
+        : await parseAgentResponse(response, contentType, signed.payload.channel, options.onChunk);
     const latencyMs = Math.round(performance.now() - started);
 
     return {
@@ -86,6 +86,7 @@ export async function dispatchWebhookWithRetry(payload: AgentPhoneEnvelope, opti
 async function parseAgentResponse(
   response: Response,
   contentType: string,
+  channel: AgentPhoneChannel,
   onChunk?: (chunk: AgentResponseChunk) => void
 ): Promise<{ rawBody: string; response: ParsedAgentResponse }> {
   if (response.status === 204 || response.body === null) {
@@ -103,6 +104,11 @@ async function parseAgentResponse(
     try {
       const parsed: unknown = JSON.parse(rawBody);
       if (!isObject(parsed) || Array.isArray(parsed)) {
+        if (channel !== "voice" && typeof parsed === "string") {
+          const chunk = { text: parsed };
+          onChunk?.(chunk);
+          return { rawBody, response: { mode: "json", final: chunk, chunks: [chunk], warnings: [] } };
+        }
         return { rawBody, response: { mode: "invalid", chunks: [], warnings: ["Voice response was not a JSON object; caller hears silence"] } };
       }
       const chunk = parsed as AgentResponseChunk;
@@ -111,6 +117,12 @@ async function parseAgentResponse(
     } catch {
       return { rawBody, response: { mode: "invalid", chunks: [], warnings: ["Response looked like JSON but could not be parsed"] } };
     }
+  }
+
+  if (channel !== "voice") {
+    const chunk = { text: rawBody };
+    onChunk?.(chunk);
+    return { rawBody, response: { mode: "text", final: chunk, chunks: [chunk], warnings: [] } };
   }
 
   return {
