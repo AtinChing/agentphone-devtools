@@ -6,7 +6,8 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
 import { startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
-import { runScenarioInCi } from "./ci.js";
+import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
+import { resolveScenarioInputs } from "./suite.js";
 
 interface CliOptions {
   targetUrl: string;
@@ -16,7 +17,8 @@ interface CliOptions {
   contextLimit: number;
   port: number;
   uiPort: number;
-  scenario?: string;
+  scenarios: string[];
+  scenarioDirectories: string[];
   noOpen: boolean;
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
@@ -38,11 +40,12 @@ async function main() {
   const serverConfig = buildServerConfig(options);
 
   if (options.ci) {
-    const result = await runScenarioInCi(serverConfig, resolve(process.cwd(), options.scenario!), {
-      minimumScore: options.minimumScore,
-      reportPath: options.reportJson,
-      junitPath: options.reportJunit
-    });
+    const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
+    const runOptions = { minimumScore: options.minimumScore, reportPath: options.reportJson, junitPath: options.reportJunit };
+    const result =
+      options.scenarioDirectories.length > 0 || scenarioPaths.length > 1
+        ? await runScenarioSuiteInCi(serverConfig, scenarioPaths, runOptions)
+        : await runScenarioInCi(serverConfig, scenarioPaths[0], runOptions);
     console.log(JSON.stringify(result.summary, null, 2));
     if (!result.passed) process.exitCode = 1;
     return;
@@ -79,8 +82,8 @@ async function main() {
     process.exit(0);
   });
 
-  if (options.scenario) {
-    const scenarioPath = resolve(process.cwd(), options.scenario);
+  if (options.scenarios.length === 1) {
+    const scenarioPath = resolve(process.cwd(), options.scenarios[0]);
     const finalState = await server.runtime.runScenario(scenarioPath);
     if (finalState.evalResult) {
       console.log(JSON.stringify({ eval: finalState.evalResult }, null, 2));
@@ -174,7 +177,9 @@ function parseArgs(args: string[]): CliOptions {
     historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
-    minimumScore: 0
+    minimumScore: 0,
+    scenarios: [],
+    scenarioDirectories: []
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -213,7 +218,11 @@ function parseArgs(args: string[]): CliOptions {
         options.historyLimit = Number(requireValue(args, ++i, arg));
         break;
       case "--scenario":
-        options.scenario = requireValue(args, ++i, arg);
+        options.scenarios.push(requireValue(args, ++i, arg));
+        options.interactive = false;
+        break;
+      case "--scenario-dir":
+        options.scenarioDirectories.push(requireValue(args, ++i, arg));
         options.interactive = false;
         break;
       case "--no-open":
@@ -247,7 +256,10 @@ function parseArgs(args: string[]): CliOptions {
         if (arg.startsWith("--target=")) options.targetUrl = arg.slice("--target=".length);
         else if (arg.startsWith("--secret=")) options.secret = arg.slice("--secret=".length);
         else if (arg.startsWith("--scenario=")) {
-          options.scenario = arg.slice("--scenario=".length);
+          options.scenarios.push(arg.slice("--scenario=".length));
+          options.interactive = false;
+        } else if (arg.startsWith("--scenario-dir=")) {
+          options.scenarioDirectories.push(arg.slice("--scenario-dir=".length));
           options.interactive = false;
         } else {
           throw new Error(`Unknown option: ${arg}`);
@@ -264,7 +276,11 @@ function parseArgs(args: string[]): CliOptions {
   if (!Number.isFinite(options.minimumScore) || options.minimumScore < 0 || options.minimumScore > 100) {
     throw new Error("--min-score must be between 0 and 100");
   }
-  if (options.ci && !options.scenario) throw new Error("--ci requires --scenario");
+  if (options.ci && options.scenarios.length === 0 && options.scenarioDirectories.length === 0) {
+    throw new Error("--ci requires --scenario or --scenario-dir");
+  }
+  if (!options.ci && options.scenarioDirectories.length > 0) throw new Error("--scenario-dir requires --ci");
+  if (!options.ci && options.scenarios.length > 1) throw new Error("Repeated --scenario requires --ci");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
   if (options.reportJunit && !options.ci) throw new Error("--report-junit requires --ci");
   return options;
@@ -306,7 +322,8 @@ Options:
   --target <url>             Webhook URL to receive simulated AgentPhone events
   --secret <secret>          Webhook signing secret
   --channel <sms|voice>      Interactive channel, default voice
-  --scenario <path>          YAML or JSON scenario to replay
+  --scenario <path>          Scenario to replay; repeat in CI mode to build a suite
+  --scenario-dir <path>      Recursively run all YAML/JSON scenarios in CI mode
   --timeout <seconds>        Voice webhook timeout, default 30
   --context-limit <0-50>     recentHistory limit, default 10
   --server-port <port>       Simulator API port, default 4318
@@ -316,7 +333,7 @@ Options:
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
   --exit-after-scenario      Exit after scenario completes
-  --ci                       Run one scenario headlessly and fail on unmet expectations
+  --ci                       Run one or more scenarios headlessly
   --min-score <0-100>        Minimum eval score required in CI mode, default 0
   --report-json <path>       Write the full run report in CI mode
   --report-junit <path>      Write JUnit XML with one test per assertion

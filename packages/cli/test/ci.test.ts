@@ -4,7 +4,7 @@ import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import type { DevtoolsServerConfig } from "@agentphone-devtools/server";
-import { runScenarioInCi } from "../src/ci.js";
+import { runScenarioInCi, runScenarioSuiteInCi } from "../src/ci.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
 
@@ -81,6 +81,38 @@ describe("headless scenario CI", () => {
     expect(junit).toContain("Expected: successful webhook delivery");
     expect(junit).not.toContain("bad <response>");
   });
+
+  it("runs every suite scenario and writes aggregate JSON and JUnit reports", async () => {
+    const directory = temporaryDirectory();
+    const passing = writeScenario(directory, "resolved", "passing.json");
+    const failing = writeScenario(directory, "failed", "failing.json");
+    const reportPath = join(directory, "suite.json");
+    const junitPath = join(directory, "suite.xml");
+    const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set." });
+
+    const result = await runScenarioSuiteInCi(config(directory, targetUrl), [passing, failing], {
+      minimumScore: 0,
+      reportPath,
+      junitPath
+    });
+
+    expect(result.summary).toMatchObject({ passed: false, total: 2, passedCount: 1, failedCount: 1 });
+    expect(result.runs.map((run) => run.summary.scenarioPath)).toEqual([passing, failing]);
+    expect(new Set(result.runs.map((run) => run.session.id)).size).toBe(2);
+
+    const report = readFileSync(reportPath, "utf8");
+    expect(JSON.parse(report)).toMatchObject({
+      schemaVersion: 1,
+      suite: { passed: false, total: 2, passedCount: 1, failedCount: 1 },
+      runs: [{ scenarioPath: passing, passed: true }, { scenarioPath: failing, passed: false }]
+    });
+    expect(report).not.toContain("whsec_super_secret_value");
+
+    const junit = readFileSync(junitPath, "utf8");
+    expect(junit).toContain('<testsuites name="AgentPhone scenario suite" tests="6" failures="1"');
+    expect(junit).toContain('name="AgentPhone: passing.json"');
+    expect(junit).toContain('name="AgentPhone: failing.json"');
+  });
 });
 
 function temporaryDirectory(): string {
@@ -89,8 +121,8 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-function writeScenario(directory: string, expectedOutcome: "resolved" | "failed"): string {
-  const path = join(directory, "scenario.json");
+function writeScenario(directory: string, expectedOutcome: "resolved" | "failed", filename = "scenario.json"): string {
+  const path = join(directory, filename);
   writeFileSync(
     path,
     JSON.stringify({
