@@ -1,0 +1,19 @@
+name: EV charging support over SMS
+description: Local SMS scenario for an EV charger support agent.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState:
+  customerName: Maya Chen
+  stationGroup: North Lot
+contextLimit: 10
+timeoutSeconds: 30
+expectedOutcome: resolved
+turns:
+  - caller: "Hi, my EV charging session stopped and the charger says connector fault."
+  - caller: "The station ID is EV-2204, stall 12."
+  - caller: "Thanks, it is working now."
+    expect:
+      outcome: resolved

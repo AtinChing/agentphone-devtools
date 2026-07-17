@@ -21,12 +21,13 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - HMAC-SHA256 signing over the exact raw request bytes sent to the webhook.
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
+- Message-channel response parsing for plain text, JSON strings, and JSON objects.
 - Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and eval card.
 - Persistent run history with read-only session inspection, report exports, bounded retention, and deletion controls.
 - Scenario recording from live or saved runs into replayable YAML or JSON.
 - Scenario replay from YAML or JSON with Zod validation.
 - Per-turn delivery and action assertions plus final outcome assertions.
-- Headless CI runs with minimum-score gates, JSON reports, JUnit XML, and meaningful exit codes.
+- Headless single-scenario and multi-scenario CI suites with score gates, aggregate reports, and meaningful exit codes.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
 
@@ -42,7 +43,8 @@ npx agentphone-devtools \
 Useful options:
 
 ```text
---scenario <path>          Replay a YAML or JSON scenario
+--scenario <path>          Replay a scenario; repeat in CI mode to build a suite
+--scenario-dir <path>      Recursively run a directory of scenarios in CI mode
 --timeout <seconds>        Voice webhook timeout, 5 to 120 seconds
 --context-limit <0-50>     recentHistory size
 --retry-on-non-200         Retry failed deliveries with compressed backoff
@@ -50,7 +52,7 @@ Useful options:
 --history-limit <count>    Runs to retain, 1 to 1000 (default 100)
 --no-open                  Keep the browser closed
 --exit-after-scenario      Exit after scenario replay, useful for CI
---ci                       Run a scenario headlessly and fail unmet expectations
+--ci                       Run one or more scenarios headlessly
 --min-score <0-100>        Require a minimum deterministic eval score
 --report-json <path>       Write a complete machine-readable run report
 --report-junit <path>      Write one JUnit test case per scenario assertion
@@ -145,6 +147,34 @@ npx agentphone-devtools \
 Standard output is a compact JSON summary suitable for logs. The JSON artifact contains the full secret-safe run report, while JUnit contains one test case per assertion plus the score gate so existing CI test reporters can show the exact failed turn.
 
 This path remains zero-cost and local: it calls only the target webhook you provide and never invokes a model, AgentPhone number, carrier, or paid API.
+
+### Scenario Suites
+
+Point `--scenario-dir` at a directory to discover every `.json`, `.yaml`, and `.yml` scenario recursively. Files run sequentially in deterministic path order, and duplicates are removed when explicit files overlap with directory discovery.
+
+```bash
+npx agentphone-devtools \
+  --ci \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo \
+  --scenario-dir examples/scenarios \
+  --min-score 80 \
+  --report-json .agentphone-devtools/ci/suite.json \
+  --report-junit .agentphone-devtools/ci/suite.xml
+```
+
+You can also construct a suite by repeating `--scenario`, or combine explicit scenarios with one or more directories:
+
+```bash
+npx agentphone-devtools \
+  --ci \
+  --scenario examples/scenarios/ev-support.yaml \
+  --scenario path/to/another-scenario.json \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo
+```
+
+Suite stdout reports the total, passed, and failed scenario counts plus a compact result for every file. Aggregate JSON retains each full secret-safe session. Aggregate JUnit uses one nested test suite per scenario. The process exits with status `1` if any scenario fails while still running every valid scenario in the suite.
 
 ## Repo Layout
 
