@@ -42,6 +42,10 @@ export interface InspectorDelivery {
   warnings: string[];
   retries: number;
   faults?: string[];
+  replayOf?: {
+    sessionId: string;
+    deliveryId: string;
+  };
 }
 
 export interface TranscriptTurn {

@@ -77,6 +77,20 @@ export interface InspectorDelivery {
   warnings: string[];
   retries: number;
   faults?: string[];
+  replayOf?: {
+    sessionId: string;
+    deliveryId: string;
+  };
+}
+
+export interface ReplayDeliveryInput {
+  sessionId: string;
+  deliveryId: string;
+  body?: AgentPhoneEnvelope;
+  targetUrl?: string;
+  preserveWebhookId?: boolean;
+  preserveTimestamp?: boolean;
+  fault?: DeliveryFault;
 }
 
 export interface InspectorSession {
@@ -304,20 +318,66 @@ export class DevtoolsRuntime {
     return this.getState();
   }
 
+  async replayDelivery(input: ReplayDeliveryInput): Promise<InspectorDelivery | null> {
+    const sourceSession = this.getHistorySession(input.sessionId);
+    const source = sourceSession?.deliveries.find((delivery) => delivery.id === input.deliveryId);
+    if (!source) return null;
+
+    const payload = structuredClone(input.body ?? source.request.body);
+    const timestampSeconds = input.preserveTimestamp
+      ? Number.parseInt(source.request.headers["X-Webhook-Timestamp"] ?? "", 10)
+      : undefined;
+    const initial = buildSignedDelivery(payload, {
+      secret: this.config.secret,
+      ...(input.preserveWebhookId ? { webhookId: source.webhookId } : {}),
+      ...(Number.isFinite(timestampSeconds) ? { timestampSeconds } : {})
+    });
+    const injected = injectDeliveryFaults(initial, input.fault, {
+      secret: this.config.secret,
+      previousWebhookId: this.session.deliveries.at(-1)?.webhookId
+    });
+    const delivery = await this.dispatchSignedAndRecord(injected.delivery, {
+      appliedFaults: injected.applied,
+      simulateTimeout: input.fault?.simulateTimeout === true,
+      targetUrl: input.targetUrl,
+      replayOf: { sessionId: input.sessionId, deliveryId: input.deliveryId }
+    });
+    this.publishState();
+    return delivery;
+  }
+
   private async dispatchAndRecord(payload: AgentPhoneEnvelope, fault?: DeliveryFault): Promise<InspectorDelivery> {
     const initial = buildSignedDelivery(payload, { secret: this.config.secret });
     const injected = injectDeliveryFaults(initial, fault, {
       secret: this.config.secret,
       previousWebhookId: this.session.deliveries.at(-1)?.webhookId
     });
-    const signed = injected.delivery;
-    const { result, retries } = await this.dispatchPossiblyWithRetry(signed, fault?.simulateTimeout === true);
+    return this.dispatchSignedAndRecord(injected.delivery, {
+      appliedFaults: injected.applied,
+      simulateTimeout: fault?.simulateTimeout === true
+    });
+  }
+
+  private async dispatchSignedAndRecord(
+    signed: SignedDelivery,
+    options: {
+      appliedFaults?: string[];
+      simulateTimeout?: boolean;
+      targetUrl?: string;
+      replayOf?: InspectorDelivery["replayOf"];
+    } = {}
+  ): Promise<InspectorDelivery> {
+    const { result, retries } = await this.dispatchPossiblyWithRetry(
+      signed,
+      options.simulateTimeout === true,
+      options.targetUrl
+    );
     const delivery: InspectorDelivery = {
       id: id("del"),
-      event: payload.event,
-      channel: payload.channel,
+      event: signed.payload.event,
+      channel: signed.payload.channel,
       direction: "inbound",
-      timestamp: payload.timestamp,
+      timestamp: signed.payload.timestamp,
       webhookId: signed.webhookId,
       request: {
         headers: signed.headers,
@@ -336,7 +396,8 @@ export class DevtoolsRuntime {
       ok: result.ok,
       warnings: [...result.parsed.warnings, ...(result.error ? [result.error] : [])],
       retries,
-      ...(injected.applied.length ? { faults: injected.applied } : {})
+      ...(options.appliedFaults?.length ? { faults: options.appliedFaults } : {}),
+      ...(options.replayOf ? { replayOf: options.replayOf } : {})
     };
 
     this.session.deliveries.push(delivery);
@@ -345,7 +406,11 @@ export class DevtoolsRuntime {
     return delivery;
   }
 
-  private async dispatchPossiblyWithRetry(signed: SignedDelivery, simulateTimeout = false): Promise<{ result: DispatchResult; retries: number }> {
+  private async dispatchPossiblyWithRetry(
+    signed: SignedDelivery,
+    simulateTimeout = false,
+    targetUrl = this.config.targetUrl
+  ): Promise<{ result: DispatchResult; retries: number }> {
     const delays = simulateTimeout ? [0, 1, 1, 1, 1, 1] : [0, 250, 750, 1500, 3000, 5000];
     let result: DispatchResult | undefined;
     let retries = 0;
@@ -355,7 +420,7 @@ export class DevtoolsRuntime {
       result = simulateTimeout
         ? simulatedTimeoutResult(this.config.timeoutSeconds)
         : await dispatchSignedDelivery(signed, {
-            targetUrl: this.config.targetUrl,
+            targetUrl,
             timeoutSeconds: this.config.timeoutSeconds,
             onChunk: (chunk: AgentResponseChunk) => this.emit("chunk", chunk)
           });
@@ -524,6 +589,21 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     return runtime.runScenario(body.scenario ?? body.path!, body.overrides ?? {});
   });
 
+  app.post<{
+    Body: ReplayDeliveryInput;
+  }>("/api/replay", async (request, reply) => {
+    const body = request.body;
+    if (!body?.sessionId || !body.deliveryId) {
+      return reply.code(400).send({ error: "sessionId and deliveryId are required" });
+    }
+    if (body.body && !isAgentPhoneEnvelope(body.body)) {
+      return reply.code(400).send({ error: "body must be an AgentPhone event envelope" });
+    }
+    const delivery = await runtime.replayDelivery(body);
+    if (!delivery) return reply.code(404).send({ error: "source delivery not found" });
+    return delivery;
+  });
+
   app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -642,4 +722,17 @@ function simulatedTimeoutResult(timeoutSeconds: number): DispatchResult {
     },
     error: "Simulated webhook timeout"
   };
+}
+
+function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
+  if (!value || typeof value !== "object") return false;
+  const envelope = value as Partial<AgentPhoneEnvelope>;
+  return (
+    typeof envelope.event === "string" &&
+    typeof envelope.channel === "string" &&
+    typeof envelope.timestamp === "string" &&
+    typeof envelope.agentId === "string" &&
+    Boolean(envelope.data && typeof envelope.data === "object") &&
+    Array.isArray(envelope.recentHistory)
+  );
 }

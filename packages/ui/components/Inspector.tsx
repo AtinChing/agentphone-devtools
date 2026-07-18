@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RotateCcw, Send, Square, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Send, Square, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
@@ -16,6 +16,12 @@ export function Inspector() {
   const [text, setText] = useState("");
   const [channel, setChannel] = useState<"sms" | "voice">("voice");
   const [connected, setConnected] = useState(false);
+  const [replayOpen, setReplayOpen] = useState(false);
+  const [replayBody, setReplayBody] = useState("");
+  const [replayBusy, setReplayBusy] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  const [preserveWebhookId, setPreserveWebhookId] = useState(false);
+  const [preserveTimestamp, setPreserveTimestamp] = useState(false);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
 
@@ -66,6 +72,14 @@ export function Inspector() {
     if (!session) return null;
     return session.deliveries.find((delivery) => delivery.id === selectedId) ?? session.deliveries.at(-1) ?? null;
   }, [selectedId, session]);
+
+  useEffect(() => {
+    setReplayBody(selected ? JSON.stringify(selected.request.body, null, 2) : "");
+    setReplayError(null);
+    setReplayOpen(false);
+    setPreserveWebhookId(false);
+    setPreserveTimestamp(false);
+  }, [selected?.id]);
 
   async function sendTurn() {
     const trimmed = text.trim();
@@ -137,6 +151,43 @@ export function Inspector() {
   function exportScenario() {
     if (!session || !session.transcript.some((turn) => turn.role === "user")) return;
     window.open(`${SERVER_URL}/api/history/${session.id}/scenario.yaml`, "_blank", "noopener,noreferrer");
+  }
+
+  async function replayDelivery() {
+    if (!session || !selected) return;
+    setReplayBusy(true);
+    setReplayError(null);
+    try {
+      const body = JSON.parse(replayBody) as unknown;
+      const response = await fetch(`${SERVER_URL}/api/replay`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          sessionId: session.id,
+          deliveryId: selected.id,
+          body,
+          preserveWebhookId,
+          preserveTimestamp
+        })
+      });
+      const payload = (await response.json()) as InspectorDelivery | { error?: string };
+      if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Replay failed");
+      const delivery = payload as InspectorDelivery;
+      const stateResponse = await fetch(`${SERVER_URL}/api/state`);
+      const state = (await stateResponse.json()) as InspectorSession;
+      viewingSessionIdRef.current = null;
+      setViewingSessionId(null);
+      setLiveSession(state);
+      setSession(state);
+      setChannel(state.channel);
+      setSelectedId(delivery.id);
+      setLeftView("timeline");
+      setReplayOpen(false);
+    } catch (error) {
+      setReplayError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setReplayBusy(false);
+    }
   }
 
   const viewingLive = viewingSessionId === null;
@@ -326,6 +377,44 @@ export function Inspector() {
           <section className="rounded-lg border border-line bg-white shadow-soft">
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
+            {selected ? (
+              <div className="border-t border-line p-3">
+                <button
+                  onClick={() => setReplayOpen((open) => !open)}
+                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-medium text-slate-700 hover:border-slate-400"
+                >
+                  <RefreshCw size={15} />
+                  Edit and replay
+                </button>
+                {replayOpen ? (
+                  <div className="mt-3 space-y-3">
+                    <textarea
+                      value={replayBody}
+                      onChange={(event) => setReplayBody(event.target.value)}
+                      className="h-48 w-full resize-y rounded-md border border-line bg-mist p-3 font-mono text-xs leading-5 text-slate-700 outline-none focus:border-fern"
+                      aria-label="Replay request body"
+                      spellCheck={false}
+                    />
+                    <label className="flex items-center gap-2 text-xs text-slate-600">
+                      <input type="checkbox" checked={preserveWebhookId} onChange={(event) => setPreserveWebhookId(event.target.checked)} />
+                      Preserve webhook ID
+                    </label>
+                    <label className="flex items-center gap-2 text-xs text-slate-600">
+                      <input type="checkbox" checked={preserveTimestamp} onChange={(event) => setPreserveTimestamp(event.target.checked)} />
+                      Preserve timestamp
+                    </label>
+                    {replayError ? <div className="text-xs text-danger">{replayError}</div> : null}
+                    <button
+                      onClick={() => void replayDelivery()}
+                      disabled={replayBusy}
+                      className="h-9 w-full rounded-md bg-ink text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {replayBusy ? "Replaying…" : "Send replay"}
+                    </button>
+                  </div>
+                ) : null}
+              </div>
+            ) : null}
           </section>
 
           <section className="rounded-lg border border-line bg-white shadow-soft">

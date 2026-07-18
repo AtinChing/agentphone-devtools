@@ -247,6 +247,60 @@ describe("persistent run history", () => {
     expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
     expect(session.deliveries[0]).toMatchObject({ timedOut: true, retries: 5, faults: ["simulated_timeout"] });
   });
+
+  it("edits, re-signs, and traces historical delivery replays", async () => {
+    const directory = temporaryDirectory();
+    const captured = await capturingWebhookTarget("whsec_super_secret_value");
+    const { app, runtime } = await createDevtoolsServer(testConfig(directory, captured.url));
+    cleanup.push(() => app.close());
+
+    const original = await runtime.sendCallerTurn("Original caller text", "sms");
+    const sourceSessionId = runtime.getState().id;
+    runtime.reset();
+    const editedBody = structuredClone(original.request.body);
+    if (editedBody.event !== "agent.message" || editedBody.channel === "voice") throw new Error("Expected message fixture");
+    editedBody.data.message = "Edited replay text";
+
+    const replay = await app.inject({
+      method: "POST",
+      url: "/api/replay",
+      payload: {
+        sessionId: sourceSessionId,
+        deliveryId: original.id,
+        body: editedBody
+      }
+    });
+    const preserved = await app.inject({
+      method: "POST",
+      url: "/api/replay",
+      payload: {
+        sessionId: sourceSessionId,
+        deliveryId: original.id,
+        preserveWebhookId: true,
+        preserveTimestamp: true
+      }
+    });
+    const missing = await app.inject({
+      method: "POST",
+      url: "/api/replay",
+      payload: { sessionId: "missing", deliveryId: "missing" }
+    });
+
+    expect(replay.statusCode).toBe(200);
+    expect(replay.json()).toMatchObject({
+      replayOf: { sessionId: sourceSessionId, deliveryId: original.id },
+      request: { body: { data: { message: "Edited replay text" } } }
+    });
+    expect(replay.json().webhookId).not.toBe(original.webhookId);
+    expect(preserved.json()).toMatchObject({
+      webhookId: original.webhookId,
+      request: { headers: { "X-Webhook-Timestamp": original.request.headers["X-Webhook-Timestamp"] } }
+    });
+    expect(missing.statusCode).toBe(404);
+    expect(captured.requests).toHaveLength(3);
+    expect(captured.requests.every((request) => request.validSignature)).toBe(true);
+    expect(JSON.parse(captured.requests[1].body).data.message).toBe("Edited replay text");
+  });
 });
 
 function temporaryDirectory(): string {
@@ -302,4 +356,34 @@ async function verifyingWebhookTarget(secret: string): Promise<string> {
   const address = server.address();
   if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
   return `http://127.0.0.1:${address.port}/webhook`;
+}
+
+async function capturingWebhookTarget(secret: string): Promise<{
+  url: string;
+  requests: Array<{ body: string; validSignature: boolean }>;
+}> {
+  const requests: Array<{ body: string; validSignature: boolean }> = [];
+  const server: Server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks).toString("utf8");
+      requests.push({
+        body,
+        validSignature: verifyWebhook(
+          body,
+          String(request.headers["x-webhook-signature"] ?? ""),
+          String(request.headers["x-webhook-timestamp"] ?? ""),
+          secret
+        )
+      });
+      response.writeHead(200, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ text: "Replay accepted" }));
+    });
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
+  return { url: `http://127.0.0.1:${address.port}/webhook`, requests };
 }

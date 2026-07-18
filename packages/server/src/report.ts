@@ -128,7 +128,8 @@ function appendDelivery(lines: string[], delivery: InspectorDelivery, index: num
       ["OK", String(delivery.ok)],
       ["Timed out", String(delivery.timedOut)],
       ["Retries", String(delivery.retries)],
-      ["Faults", delivery.faults?.join(", ") ?? "none"]
+      ["Faults", delivery.faults?.join(", ") ?? "none"],
+      ["Replay source", delivery.replayOf ? `${delivery.replayOf.sessionId}/${delivery.replayOf.deliveryId}` : "none"]
     ]),
     "",
     "Request body:",
