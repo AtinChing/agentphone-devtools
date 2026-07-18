@@ -113,6 +113,30 @@ describe("headless scenario CI", () => {
     expect(junit).toContain('name="AgentPhone: passing.json"');
     expect(junit).toContain('name="AgentPhone: failing.json"');
   });
+
+  it("fails an otherwise passing scenario when baseline behavior regresses", async () => {
+    const directory = temporaryDirectory();
+    const scenarioPath = writeScenario(directory, "resolved");
+    const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set." });
+    const initial = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 0 });
+    const baseline = structuredClone(initial.session);
+    baseline.id = "baseline_session";
+    if (!baseline.evalResult) throw new Error("Expected eval result");
+    baseline.evalResult.score = Math.min(100, baseline.evalResult.score + 5);
+    const junitPath = join(directory, "baseline.xml");
+
+    const candidate = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {
+      minimumScore: 0,
+      baselines: [{ scenarioPath, session: baseline }],
+      junitPath
+    });
+
+    expect(candidate.session.scenarioResult?.passed).toBe(true);
+    expect(candidate.passed).toBe(false);
+    expect(candidate.comparison).toMatchObject({ passed: false, score: { regressed: true, delta: -5 } });
+    expect(candidate.summary.baseline).toMatchObject({ found: true, passed: false, sessionId: "baseline_session" });
+    expect(readFileSync(junitPath, "utf8")).toContain('name="baseline regression"');
+  });
 });
 
 function temporaryDirectory(): string {

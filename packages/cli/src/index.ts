@@ -8,6 +8,7 @@ import open from "open";
 import { startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
+import { loadBaselineArtifact } from "./baseline.js";
 
 interface CliOptions {
   targetUrl: string;
@@ -29,6 +30,10 @@ interface CliOptions {
   minimumScore: number;
   reportJson?: string;
   reportJunit?: string;
+  baselinePath?: string;
+  maxScoreDrop: number;
+  maxLatencyIncreasePercent: number;
+  requireTranscriptMatch: boolean;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -41,7 +46,18 @@ async function main() {
 
   if (options.ci) {
     const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
-    const runOptions = { minimumScore: options.minimumScore, reportPath: options.reportJson, junitPath: options.reportJunit };
+    const baselines = options.baselinePath ? await loadBaselineArtifact(options.baselinePath) : undefined;
+    const runOptions = {
+      minimumScore: options.minimumScore,
+      reportPath: options.reportJson,
+      junitPath: options.reportJunit,
+      baselines,
+      comparisonOptions: {
+        maxScoreDrop: options.maxScoreDrop,
+        maxLatencyIncreasePercent: options.maxLatencyIncreasePercent,
+        requireTranscriptMatch: options.requireTranscriptMatch
+      }
+    };
     const result =
       options.scenarioDirectories.length > 0 || scenarioPaths.length > 1
         ? await runScenarioSuiteInCi(serverConfig, scenarioPaths, runOptions)
@@ -178,6 +194,9 @@ function parseArgs(args: string[]): CliOptions {
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
     minimumScore: 0,
+    maxScoreDrop: 0,
+    maxLatencyIncreasePercent: 25,
+    requireTranscriptMatch: false,
     scenarios: [],
     scenarioDirectories: []
   };
@@ -246,6 +265,18 @@ function parseArgs(args: string[]): CliOptions {
       case "--report-junit":
         options.reportJunit = requireValue(args, ++i, arg);
         break;
+      case "--baseline":
+        options.baselinePath = requireValue(args, ++i, arg);
+        break;
+      case "--max-score-drop":
+        options.maxScoreDrop = Number(requireValue(args, ++i, arg));
+        break;
+      case "--max-latency-increase":
+        options.maxLatencyIncreasePercent = Number(requireValue(args, ++i, arg));
+        break;
+      case "--require-transcript-match":
+        options.requireTranscriptMatch = true;
+        break;
       case "--retry-on-non-200":
         options.retryOnNon200 = true;
         break;
@@ -276,6 +307,12 @@ function parseArgs(args: string[]): CliOptions {
   if (!Number.isFinite(options.minimumScore) || options.minimumScore < 0 || options.minimumScore > 100) {
     throw new Error("--min-score must be between 0 and 100");
   }
+  if (!Number.isFinite(options.maxScoreDrop) || options.maxScoreDrop < 0 || options.maxScoreDrop > 100) {
+    throw new Error("--max-score-drop must be between 0 and 100");
+  }
+  if (!Number.isFinite(options.maxLatencyIncreasePercent) || options.maxLatencyIncreasePercent < 0) {
+    throw new Error("--max-latency-increase must be zero or greater");
+  }
   if (options.ci && options.scenarios.length === 0 && options.scenarioDirectories.length === 0) {
     throw new Error("--ci requires --scenario or --scenario-dir");
   }
@@ -283,6 +320,7 @@ function parseArgs(args: string[]): CliOptions {
   if (!options.ci && options.scenarios.length > 1) throw new Error("Repeated --scenario requires --ci");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
   if (options.reportJunit && !options.ci) throw new Error("--report-junit requires --ci");
+  if (options.baselinePath && !options.ci) throw new Error("--baseline requires --ci");
   return options;
 }
 
@@ -337,6 +375,10 @@ Options:
   --min-score <0-100>        Minimum eval score required in CI mode, default 0
   --report-json <path>       Write the full run report in CI mode
   --report-junit <path>      Write JUnit XML with one test per assertion
+  --baseline <report.json>   Fail CI when behavior regresses from a prior report
+  --max-score-drop <0-100>   Allowed score decrease from baseline, default 0
+  --max-latency-increase <%> Allowed latency increase, default 25
+  --require-transcript-match Fail when transcript text differs from baseline
 `);
 }
 
