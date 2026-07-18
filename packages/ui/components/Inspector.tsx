@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Send, Square, Trash2 } from "lucide-react";
-import type { InspectorDelivery, InspectorSession, InspectorSessionSummary } from "@/lib/types";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, Trash2 } from "lucide-react";
+import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -22,6 +22,8 @@ export function Inspector() {
   const [replayError, setReplayError] = useState<string | null>(null);
   const [preserveWebhookId, setPreserveWebhookId] = useState(false);
   const [preserveTimestamp, setPreserveTimestamp] = useState(false);
+  const [baselineId, setBaselineId] = useState<string>("");
+  const [comparison, setComparison] = useState<RunComparison | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
 
@@ -38,7 +40,10 @@ export function Inspector() {
 
     fetch(`${SERVER_URL}/api/history`)
       .then((response) => response.json())
-      .then((history: InspectorSessionSummary[]) => setRuns(history))
+      .then((history: InspectorSessionSummary[]) => {
+        setRuns(history);
+        setBaselineId((current) => current || history.find((run) => run.baselineName)?.id || "");
+      })
       .catch(() => undefined);
 
     const source = new EventSource(`${SERVER_URL}/api/events`);
@@ -58,7 +63,9 @@ export function Inspector() {
       if (viewingSessionIdRef.current === null) setSelectedId(delivery.id);
     });
     source.addEventListener("history", (event) => {
-      setRuns(JSON.parse((event as MessageEvent).data) as InspectorSessionSummary[]);
+      const history = JSON.parse((event as MessageEvent).data) as InspectorSessionSummary[];
+      setRuns(history);
+      setBaselineId((current) => current || history.find((run) => run.baselineName)?.id || "");
     });
 
     return () => source.close();
@@ -80,6 +87,10 @@ export function Inspector() {
     setPreserveWebhookId(false);
     setPreserveTimestamp(false);
   }, [selected?.id]);
+
+  useEffect(() => {
+    setComparison(null);
+  }, [session?.id]);
 
   async function sendTurn() {
     const trimmed = text.trim();
@@ -190,6 +201,40 @@ export function Inspector() {
     }
   }
 
+  async function toggleBaseline() {
+    if (!session) return;
+    if (session.baseline) {
+      const response = await fetch(`${SERVER_URL}/api/history/${session.id}/baseline`, { method: "DELETE" });
+      if (!response.ok) return;
+      const updated = (await response.json()) as InspectorSession;
+      setSession(updated);
+      if (session.id === liveSession?.id) setLiveSession(updated);
+      if (baselineId === session.id) setBaselineId("");
+      setComparison(null);
+      return;
+    }
+    const name = window.prompt("Baseline name", `Approved ${formatRunDate(session.startedAt)}`)?.trim();
+    if (name === undefined) return;
+    const response = await fetch(`${SERVER_URL}/api/history/${session.id}/baseline`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ name })
+    });
+    if (!response.ok) return;
+    const updated = (await response.json()) as InspectorSession;
+    setSession(updated);
+    if (session.id === liveSession?.id) setLiveSession(updated);
+    setBaselineId(session.id);
+    setComparison(null);
+  }
+
+  async function compareToBaseline() {
+    if (!session || !baselineId) return;
+    const response = await fetch(`${SERVER_URL}/api/compare/${baselineId}/${session.id}`);
+    if (!response.ok) return;
+    setComparison((await response.json()) as RunComparison);
+  }
+
   const viewingLive = viewingSessionId === null;
 
   return (
@@ -246,6 +291,15 @@ export function Inspector() {
               aria-label="Export scenario YAML"
             >
               <FileCode2 size={16} />
+            </button>
+            <button
+              onClick={() => void toggleBaseline()}
+              disabled={!session}
+              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              title={session?.baseline ? "Remove baseline" : "Save as baseline"}
+              aria-label={session?.baseline ? "Remove baseline" : "Save as baseline"}
+            >
+              <Bookmark size={16} fill={session?.baseline ? "currentColor" : "none"} />
             </button>
             <button
               onClick={reset}
@@ -311,6 +365,7 @@ export function Inspector() {
                       {run.channel} / {run.transcriptTurns} turns / {run.deliveries} deliveries
                     </span>
                     <span className="mt-1 block truncate text-xs text-slate-500">{run.outcome ? `${run.outcome} / ${run.score ?? 0}` : run.status}</span>
+                    {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-fern">Baseline: {run.baselineName}</span> : null}
                   </button>
                   {run.id !== liveSession?.id ? (
                     <button onClick={() => void deleteRun(run)} className="mr-2 grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-danger" title="Delete run" aria-label="Delete run">
@@ -438,6 +493,17 @@ export function Inspector() {
 
           {session?.scenarioResult ? <ScenarioCard result={session.scenarioResult} /> : null}
 
+          {session ? (
+            <ComparisonCard
+              session={session}
+              baselines={runs.filter((run) => run.baselineName)}
+              baselineId={baselineId}
+              onBaselineChange={setBaselineId}
+              onCompare={() => void compareToBaseline()}
+              comparison={comparison}
+            />
+          ) : null}
+
           {session?.warnings.length ? (
             <section className="rounded-lg border border-amber-200 bg-amber-50">
               <PanelHeader icon={<AlertTriangle size={16} />} title="Warnings" meta={String(session.warnings.length)} />
@@ -527,6 +593,70 @@ function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenar
           </li>
         ))}
       </ul>
+    </section>
+  );
+}
+
+function ComparisonCard({
+  session,
+  baselines,
+  baselineId,
+  onBaselineChange,
+  onCompare,
+  comparison
+}: {
+  session: InspectorSession;
+  baselines: InspectorSessionSummary[];
+  baselineId: string;
+  onBaselineChange: (id: string) => void;
+  onCompare: () => void;
+  comparison: RunComparison | null;
+}) {
+  return (
+    <section className="rounded-lg border border-line bg-white shadow-soft">
+      <PanelHeader icon={<Scale size={16} />} title="Baseline" meta={comparison ? (comparison.passed ? "passed" : "regressed") : session.baseline?.name} />
+      <div className="space-y-3 px-4 pb-4 text-sm">
+        <select
+          value={baselineId}
+          onChange={(event) => onBaselineChange(event.target.value)}
+          className="h-9 w-full rounded-md border border-line bg-white px-2 text-xs text-ink outline-none focus:border-fern"
+          aria-label="Comparison baseline"
+        >
+          <option value="">Select saved baseline</option>
+          {baselines.map((baseline) => (
+            <option key={baseline.id} value={baseline.id}>
+              {baseline.baselineName}
+            </option>
+          ))}
+        </select>
+        <button
+          onClick={onCompare}
+          disabled={!baselineId}
+          className="h-9 w-full rounded-md bg-ink text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+        >
+          Compare current run
+        </button>
+        {comparison ? (
+          <div className="space-y-2">
+            <div className={`font-semibold ${comparison.passed ? "text-fern" : "text-danger"}`}>
+              {comparison.passed ? "No regressions" : `${comparison.regressions.length} regression(s)`}
+            </div>
+            <div className="grid grid-cols-2 gap-2">
+              <KeyValue name="outcome" value={`${comparison.outcome.baseline ?? "?"} → ${comparison.outcome.candidate ?? "?"}`} />
+              <KeyValue name="score delta" value={comparison.score.delta === undefined ? "n/a" : String(comparison.score.delta)} />
+              <KeyValue name="latency delta" value={`${comparison.latency.deltaMs}ms`} />
+              <KeyValue name="missing actions" value={comparison.actions.missing.join(", ") || "none"} />
+              <KeyValue name="transcript" value={comparison.transcript.changed ? "changed" : "same"} />
+              <KeyValue name="new warnings" value={String(comparison.warnings.added.length)} />
+            </div>
+            {comparison.regressions.length ? (
+              <ul className="space-y-1 text-xs leading-5 text-danger">
+                {comparison.regressions.map((regression) => <li key={regression}>{regression}</li>)}
+              </ul>
+            ) : null}
+          </div>
+        ) : null}
+      </div>
     </section>
   );
 }

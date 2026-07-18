@@ -3,6 +3,7 @@ import cors from "@fastify/cors";
 import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
 import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
+import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -32,6 +33,7 @@ import {
 } from "@agentphone-devtools/core";
 
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
+export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -108,6 +110,10 @@ export interface InspectorSession {
   callEnded?: CallEndedEnvelope["data"];
   evalResult?: EvalResult;
   scenarioResult?: ScenarioResult;
+  baseline?: {
+    name: string;
+    createdAt: string;
+  };
   warnings: string[];
 }
 
@@ -122,6 +128,7 @@ export interface InspectorSessionSummary {
   deliveries: number;
   outcome?: EvalResult["outcome"];
   score?: number;
+  baselineName?: string;
 }
 
 type SseClient = {
@@ -183,6 +190,46 @@ export class DevtoolsRuntime {
     const deleted = this.sessionStore.delete(sessionId);
     if (deleted) this.emit("history", this.getHistory());
     return deleted;
+  }
+
+  setBaseline(sessionId: string, name?: string): InspectorSession | null {
+    const baseline = { name: name?.trim() || `Baseline ${sessionId}`, createdAt: isoNow() };
+    if (sessionId === this.session.id) {
+      this.session.baseline = baseline;
+      this.publishState();
+      return this.getState();
+    }
+    const session = this.sessionStore.get(sessionId);
+    if (!session) return null;
+    session.baseline = baseline;
+    this.sessionStore.upsert(session);
+    this.emit("history", this.getHistory());
+    return session;
+  }
+
+  clearBaseline(sessionId: string): InspectorSession | null {
+    if (sessionId === this.session.id) {
+      delete this.session.baseline;
+      this.publishState();
+      return this.getState();
+    }
+    const session = this.sessionStore.get(sessionId);
+    if (!session) return null;
+    delete session.baseline;
+    this.sessionStore.upsert(session);
+    this.emit("history", this.getHistory());
+    return session;
+  }
+
+  compareHistorySessions(
+    baselineSessionId: string,
+    candidateSessionId: string,
+    options?: RunComparisonOptions
+  ): RunComparison | null {
+    const baseline = this.getHistorySession(baselineSessionId);
+    const candidate = this.getHistorySession(candidateSessionId);
+    if (!baseline || !candidate) return null;
+    return compareRuns(baseline, candidate, options);
   }
 
   updateConfig(update: RuntimeConfigUpdate): InspectorSession {
@@ -562,6 +609,39 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     return reply.code(204).send();
   });
 
+  app.post<{ Params: { sessionId: string }; Body: { name?: string } }>(
+    "/api/history/:sessionId/baseline",
+    async (request, reply) => {
+      const session = runtime.setBaseline(request.params.sessionId, request.body?.name);
+      if (!session) return reply.code(404).send({ error: "session not found" });
+      return session;
+    }
+  );
+
+  app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId/baseline", async (request, reply) => {
+    const session = runtime.clearBaseline(request.params.sessionId);
+    if (!session) return reply.code(404).send({ error: "session not found" });
+    return session;
+  });
+
+  app.get<{
+    Params: { baselineSessionId: string; candidateSessionId: string };
+    Querystring: {
+      maxScoreDrop?: string;
+      maxLatencyIncreasePercent?: string;
+      latencyGraceMs?: string;
+      requireTranscriptMatch?: string;
+    };
+  }>("/api/compare/:baselineSessionId/:candidateSessionId", async (request, reply) => {
+    const comparison = runtime.compareHistorySessions(
+      request.params.baselineSessionId,
+      request.params.candidateSessionId,
+      comparisonOptionsFromQuery(request.query)
+    );
+    if (!comparison) return reply.code(404).send({ error: "baseline or candidate session not found" });
+    return comparison;
+  });
+
   app.post<{
     Body: RuntimeConfigUpdate;
   }>("/api/config", async (request) => runtime.updateConfig(request.body));
@@ -688,7 +768,8 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     transcriptTurns: session.transcript.length,
     deliveries: session.deliveries.length,
     outcome: session.evalResult?.outcome,
-    score: session.evalResult?.score
+    score: session.evalResult?.score,
+    baselineName: session.baseline?.name
   };
 }
 
@@ -735,4 +816,24 @@ function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
     Boolean(envelope.data && typeof envelope.data === "object") &&
     Array.isArray(envelope.recentHistory)
   );
+}
+
+function comparisonOptionsFromQuery(query: {
+  maxScoreDrop?: string;
+  maxLatencyIncreasePercent?: string;
+  latencyGraceMs?: string;
+  requireTranscriptMatch?: string;
+}): RunComparisonOptions {
+  return compact({
+    maxScoreDrop: optionalNumber(query.maxScoreDrop),
+    maxLatencyIncreasePercent: optionalNumber(query.maxLatencyIncreasePercent),
+    latencyGraceMs: optionalNumber(query.latencyGraceMs),
+    requireTranscriptMatch: query.requireTranscriptMatch === undefined ? undefined : query.requireTranscriptMatch === "true"
+  });
+}
+
+function optionalNumber(value: string | undefined): number | undefined {
+  if (value === undefined || value.trim() === "") return undefined;
+  const parsed = Number(value);
+  return Number.isFinite(parsed) ? parsed : undefined;
 }

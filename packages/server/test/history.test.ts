@@ -301,6 +301,41 @@ describe("persistent run history", () => {
     expect(captured.requests.every((request) => request.validSignature)).toBe(true);
     expect(JSON.parse(captured.requests[1].body).data.message).toBe("Edited replay text");
   });
+
+  it("persists named baselines and serves run comparisons", async () => {
+    const directory = temporaryDirectory();
+    const target = await webhookTarget();
+    const config = testConfig(directory, target);
+    const { app, runtime } = await createDevtoolsServer(config);
+    cleanup.push(() => app.close());
+
+    await runtime.sendCallerTurn("Check charger 12", "sms");
+    await runtime.endCall();
+    const sessionId = runtime.getState().id;
+
+    const marked = await app.inject({
+      method: "POST",
+      url: `/api/history/${sessionId}/baseline`,
+      payload: { name: "Approved charger behavior" }
+    });
+    const comparison = await app.inject({
+      method: "GET",
+      url: `/api/compare/${sessionId}/${sessionId}?requireTranscriptMatch=true`
+    });
+    const restarted = new DevtoolsRuntime(config);
+
+    expect(marked.statusCode).toBe(200);
+    expect(marked.json()).toMatchObject({ baseline: { name: "Approved charger behavior" } });
+    expect(comparison.statusCode).toBe(200);
+    expect(comparison.json()).toMatchObject({ passed: true, regressions: [], transcript: { changed: false } });
+    expect(restarted.getHistory().find((session) => session.id === sessionId)).toMatchObject({
+      baselineName: "Approved charger behavior"
+    });
+
+    const cleared = await app.inject({ method: "DELETE", url: `/api/history/${sessionId}/baseline` });
+    expect(cleared.statusCode).toBe(200);
+    expect(cleared.json().baseline).toBeUndefined();
+  });
 });
 
 function temporaryDirectory(): string {

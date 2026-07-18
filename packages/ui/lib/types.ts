@@ -105,6 +105,10 @@ export interface InspectorSession {
   };
   evalResult?: EvalResult;
   scenarioResult?: ScenarioResult;
+  baseline?: {
+    name: string;
+    createdAt: string;
+  };
   warnings: string[];
 }
 
@@ -119,4 +123,18 @@ export interface InspectorSessionSummary {
   deliveries: number;
   outcome?: EvalResult["outcome"];
   score?: number;
+  baselineName?: string;
+}
+
+export interface RunComparison {
+  baselineSessionId: string;
+  candidateSessionId: string;
+  passed: boolean;
+  regressions: string[];
+  outcome: { baseline?: string; candidate?: string; changed: boolean; regressed: boolean };
+  score: { baseline?: number; candidate?: number; delta?: number; regressed: boolean };
+  actions: { baseline: string[]; candidate: string[]; missing: string[]; added: string[]; regressed: boolean };
+  transcript: { baselineTurns: number; candidateTurns: number; changed: boolean; regressed: boolean };
+  latency: { baselineAverageMs: number; candidateAverageMs: number; deltaMs: number; deltaPercent: number; regressed: boolean };
+  warnings: { baseline: string[]; candidate: string[]; added: string[]; regressed: boolean };
 }
