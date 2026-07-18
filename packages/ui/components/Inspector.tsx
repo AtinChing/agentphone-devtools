@@ -23,6 +23,10 @@ export function Inspector() {
   const [preserveWebhookId, setPreserveWebhookId] = useState(false);
   const [preserveTimestamp, setPreserveTimestamp] = useState(false);
   const [baselineId, setBaselineId] = useState<string>("");
+  const [baselineEditorOpen, setBaselineEditorOpen] = useState(false);
+  const [baselineName, setBaselineName] = useState("");
+  const [baselineSaving, setBaselineSaving] = useState(false);
+  const [baselineError, setBaselineError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<RunComparison | null>(null);
   const [config, setConfig] = useState<RuntimeConfig | null>(null);
   const [configOpen, setConfigOpen] = useState(false);
@@ -231,21 +235,43 @@ export function Inspector() {
       if (session.id === liveSession?.id) setLiveSession(updated);
       if (baselineId === session.id) setBaselineId("");
       setComparison(null);
+      setBaselineEditorOpen(false);
       return;
     }
-    const name = window.prompt("Baseline name", `Approved ${formatRunDate(session.startedAt)}`)?.trim();
-    if (name === undefined) return;
-    const response = await fetch(`${SERVER_URL}/api/history/${session.id}/baseline`, {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ name })
-    });
-    if (!response.ok) return;
-    const updated = (await response.json()) as InspectorSession;
-    setSession(updated);
-    if (session.id === liveSession?.id) setLiveSession(updated);
-    setBaselineId(session.id);
-    setComparison(null);
+    setBaselineName(`Approved ${formatRunDate(session.startedAt)}`);
+    setBaselineError(null);
+    setConfigOpen(false);
+    setBaselineEditorOpen((open) => !open);
+  }
+
+  async function saveBaseline() {
+    if (!session) return;
+    const name = baselineName.trim();
+    if (!name) {
+      setBaselineError("Baseline name is required");
+      return;
+    }
+    setBaselineSaving(true);
+    setBaselineError(null);
+    try {
+      const response = await fetch(`${SERVER_URL}/api/history/${session.id}/baseline`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ name })
+      });
+      const payload = (await response.json()) as InspectorSession | { error?: string };
+      if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Could not save baseline");
+      const updated = payload as InspectorSession;
+      setSession(updated);
+      if (session.id === liveSession?.id) setLiveSession(updated);
+      setBaselineId(session.id);
+      setComparison(null);
+      setBaselineEditorOpen(false);
+    } catch (error) {
+      setBaselineError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setBaselineSaving(false);
+    }
   }
 
   async function compareToBaseline() {
@@ -258,6 +284,7 @@ export function Inspector() {
   function toggleConfig() {
     if (!configOpen && config) setConfigForm(configToForm(config));
     setConfigError(null);
+    setBaselineEditorOpen(false);
     setConfigOpen((open) => !open);
   }
 
@@ -462,6 +489,40 @@ export function Inspector() {
                 </button>
               </div>
               {configError ? <div className="text-xs text-danger md:col-span-2 xl:col-span-6">{configError}</div> : null}
+            </div>
+          </div>
+        ) : null}
+        {baselineEditorOpen ? (
+          <div className="border-t border-line bg-mist">
+            <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
+              <label className="min-w-[260px] flex-1">
+                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Baseline name</span>
+                <input
+                  value={baselineName}
+                  onChange={(event) => setBaselineName(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void saveBaseline();
+                  }}
+                  className="config-input"
+                  aria-label="Baseline name"
+                  autoFocus
+                />
+              </label>
+              <button
+                onClick={() => void saveBaseline()}
+                disabled={baselineSaving}
+                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+              >
+                {baselineSaving ? "Saving…" : "Save baseline"}
+              </button>
+              <button
+                onClick={() => setBaselineEditorOpen(false)}
+                disabled={baselineSaving}
+                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              {baselineError ? <div className="w-full text-xs text-danger">{baselineError}</div> : null}
             </div>
           </div>
         ) : null}
