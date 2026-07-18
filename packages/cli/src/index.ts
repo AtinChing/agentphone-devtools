@@ -31,7 +31,6 @@ interface CliOptions {
   reportJunit?: string;
   baselinePath?: string;
   maxLatencyIncreasePercent: number;
-  requireTranscriptMatch: boolean;
 }
 
 const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
@@ -50,8 +49,7 @@ async function main() {
       junitPath: options.reportJunit,
       baselines,
       comparisonOptions: {
-        maxLatencyIncreasePercent: options.maxLatencyIncreasePercent,
-        requireTranscriptMatch: options.requireTranscriptMatch
+        maxLatencyIncreasePercent: options.maxLatencyIncreasePercent
       }
     };
     const result =
@@ -187,7 +185,6 @@ function parseArgs(args: string[]): CliOptions {
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
     maxLatencyIncreasePercent: 25,
-    requireTranscriptMatch: false,
     scenarios: [],
     scenarioDirectories: []
   };
@@ -258,9 +255,6 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--max-latency-increase":
         options.maxLatencyIncreasePercent = Number(requireValue(args, ++i, arg));
-        break;
-      case "--require-transcript-match":
-        options.requireTranscriptMatch = true;
         break;
       case "--retry-on-non-200":
         options.retryOnNon200 = true;
@@ -355,7 +349,6 @@ Options:
   --report-junit <path>      Write JUnit XML with one test per assertion
   --baseline <report.json>   Fail CI when behavior regresses from a prior report
   --max-latency-increase <%> Allowed latency increase, default 25
-  --require-transcript-match Fail when transcript text differs from baseline
 `);
 }
 

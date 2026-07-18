@@ -4,7 +4,6 @@ import type { InspectorSession } from "./index.js";
 export interface RunComparisonOptions {
   maxLatencyIncreasePercent?: number;
   latencyGraceMs?: number;
-  requireTranscriptMatch?: boolean;
 }
 
 export interface RunComparison {
@@ -56,9 +55,6 @@ export function compareRuns(
   if (missingActions.length) regressions.push(`Missing baseline action(s): ${missingActions.join(", ")}`);
 
   const transcriptChanged = normalizeTranscript(baseline) !== normalizeTranscript(candidate);
-  const transcriptRegressed = Boolean(options.requireTranscriptMatch && transcriptChanged);
-  if (transcriptRegressed) regressions.push("Transcript differs from the required baseline transcript");
-
   const baselineLatency = averageLatency(baseline);
   const candidateLatency = averageLatency(candidate);
   const latencyDelta = candidateLatency - baselineLatency;
@@ -91,7 +87,7 @@ export function compareRuns(
       baselineTurns: baseline.transcript.length,
       candidateTurns: candidate.transcript.length,
       changed: transcriptChanged,
-      regressed: transcriptRegressed
+      regressed: false
     },
     latency: {
       baselineAverageMs: baselineLatency,

@@ -152,11 +152,6 @@ export class DevtoolsRuntime {
     return structuredClone(this.session);
   }
 
-  getConfig(): Omit<DevtoolsServerConfig, "secret"> & { secretPreview: string } {
-    const { secret: _secret, ...safe } = this.config;
-    return { ...safe, secretPreview: maskSecret(this.config.secret) };
-  }
-
   getHistory(): InspectorSessionSummary[] {
     return this.sessionStore
       .list()
@@ -224,15 +219,6 @@ export class DevtoolsRuntime {
     const candidate = this.getHistorySession(candidateSessionId);
     if (!baseline || !candidate) return null;
     return compareRuns(baseline, candidate, options);
-  }
-
-  updateConfig(update: RuntimeConfigUpdate): InspectorSession {
-    this.config = { ...this.config, ...parseRuntimeConfigUpdate(update) };
-    this.session.targetUrl = this.config.targetUrl;
-    this.session.secretPreview = maskSecret(this.config.secret);
-    this.session.channel = this.config.channel;
-    this.publishState();
-    return this.getState();
   }
 
   reset(update?: RuntimeConfigUpdate & { conversationState?: ConversationState }): InspectorSession {
@@ -517,7 +503,6 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true }));
-  app.get("/api/config", async () => runtime.getConfig());
   app.get("/api/state", async () => runtime.getState());
   app.get("/api/history", async () => runtime.getHistory());
 
@@ -595,7 +580,6 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     Querystring: {
       maxLatencyIncreasePercent?: string;
       latencyGraceMs?: string;
-      requireTranscriptMatch?: string;
     };
   }>("/api/compare/:baselineSessionId/:candidateSessionId", async (request, reply) => {
     const comparison = runtime.compareHistorySessions(
@@ -605,16 +589,6 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     );
     if (!comparison) return reply.code(404).send({ error: "baseline or candidate session not found" });
     return comparison;
-  });
-
-  app.post<{
-    Body: RuntimeConfigUpdate;
-  }>("/api/config", async (request, reply) => {
-    try {
-      return runtime.updateConfig(request.body);
-    } catch (error) {
-      return sendConfigValidationError(reply, error);
-    }
   });
 
   app.post<{
@@ -801,12 +775,10 @@ function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
 function comparisonOptionsFromQuery(query: {
   maxLatencyIncreasePercent?: string;
   latencyGraceMs?: string;
-  requireTranscriptMatch?: string;
 }): RunComparisonOptions {
   return compact({
     maxLatencyIncreasePercent: optionalNumber(query.maxLatencyIncreasePercent),
-    latencyGraceMs: optionalNumber(query.latencyGraceMs),
-    requireTranscriptMatch: query.requireTranscriptMatch === undefined ? undefined : query.requireTranscriptMatch === "true"
+    latencyGraceMs: optionalNumber(query.latencyGraceMs)
   });
 }
 

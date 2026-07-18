@@ -30,7 +30,6 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Scenario-driven webhook fault injection for signatures, timestamps, bodies, IDs, timeouts, and retries.
 - Editable delivery replay from live or historical runs with re-signing and source lineage.
 - Persistent approved baselines with action, transcript, latency, and warning comparison in the Inspector and CI.
-- Validated runtime configuration from the Inspector without exposing the signing secret.
 - Headless single-scenario and multi-scenario CI suites with explicit assertion gates, aggregate reports, and meaningful exit codes.
 - Reference Express handler that verifies signatures before replying.
 
@@ -252,18 +251,7 @@ npx agentphone-devtools \
   --max-latency-increase 25
 ```
 
-Add `--require-transcript-match` when exact normalized transcript text is part of the contract. Baseline regressions affect the process exit code and appear in both JSON and JUnit reports.
-
-## Inspector Runtime Configuration
-
-Click the settings button in the Inspector header to edit the target webhook, signing secret, default channel, timeout, recent-history context limit, and retry behavior without restarting. Values are validated server-side before they are applied. Invalid updates return every validation issue and leave the active configuration unchanged.
-
-The secret field is write-only: the API and UI receive only `secretPreview`, and leaving the field blank preserves the existing secret. History path, retention, bound host, and ports remain startup-only settings.
-
-```text
-GET  /api/config
-POST /api/config
-```
+Transcript changes remain visible for review but do not fail regression gates because model wording is naturally variable. Baseline regressions affect the process exit code and appear in both JSON and JUnit reports.
 
 ## Repo Layout
 

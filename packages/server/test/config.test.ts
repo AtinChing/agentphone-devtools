@@ -1,8 +1,8 @@
 import { describe, expect, it } from "vitest";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError } from "../src/config.js";
 
-describe("runtime configuration validation", () => {
-  it("accepts the complete editable configuration", () => {
+describe("scenario override validation", () => {
+  it("accepts supported scenario overrides", () => {
     expect(
       parseRuntimeConfigUpdate({
         targetUrl: "http://127.0.0.1:3000/webhook",

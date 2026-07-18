@@ -12,7 +12,7 @@ describe("run baseline comparison", () => {
     expect(comparison).toMatchObject({ passed: true, regressions: [], actions: { missing: [] } });
   });
 
-  it("reports action, transcript, latency, and warning regressions", () => {
+  it("reports action, latency, and warning regressions while noting transcript changes", () => {
     const baseline = session({ id: "baseline", latencyMs: 100, action: "transfer" });
     const candidate = session({
       id: "candidate",
@@ -21,16 +21,16 @@ describe("run baseline comparison", () => {
       warning: "New parser warning"
     });
 
-    const comparison = compareRuns(baseline, candidate, { requireTranscriptMatch: true });
+    const comparison = compareRuns(baseline, candidate);
 
     expect(comparison.passed).toBe(false);
     expect(comparison).toMatchObject({
       actions: { regressed: true, missing: ["transfer"] },
-      transcript: { regressed: true, changed: true },
+      transcript: { regressed: false, changed: true },
       latency: { regressed: true, deltaMs: 150 },
       warnings: { regressed: true, added: ["New parser warning"] }
     });
-    expect(comparison.regressions).toHaveLength(4);
+    expect(comparison.regressions).toHaveLength(3);
   });
 });
 
