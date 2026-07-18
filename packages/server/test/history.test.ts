@@ -336,6 +336,49 @@ describe("persistent run history", () => {
     expect(cleared.statusCode).toBe(200);
     expect(cleared.json().baseline).toBeUndefined();
   });
+
+  it("validates runtime configuration without exposing the signing secret", async () => {
+    const directory = temporaryDirectory();
+    const { app, runtime } = await createDevtoolsServer(testConfig(directory, "http://127.0.0.1:3000/webhook"));
+    cleanup.push(() => app.close());
+
+    const invalid = await app.inject({
+      method: "POST",
+      url: "/api/config",
+      payload: { targetUrl: "file:///tmp/webhook", timeoutSeconds: 2, historyPath: "/tmp/not-allowed" }
+    });
+    const updated = await app.inject({
+      method: "POST",
+      url: "/api/config",
+      payload: {
+        targetUrl: "http://localhost:4000/agentphone",
+        secret: "whsec_replaced_secret",
+        channel: "voice",
+        timeoutSeconds: 45,
+        contextLimit: 25,
+        retryOnNon200: true
+      }
+    });
+    const safeConfig = await app.inject({ method: "GET", url: "/api/config" });
+
+    expect(invalid.statusCode).toBe(400);
+    expect(invalid.json()).toMatchObject({ error: "Invalid runtime configuration" });
+    expect(invalid.json().issues).toHaveLength(3);
+    expect(runtime.getConfig().targetUrl).toBe("http://localhost:4000/agentphone");
+    expect(updated.json()).toMatchObject({
+      targetUrl: "http://localhost:4000/agentphone",
+      channel: "voice",
+      secretPreview: "whsec_...cret"
+    });
+    expect(safeConfig.json()).toMatchObject({
+      targetUrl: "http://localhost:4000/agentphone",
+      timeoutSeconds: 45,
+      contextLimit: 25,
+      retryOnNon200: true,
+      secretPreview: "whsec_...cret"
+    });
+    expect(safeConfig.body).not.toContain("whsec_replaced_secret");
+  });
 });
 
 function temporaryDirectory(): string {

@@ -138,3 +138,16 @@ export interface RunComparison {
   latency: { baselineAverageMs: number; candidateAverageMs: number; deltaMs: number; deltaPercent: number; regressed: boolean };
   warnings: { baseline: string[]; candidate: string[]; added: string[]; regressed: boolean };
 }
+
+export interface RuntimeConfig {
+  targetUrl: string;
+  secretPreview: string;
+  channel: "sms" | "voice";
+  timeoutSeconds: number;
+  contextLimit: number;
+  retryOnNon200: boolean;
+  port: number;
+  host?: string;
+  historyPath: string;
+  historyLimit: number;
+}

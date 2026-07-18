@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, Trash2 } from "lucide-react";
-import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison } from "@/lib/types";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Settings, Square, Trash2 } from "lucide-react";
+import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, RuntimeConfig } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -24,6 +24,18 @@ export function Inspector() {
   const [preserveTimestamp, setPreserveTimestamp] = useState(false);
   const [baselineId, setBaselineId] = useState<string>("");
   const [comparison, setComparison] = useState<RunComparison | null>(null);
+  const [config, setConfig] = useState<RuntimeConfig | null>(null);
+  const [configOpen, setConfigOpen] = useState(false);
+  const [configSaving, setConfigSaving] = useState(false);
+  const [configError, setConfigError] = useState<string | null>(null);
+  const [configForm, setConfigForm] = useState({
+    targetUrl: "",
+    secret: "",
+    channel: "voice" as "sms" | "voice",
+    timeoutSeconds: "30",
+    contextLimit: "10",
+    retryOnNon200: false
+  });
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
 
@@ -43,6 +55,14 @@ export function Inspector() {
       .then((history: InspectorSessionSummary[]) => {
         setRuns(history);
         setBaselineId((current) => current || history.find((run) => run.baselineName)?.id || "");
+      })
+      .catch(() => undefined);
+
+    fetch(`${SERVER_URL}/api/config`)
+      .then((response) => response.json())
+      .then((runtimeConfig: RuntimeConfig) => {
+        setConfig(runtimeConfig);
+        setConfigForm(configToForm(runtimeConfig));
       })
       .catch(() => undefined);
 
@@ -235,6 +255,50 @@ export function Inspector() {
     setComparison((await response.json()) as RunComparison);
   }
 
+  function toggleConfig() {
+    if (!configOpen && config) setConfigForm(configToForm(config));
+    setConfigError(null);
+    setConfigOpen((open) => !open);
+  }
+
+  async function saveConfig() {
+    setConfigSaving(true);
+    setConfigError(null);
+    try {
+      const update = {
+        targetUrl: configForm.targetUrl,
+        channel: configForm.channel,
+        timeoutSeconds: Number(configForm.timeoutSeconds),
+        contextLimit: Number(configForm.contextLimit),
+        retryOnNon200: configForm.retryOnNon200,
+        ...(configForm.secret ? { secret: configForm.secret } : {})
+      };
+      const response = await fetch(`${SERVER_URL}/api/config`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(update)
+      });
+      const payload = (await response.json()) as InspectorSession | { error?: string; issues?: string[] };
+      if (!response.ok) {
+        const message = "issues" in payload && payload.issues?.length ? payload.issues.join("; ") : "error" in payload ? payload.error : undefined;
+        throw new Error(message || "Configuration update failed");
+      }
+      const state = payload as InspectorSession;
+      setLiveSession(state);
+      if (viewingSessionIdRef.current === null) setSession(state);
+      setChannel(state.channel);
+      const refreshed = await fetch(`${SERVER_URL}/api/config`);
+      const runtimeConfig = (await refreshed.json()) as RuntimeConfig;
+      setConfig(runtimeConfig);
+      setConfigForm(configToForm(runtimeConfig));
+      setConfigOpen(false);
+    } catch (error) {
+      setConfigError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setConfigSaving(false);
+    }
+  }
+
   const viewingLive = viewingSessionId === null;
 
   return (
@@ -293,6 +357,14 @@ export function Inspector() {
               <FileCode2 size={16} />
             </button>
             <button
+              onClick={toggleConfig}
+              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 ${configOpen ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              title="Runtime configuration"
+              aria-label="Runtime configuration"
+            >
+              <Settings size={16} />
+            </button>
+            <button
               onClick={() => void toggleBaseline()}
               disabled={!session}
               className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-fern text-fern" : "border-line text-slate-600"}`}
@@ -321,6 +393,78 @@ export function Inspector() {
             </button>
           </div>
         </div>
+        {configOpen ? (
+          <div className="border-t border-line bg-mist">
+            <div className="mx-auto grid max-w-[1440px] gap-3 px-5 py-4 md:grid-cols-2 xl:grid-cols-[minmax(260px,2fr)_minmax(180px,1fr)_120px_120px_120px_auto]">
+              <ConfigField label="Target webhook">
+                <input
+                  value={configForm.targetUrl}
+                  onChange={(event) => setConfigForm((form) => ({ ...form, targetUrl: event.target.value }))}
+                  className="config-input"
+                  placeholder="http://localhost:3000/webhook"
+                />
+              </ConfigField>
+              <ConfigField label={`Signing secret (${config?.secretPreview ?? "not loaded"})`}>
+                <input
+                  type="password"
+                  value={configForm.secret}
+                  onChange={(event) => setConfigForm((form) => ({ ...form, secret: event.target.value }))}
+                  className="config-input"
+                  placeholder="Leave blank to keep"
+                  autoComplete="off"
+                />
+              </ConfigField>
+              <ConfigField label="Default channel">
+                <select
+                  value={configForm.channel}
+                  onChange={(event) => setConfigForm((form) => ({ ...form, channel: event.target.value as "sms" | "voice" }))}
+                  className="config-input"
+                >
+                  <option value="voice">voice</option>
+                  <option value="sms">sms</option>
+                </select>
+              </ConfigField>
+              <ConfigField label="Timeout (s)">
+                <input
+                  type="number"
+                  min={5}
+                  max={120}
+                  value={configForm.timeoutSeconds}
+                  onChange={(event) => setConfigForm((form) => ({ ...form, timeoutSeconds: event.target.value }))}
+                  className="config-input"
+                />
+              </ConfigField>
+              <ConfigField label="Context limit">
+                <input
+                  type="number"
+                  min={0}
+                  max={50}
+                  value={configForm.contextLimit}
+                  onChange={(event) => setConfigForm((form) => ({ ...form, contextLimit: event.target.value }))}
+                  className="config-input"
+                />
+              </ConfigField>
+              <div className="flex items-end gap-2">
+                <label className="flex h-9 items-center gap-2 whitespace-nowrap text-xs text-slate-600">
+                  <input
+                    type="checkbox"
+                    checked={configForm.retryOnNon200}
+                    onChange={(event) => setConfigForm((form) => ({ ...form, retryOnNon200: event.target.checked }))}
+                  />
+                  Retry failures
+                </label>
+                <button
+                  onClick={() => void saveConfig()}
+                  disabled={configSaving}
+                  className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  {configSaving ? "Saving…" : "Save"}
+                </button>
+              </div>
+              {configError ? <div className="text-xs text-danger md:col-span-2 xl:col-span-6">{configError}</div> : null}
+            </div>
+          </div>
+        ) : null}
       </header>
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
@@ -670,6 +814,15 @@ function KeyValue({ name, value }: { name: string; value: string }) {
   );
 }
 
+function ConfigField({ label, children }: { label: string; children: React.ReactNode }) {
+  return (
+    <label className="block min-w-0">
+      <span className="mb-1 block truncate text-[11px] font-medium uppercase text-slate-500">{label}</span>
+      {children}
+    </label>
+  );
+}
+
 function EmptyLine({ label }: { label: string }) {
   return <div className="grid min-h-[160px] place-items-center text-sm text-slate-400">{label}</div>;
 }
@@ -695,5 +848,16 @@ function summarizeLive(session: InspectorSession): InspectorSessionSummary {
     deliveries: session.deliveries.length,
     outcome: session.evalResult?.outcome,
     score: session.evalResult?.score
+  };
+}
+
+function configToForm(config: RuntimeConfig) {
+  return {
+    targetUrl: config.targetUrl,
+    secret: "",
+    channel: config.channel,
+    timeoutSeconds: String(config.timeoutSeconds),
+    contextLimit: String(config.contextLimit),
+    retryOnNon200: Boolean(config.retryOnNon200)
   };
 }

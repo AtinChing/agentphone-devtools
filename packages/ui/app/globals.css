@@ -2,6 +2,12 @@
 @tailwind components;
 @tailwind utilities;
 
+@layer components {
+  .config-input {
+    @apply h-9 w-full rounded-md border border-line bg-white px-2 text-xs text-ink outline-none focus:border-fern;
+  }
+}
+
 :root {
   color-scheme: light;
 }

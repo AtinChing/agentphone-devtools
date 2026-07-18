@@ -4,6 +4,7 @@ import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
 import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
+import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -34,6 +35,7 @@ import {
 
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
 export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
+export { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -47,8 +49,6 @@ export interface DevtoolsServerConfig {
   historyPath: string;
   historyLimit: number;
 }
-
-type RuntimeConfigUpdate = Partial<Omit<DevtoolsServerConfig, "port" | "historyPath" | "historyLimit">>;
 
 export interface InspectorRequest {
   headers: Record<string, string>;
@@ -233,7 +233,7 @@ export class DevtoolsRuntime {
   }
 
   updateConfig(update: RuntimeConfigUpdate): InspectorSession {
-    this.config = { ...this.config, ...compact(update) };
+    this.config = { ...this.config, ...parseRuntimeConfigUpdate(update) };
     this.session.targetUrl = this.config.targetUrl;
     this.session.secretPreview = maskSecret(this.config.secret);
     this.session.channel = this.config.channel;
@@ -244,7 +244,7 @@ export class DevtoolsRuntime {
   reset(update?: RuntimeConfigUpdate & { conversationState?: ConversationState }): InspectorSession {
     if (update) {
       const { conversationState, ...configUpdate } = update;
-      this.config = { ...this.config, ...compact(configUpdate) };
+      this.config = { ...this.config, ...parseRuntimeConfigUpdate(configUpdate) };
       this.conversationState = conversationState ?? null;
     } else {
       this.conversationState = null;
@@ -383,10 +383,11 @@ export class DevtoolsRuntime {
       secret: this.config.secret,
       previousWebhookId: this.session.deliveries.at(-1)?.webhookId
     });
+    const replayTarget = input.targetUrl ? parseRuntimeConfigUpdate({ targetUrl: input.targetUrl }).targetUrl : undefined;
     const delivery = await this.dispatchSignedAndRecord(injected.delivery, {
       appliedFaults: injected.applied,
       simulateTimeout: input.fault?.simulateTimeout === true,
-      targetUrl: input.targetUrl,
+      targetUrl: replayTarget,
       replayOf: { sessionId: input.sessionId, deliveryId: input.deliveryId }
     });
     this.publishState();
@@ -644,11 +645,23 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
 
   app.post<{
     Body: RuntimeConfigUpdate;
-  }>("/api/config", async (request) => runtime.updateConfig(request.body));
+  }>("/api/config", async (request, reply) => {
+    try {
+      return runtime.updateConfig(request.body);
+    } catch (error) {
+      return sendConfigValidationError(reply, error);
+    }
+  });
 
   app.post<{
     Body: RuntimeConfigUpdate & { conversationState?: ConversationState };
-  }>("/api/reset", async (request) => runtime.reset(request.body));
+  }>("/api/reset", async (request, reply) => {
+    try {
+      return runtime.reset(request.body);
+    } catch (error) {
+      return sendConfigValidationError(reply, error);
+    }
+  });
 
   app.post<{
     Body: { text: string; channel?: "sms" | "voice"; fault?: DeliveryFault };
@@ -679,7 +692,12 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     if (body.body && !isAgentPhoneEnvelope(body.body)) {
       return reply.code(400).send({ error: "body must be an AgentPhone event envelope" });
     }
-    const delivery = await runtime.replayDelivery(body);
+    let delivery: InspectorDelivery | null;
+    try {
+      delivery = await runtime.replayDelivery(body);
+    } catch (error) {
+      return sendConfigValidationError(reply, error);
+    }
     if (!delivery) return reply.code(404).send({ error: "source delivery not found" });
     return delivery;
   });
@@ -836,4 +854,11 @@ function optionalNumber(value: string | undefined): number | undefined {
   if (value === undefined || value.trim() === "") return undefined;
   const parsed = Number(value);
   return Number.isFinite(parsed) ? parsed : undefined;
+}
+
+function sendConfigValidationError(reply: { code: (statusCode: number) => { send: (payload: unknown) => unknown } }, error: unknown) {
+  if (error instanceof RuntimeConfigValidationError) {
+    return reply.code(400).send({ error: error.message, issues: error.issues });
+  }
+  throw error;
 }
