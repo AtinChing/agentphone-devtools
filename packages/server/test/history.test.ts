@@ -146,11 +146,7 @@ describe("persistent run history", () => {
     expect(parseScenario(json.body, "recorded.json")).toMatchObject({
       name: `Recorded run ${sessionId}`,
       channel: "voice",
-      expectedOutcome: "failed",
-      turns: [
-        { caller: "My charger stopped." },
-        { caller: "It is charger EV-2204.", expect: { outcome: "failed" } }
-      ]
+      turns: [{ caller: "My charger stopped." }, { caller: "It is charger EV-2204." }]
     });
 
     expect(yaml.statusCode).toBe(200);
@@ -179,13 +175,11 @@ describe("persistent run history", () => {
       conversationState: null,
       contextLimit: 10,
       timeoutSeconds: 5,
-      expectedOutcome: "handed_off",
       turns: [{ caller: "Get me a specialist", expect: { actions: ["transfer"] } }]
     });
 
-    expect(session.evalResult).toMatchObject({ outcome: "handed_off", correctActions: true });
     expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
-    expect(session.scenarioResult?.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery", "outcome"]);
+    expect(session.scenarioResult?.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery"]);
   });
 
   it("passes expected security rejections from injected request faults", async () => {
@@ -203,7 +197,6 @@ describe("persistent run history", () => {
       conversationState: null,
       contextLimit: 10,
       timeoutSeconds: 5,
-      expectedOutcome: "failed",
       turns: [
         {
           caller: "Unsigned request",
@@ -234,7 +227,6 @@ describe("persistent run history", () => {
       conversationState: null,
       contextLimit: 10,
       timeoutSeconds: 5,
-      expectedOutcome: "failed",
       turns: [
         {
           caller: "Timeout please",

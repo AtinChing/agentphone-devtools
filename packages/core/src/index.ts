@@ -1,5 +1,4 @@
 export * from "./dispatch.js";
-export * from "./eval.js";
 export * from "./events.js";
 export * from "./faults.js";
 export * from "./scenario.js";

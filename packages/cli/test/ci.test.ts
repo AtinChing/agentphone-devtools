@@ -15,38 +15,31 @@ afterEach(async () => {
 describe("headless scenario CI", () => {
   it("passes assertions and writes a secret-safe JSON report", async () => {
     const directory = temporaryDirectory();
-    const scenarioPath = writeScenario(directory, "resolved");
+    const scenarioPath = writeScenario(directory, true);
     const reportPath = join(directory, "reports", "run.json");
     const junitPath = join(directory, "reports", "run.xml");
     const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set.", hangup: true });
 
-    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {
-      minimumScore: 80,
-      reportPath,
-      junitPath
-    });
+    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { reportPath, junitPath });
 
     expect(result.summary).toMatchObject({
       passed: true,
-      outcome: "resolved",
-      minimumScore: 80,
       assertions: { failed: 0 }
     });
     const report = readFileSync(reportPath, "utf8");
-    expect(JSON.parse(report)).toMatchObject({ schemaVersion: 1, ci: { passed: true, scorePassed: true } });
+    expect(JSON.parse(report)).toMatchObject({ schemaVersion: 1, ci: { passed: true } });
     expect(report).not.toContain("whsec_super_secret_value");
     const junit = readFileSync(junitPath, "utf8");
-    expect(junit).toContain('<testsuite name="AgentPhone: scenario.json" tests="3" failures="0"');
+    expect(junit).toContain('<testsuite name="AgentPhone: scenario.json" tests="2" failures="0"');
     expect(junit).toContain('<testcase classname="agentphone.scenario" name="turn 1 delivery">');
-    expect(junit).toContain('<testcase classname="agentphone.scenario" name="minimum eval score">');
   });
 
-  it("fails when webhook delivery and outcome expectations are unmet", async () => {
+  it("fails when webhook delivery expectations are unmet", async () => {
     const directory = temporaryDirectory();
-    const scenarioPath = writeScenario(directory, "resolved");
+    const scenarioPath = writeScenario(directory, false);
     const targetUrl = await webhookTarget(500, { error: "nope" });
 
-    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 0 });
+    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {});
 
     expect(result.passed).toBe(false);
     expect(result.summary.assertions.failed).toBeGreaterThan(0);
@@ -55,25 +48,13 @@ describe("headless scenario CI", () => {
     );
   });
 
-  it("fails runs below the configured score even when assertions pass", async () => {
-    const directory = temporaryDirectory();
-    const scenarioPath = writeScenario(directory, "failed");
-    const targetUrl = await webhookTarget(200, {});
-
-    const result = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 80 });
-
-    expect(result.session.scenarioResult?.passed).toBe(true);
-    expect(result.scorePassed).toBe(false);
-    expect(result.passed).toBe(false);
-  });
-
   it("escapes assertion failures in JUnit reports", async () => {
     const directory = temporaryDirectory();
-    const scenarioPath = writeScenario(directory, "resolved");
+    const scenarioPath = writeScenario(directory, false);
     const junitPath = join(directory, "failure.xml");
     const targetUrl = await webhookTarget(500, { error: "bad <response> & retry" });
 
-    await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 90, junitPath });
+    await runScenarioInCi(config(directory, targetUrl), scenarioPath, { junitPath });
 
     const junit = readFileSync(junitPath, "utf8");
     expect(junit).toContain('failures="');
@@ -84,17 +65,13 @@ describe("headless scenario CI", () => {
 
   it("runs every suite scenario and writes aggregate JSON and JUnit reports", async () => {
     const directory = temporaryDirectory();
-    const passing = writeScenario(directory, "resolved", "passing.json");
-    const failing = writeScenario(directory, "failed", "failing.json");
+    const passing = writeScenario(directory, false, "passing.json");
+    const failing = writeScenario(directory, true, "failing.json");
     const reportPath = join(directory, "suite.json");
     const junitPath = join(directory, "suite.xml");
     const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set." });
 
-    const result = await runScenarioSuiteInCi(config(directory, targetUrl), [passing, failing], {
-      minimumScore: 0,
-      reportPath,
-      junitPath
-    });
+    const result = await runScenarioSuiteInCi(config(directory, targetUrl), [passing, failing], { reportPath, junitPath });
 
     expect(result.summary).toMatchObject({ passed: false, total: 2, passedCount: 1, failedCount: 1 });
     expect(result.runs.map((run) => run.summary.scenarioPath)).toEqual([passing, failing]);
@@ -109,31 +86,29 @@ describe("headless scenario CI", () => {
     expect(report).not.toContain("whsec_super_secret_value");
 
     const junit = readFileSync(junitPath, "utf8");
-    expect(junit).toContain('<testsuites name="AgentPhone scenario suite" tests="6" failures="1"');
+    expect(junit).toContain('<testsuites name="AgentPhone scenario suite" tests="3" failures="1"');
     expect(junit).toContain('name="AgentPhone: passing.json"');
     expect(junit).toContain('name="AgentPhone: failing.json"');
   });
 
   it("fails an otherwise passing scenario when baseline behavior regresses", async () => {
     const directory = temporaryDirectory();
-    const scenarioPath = writeScenario(directory, "resolved");
+    const scenarioPath = writeScenario(directory, false);
     const targetUrl = await webhookTarget(200, { text: "Your charger is fixed. You are all set." });
-    const initial = await runScenarioInCi(config(directory, targetUrl), scenarioPath, { minimumScore: 0 });
+    const initial = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {});
     const baseline = structuredClone(initial.session);
     baseline.id = "baseline_session";
-    if (!baseline.evalResult) throw new Error("Expected eval result");
-    baseline.evalResult.score = Math.min(100, baseline.evalResult.score + 5);
+    baseline.deliveries[0].response.parsed.chunks = [{ action: "transfer" }];
     const junitPath = join(directory, "baseline.xml");
 
     const candidate = await runScenarioInCi(config(directory, targetUrl), scenarioPath, {
-      minimumScore: 0,
       baselines: [{ scenarioPath, session: baseline }],
       junitPath
     });
 
     expect(candidate.session.scenarioResult?.passed).toBe(true);
     expect(candidate.passed).toBe(false);
-    expect(candidate.comparison).toMatchObject({ passed: false, score: { regressed: true, delta: -5 } });
+    expect(candidate.comparison).toMatchObject({ passed: false, actions: { regressed: true, missing: ["transfer"] } });
     expect(candidate.summary.baseline).toMatchObject({ found: true, passed: false, sessionId: "baseline_session" });
     expect(readFileSync(junitPath, "utf8")).toContain('name="baseline regression"');
   });
@@ -145,7 +120,7 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-function writeScenario(directory: string, expectedOutcome: "resolved" | "failed", filename = "scenario.json"): string {
+function writeScenario(directory: string, expectHangup: boolean, filename = "scenario.json"): string {
   const path = join(directory, filename);
   writeFileSync(
     path,
@@ -159,8 +134,12 @@ function writeScenario(directory: string, expectedOutcome: "resolved" | "failed"
       conversationState: null,
       contextLimit: 10,
       timeoutSeconds: 5,
-      expectedOutcome,
-      turns: [{ caller: "Please check charger 12" }]
+      turns: [
+        {
+          caller: "Please check charger 12",
+          ...(expectHangup ? { expect: { actions: ["hangup"] } } : {})
+        }
+      ]
     }),
     "utf8"
   );

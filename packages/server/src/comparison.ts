@@ -2,7 +2,6 @@ import { collectObservedActions } from "@agentphone-devtools/core";
 import type { InspectorSession } from "./index.js";
 
 export interface RunComparisonOptions {
-  maxScoreDrop?: number;
   maxLatencyIncreasePercent?: number;
   latencyGraceMs?: number;
   requireTranscriptMatch?: boolean;
@@ -13,18 +12,6 @@ export interface RunComparison {
   candidateSessionId: string;
   passed: boolean;
   regressions: string[];
-  outcome: {
-    baseline?: string;
-    candidate?: string;
-    changed: boolean;
-    regressed: boolean;
-  };
-  score: {
-    baseline?: number;
-    candidate?: number;
-    delta?: number;
-    regressed: boolean;
-  };
   actions: {
     baseline: string[];
     candidate: string[];
@@ -58,21 +45,9 @@ export function compareRuns(
   candidate: InspectorSession,
   options: RunComparisonOptions = {}
 ): RunComparison {
-  const maxScoreDrop = options.maxScoreDrop ?? 0;
   const maxLatencyIncreasePercent = options.maxLatencyIncreasePercent ?? 25;
   const latencyGraceMs = options.latencyGraceMs ?? 50;
   const regressions: string[] = [];
-
-  const baselineOutcome = baseline.evalResult?.outcome;
-  const candidateOutcome = candidate.evalResult?.outcome;
-  const outcomeRegressed = outcomeRank(candidateOutcome) > outcomeRank(baselineOutcome);
-  if (outcomeRegressed) regressions.push(`Outcome regressed from ${baselineOutcome ?? "unknown"} to ${candidateOutcome ?? "unknown"}`);
-
-  const baselineScore = baseline.evalResult?.score;
-  const candidateScore = candidate.evalResult?.score;
-  const scoreDelta = baselineScore === undefined || candidateScore === undefined ? undefined : candidateScore - baselineScore;
-  const scoreRegressed = scoreDelta === undefined ? baselineScore !== candidateScore : scoreDelta < -maxScoreDrop;
-  if (scoreRegressed) regressions.push(`Score changed from ${baselineScore ?? "unknown"} to ${candidateScore ?? "unknown"}`);
 
   const baselineActions = sessionActions(baseline);
   const candidateActions = sessionActions(candidate);
@@ -105,18 +80,6 @@ export function compareRuns(
     candidateSessionId: candidate.id,
     passed: regressions.length === 0,
     regressions,
-    outcome: {
-      baseline: baselineOutcome,
-      candidate: candidateOutcome,
-      changed: baselineOutcome !== candidateOutcome,
-      regressed: outcomeRegressed
-    },
-    score: {
-      baseline: baselineScore,
-      candidate: candidateScore,
-      delta: scoreDelta,
-      regressed: scoreRegressed
-    },
     actions: {
       baseline: baselineActions,
       candidate: candidateActions,
@@ -144,12 +107,6 @@ export function compareRuns(
       regressed: addedWarnings.length > 0
     }
   };
-}
-
-function outcomeRank(outcome: string | undefined): number {
-  if (outcome === "resolved") return 0;
-  if (outcome === "handed_off") return 1;
-  return 2;
 }
 
 function sessionActions(session: InspectorSession): string[] {

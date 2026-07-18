@@ -27,11 +27,9 @@ interface CliOptions {
   historyPath: string;
   historyLimit: number;
   ci: boolean;
-  minimumScore: number;
   reportJson?: string;
   reportJunit?: string;
   baselinePath?: string;
-  maxScoreDrop: number;
   maxLatencyIncreasePercent: number;
   requireTranscriptMatch: boolean;
 }
@@ -48,12 +46,10 @@ async function main() {
     const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
     const baselines = options.baselinePath ? await loadBaselineArtifact(options.baselinePath) : undefined;
     const runOptions = {
-      minimumScore: options.minimumScore,
       reportPath: options.reportJson,
       junitPath: options.reportJunit,
       baselines,
       comparisonOptions: {
-        maxScoreDrop: options.maxScoreDrop,
         maxLatencyIncreasePercent: options.maxLatencyIncreasePercent,
         requireTranscriptMatch: options.requireTranscriptMatch
       }
@@ -100,10 +96,7 @@ async function main() {
 
   if (options.scenarios.length === 1) {
     const scenarioPath = resolve(process.cwd(), options.scenarios[0]);
-    const finalState = await server.runtime.runScenario(scenarioPath);
-    if (finalState.evalResult) {
-      console.log(JSON.stringify({ eval: finalState.evalResult }, null, 2));
-    }
+    await server.runtime.runScenario(scenarioPath);
     if (options.exitAfterScenario) {
       await shutdown();
       return;
@@ -193,8 +186,6 @@ function parseArgs(args: string[]): CliOptions {
     historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
-    minimumScore: 0,
-    maxScoreDrop: 0,
     maxLatencyIncreasePercent: 25,
     requireTranscriptMatch: false,
     scenarios: [],
@@ -256,9 +247,6 @@ function parseArgs(args: string[]): CliOptions {
         options.exitAfterScenario = true;
         options.interactive = false;
         break;
-      case "--min-score":
-        options.minimumScore = Number(requireValue(args, ++i, arg));
-        break;
       case "--report-json":
         options.reportJson = requireValue(args, ++i, arg);
         break;
@@ -267,9 +255,6 @@ function parseArgs(args: string[]): CliOptions {
         break;
       case "--baseline":
         options.baselinePath = requireValue(args, ++i, arg);
-        break;
-      case "--max-score-drop":
-        options.maxScoreDrop = Number(requireValue(args, ++i, arg));
         break;
       case "--max-latency-increase":
         options.maxLatencyIncreasePercent = Number(requireValue(args, ++i, arg));
@@ -303,12 +288,6 @@ function parseArgs(args: string[]): CliOptions {
   }
   if (!Number.isInteger(options.historyLimit) || options.historyLimit < 1 || options.historyLimit > 1000) {
     throw new Error("--history-limit must be between 1 and 1000");
-  }
-  if (!Number.isFinite(options.minimumScore) || options.minimumScore < 0 || options.minimumScore > 100) {
-    throw new Error("--min-score must be between 0 and 100");
-  }
-  if (!Number.isFinite(options.maxScoreDrop) || options.maxScoreDrop < 0 || options.maxScoreDrop > 100) {
-    throw new Error("--max-score-drop must be between 0 and 100");
   }
   if (!Number.isFinite(options.maxLatencyIncreasePercent) || options.maxLatencyIncreasePercent < 0) {
     throw new Error("--max-latency-increase must be zero or greater");
@@ -372,11 +351,9 @@ Options:
   --no-open                  Do not open the browser
   --exit-after-scenario      Exit after scenario completes
   --ci                       Run one or more scenarios headlessly
-  --min-score <0-100>        Minimum eval score required in CI mode, default 0
   --report-json <path>       Write the full run report in CI mode
   --report-junit <path>      Write JUnit XML with one test per assertion
   --baseline <report.json>   Fail CI when behavior regresses from a prior report
-  --max-score-drop <0-100>   Allowed score decrease from baseline, default 0
   --max-latency-increase <%> Allowed latency increase, default 25
   --require-transcript-match Fail when transcript text differs from baseline
 `);

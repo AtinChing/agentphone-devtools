@@ -1,6 +1,6 @@
 # AgentPhone DevTools
 
-AgentPhone DevTools is a local simulator, inspector, and lightweight eval loop for developers building on [AgentPhone](https://agentphone.ai). It makes AgentPhone agents easier to build without placing real calls, sending real texts, spending money, or hurting number reputation while debugging.
+AgentPhone DevTools is a local simulator, inspector, and regression test loop for developers building on [AgentPhone](https://agentphone.ai). It makes AgentPhone agents easier to build without placing real calls, sending real texts, spending money, or hurting number reputation while debugging.
 
 ![AgentPhone DevTools demo](docs/demo.gif)
 
@@ -13,7 +13,7 @@ npm --workspace examples/handler-express start
 npx agentphone-devtools --target http://localhost:3000/webhook --secret whsec_demo --scenario examples/scenarios/ev-support.yaml
 ```
 
-The CLI starts the simulator API and the inspector UI together, opens the inspector, replays the scenario against your local webhook, and renders the transcript, signed requests, responses, latency, call-ended summary, and eval result.
+The CLI starts the simulator API and the inspector UI together, opens the inspector, replays the scenario against your local webhook, and renders the transcript, signed requests, responses, latency, call-ended summary, and objective scenario assertions.
 
 ## What Ships
 
@@ -22,17 +22,16 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
 - Message-channel response parsing for plain text, JSON strings, and JSON objects.
-- Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and eval card.
+- Live inspector with timeline, transcript, request/response payloads, latency flags, call-ended panel, warnings, and scenario assertions.
 - Persistent run history with read-only session inspection, report exports, bounded retention, and deletion controls.
 - Scenario recording from live or saved runs into replayable YAML or JSON.
 - Scenario replay from YAML or JSON with Zod validation.
-- Per-turn delivery and action assertions plus final outcome assertions.
+- Per-turn delivery and action assertions.
 - Scenario-driven webhook fault injection for signatures, timestamps, bodies, IDs, timeouts, and retries.
 - Editable delivery replay from live or historical runs with re-signing and source lineage.
-- Persistent approved baselines with six-dimension regression comparison in the Inspector and CI.
+- Persistent approved baselines with action, transcript, latency, and warning comparison in the Inspector and CI.
 - Validated runtime configuration from the Inspector without exposing the signing secret.
-- Headless single-scenario and multi-scenario CI suites with score gates, aggregate reports, and meaningful exit codes.
-- Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
+- Headless single-scenario and multi-scenario CI suites with explicit assertion gates, aggregate reports, and meaningful exit codes.
 - Reference Express handler that verifies signatures before replying.
 
 ## CLI
@@ -57,7 +56,6 @@ Useful options:
 --no-open                  Keep the browser closed
 --exit-after-scenario      Exit after scenario replay, useful for CI
 --ci                       Run one or more scenarios headlessly
---min-score <0-100>        Require a minimum deterministic eval score
 --report-json <path>       Write a complete machine-readable run report
 --report-junit <path>      Write one JUnit test case per scenario assertion
 ```
@@ -77,11 +75,11 @@ Critical detail: the simulator serializes once, signs that exact string, and sen
 
 ## Zero-Cost Defaults
 
-The default workflow uses no AgentPhone account, no real number, no carrier traffic, and no paid model call. Optional model-judge eval is intentionally disabled unless a provider key is explicitly configured.
+The default workflow uses no AgentPhone account, no real number, no carrier traffic, and no paid model call.
 
 ## Run History
 
-Sessions are saved locally as they change and remain available in the inspector after restarting the CLI. Open the **Runs** tab to inspect a previous transcript, delivery timeline, payloads, warnings, and eval result without affecting the live session.
+Sessions are saved locally as they change and remain available in the inspector after restarting the CLI. Open the **Runs** tab to inspect a previous transcript, delivery timeline, payloads, warnings, and assertions without affecting the live session.
 
 By default, history is stored at `.agentphone-devtools/history.json` in the directory where the CLI starts. Writes use a temporary file and atomic rename, the file is created with owner-only permissions, and only the masked secret preview is stored. The signing secret is never written to history.
 
@@ -89,7 +87,7 @@ The default retention limit is 100 runs. Override the location or limit with CLI
 
 ## Run Reports
 
-Open any live or saved run in the inspector and use the JSON or Markdown export buttons in the header. Reports include the session summary, transcript, deliveries, response parsing, warnings, call-ended summary, and eval result. They keep the same secret handling as history: only the masked `secretPreview` is included.
+Open any live or saved run in the inspector and use the JSON or Markdown export buttons in the header. Reports include the session summary, transcript, deliveries, response parsing, warnings, call-ended summary, and scenario assertions. They keep the same secret handling as history: only the masked `secretPreview` is included.
 
 The same reports are available from the local API:
 
@@ -100,7 +98,7 @@ GET /api/history/:sessionId/report.md
 
 ## Scenario Recording
 
-Use the inspector to walk through a manual run, then click the scenario export button to download replayable YAML. The generated scenario keeps the caller turns, channel, expected outcome when an eval exists, and the live run's timeout/context settings. Saved runs that were created before these settings were stored use the normal defaults.
+Use the inspector to walk through a manual run, then click the scenario export button to download replayable YAML. The generated scenario keeps the caller turns, channel, and the live run's timeout/context settings. Review the export and add explicit action or delivery expectations before approving it as a regression scenario.
 
 The same scenario exports are available from the local API:
 
@@ -123,7 +121,6 @@ npx agentphone-devtools \
 Every scenario run now checks that each caller turn reached the webhook successfully. Add `expect.actions` to a turn to require an action in that turn's handler response. Action aliases are normalized, so `hangup: true` satisfies `hangup` and a `transferNumber` satisfies `transfer`.
 
 ```yaml
-expectedOutcome: resolved
 turns:
   - caller: "Thanks, it is working now."
     expect:
@@ -131,11 +128,11 @@ turns:
         - hangup
 ```
 
-The completed run contains a scenario result with each delivery, action, and outcome assertion. The Inspector shows every assertion as PASS or FAIL, and JSON/Markdown run exports retain the same details.
+The completed run contains a scenario result with each delivery and action assertion. The Inspector shows every assertion as PASS or FAIL, and JSON/Markdown run exports retain the same details.
 
 ## Headless CI
 
-Use `--ci` to run without starting Next.js, opening a browser, or binding the simulator API port. The command exits with status `1` when a webhook delivery fails, an expected action or outcome is missing, or the eval score is below `--min-score`.
+Use `--ci` to run without starting Next.js, opening a browser, or binding the simulator API port. The command exits with status `1` when a webhook delivery fails, an expected action is missing, or baseline behavior regresses.
 
 ```bash
 npx agentphone-devtools \
@@ -143,12 +140,11 @@ npx agentphone-devtools \
   --target http://localhost:3000/webhook \
   --secret whsec_demo \
   --scenario examples/scenarios/ev-support.yaml \
-  --min-score 80 \
   --report-json .agentphone-devtools/ci/run.json \
   --report-junit .agentphone-devtools/ci/junit.xml
 ```
 
-Standard output is a compact JSON summary suitable for logs. The JSON artifact contains the full secret-safe run report, while JUnit contains one test case per assertion plus the score gate so existing CI test reporters can show the exact failed turn.
+Standard output is a compact JSON summary suitable for logs. The JSON artifact contains the full secret-safe run report, while JUnit contains one test case per explicit assertion so existing CI test reporters can show the exact failed turn.
 
 This path remains zero-cost and local: it calls only the target webhook you provide and never invokes a model, AgentPhone number, carrier, or paid API.
 
@@ -162,7 +158,6 @@ npx agentphone-devtools \
   --target http://localhost:3000/webhook \
   --secret whsec_demo \
   --scenario-dir examples/scenarios \
-  --min-score 80 \
   --report-json .agentphone-devtools/ci/suite.json \
   --report-junit .agentphone-devtools/ci/suite.xml
 ```
@@ -232,8 +227,6 @@ The request accepts `sessionId`, `deliveryId`, optional replacement `body`, opti
 
 Open an approved run and click the bookmark button to give it a persistent baseline name. The **Baseline** card can compare any viewed run against a saved baseline across:
 
-- Outcome changes and regressions.
-- Eval score delta.
 - Missing or added actions.
 - Normalized transcript changes.
 - Average webhook latency and percentage increase.
@@ -256,7 +249,6 @@ npx agentphone-devtools \
   --target http://localhost:3000/webhook \
   --secret whsec_demo \
   --baseline .agentphone-devtools/ci/approved-suite.json \
-  --max-score-drop 0 \
   --max-latency-increase 25
 ```
 
@@ -276,7 +268,7 @@ POST /api/config
 ## Repo Layout
 
 ```text
-packages/core      payload builders, signer, dispatcher, scenarios, eval
+packages/core      payload builders, signer, dispatcher, scenarios, assertions
 packages/server    Fastify simulator API and SSE stream
 packages/ui        Next.js inspector
 packages/cli       npx-runnable entrypoint
@@ -301,7 +293,7 @@ npx agentphone-devtools \
   --scenario examples/scenarios/ev-support.yaml
 ```
 
-The EV support scenario completes locally and the eval card should read `resolved`.
+The EV support scenario completes locally and every scenario assertion should pass.
 
 ## Environment
 

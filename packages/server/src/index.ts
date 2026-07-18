@@ -11,13 +11,11 @@ import {
   buildSignedDelivery,
   buildVoiceMessageEvent,
   dispatchSignedDelivery,
-  evaluateConversation,
   evaluateScenario,
   id,
   injectDeliveryFaults,
   isoNow,
   loadScenarioFile,
-  maybeEvaluateWithLlm,
   scenarioToRecentHistory,
   type AgentPhoneChannel,
   type AgentPhoneEnvelope,
@@ -26,7 +24,6 @@ import {
   type ConversationState,
   type DispatchResult,
   type DeliveryFault,
-  type EvalResult,
   type Scenario,
   type ScenarioResult,
   type SignedDelivery,
@@ -108,7 +105,6 @@ export interface InspectorSession {
   transcript: TranscriptTurn[];
   deliveries: InspectorDelivery[];
   callEnded?: CallEndedEnvelope["data"];
-  evalResult?: EvalResult;
   scenarioResult?: ScenarioResult;
   baseline?: {
     name: string;
@@ -126,8 +122,6 @@ export interface InspectorSessionSummary {
   endedAt?: string;
   transcriptTurns: number;
   deliveries: number;
-  outcome?: EvalResult["outcome"];
-  score?: number;
   baselineName?: string;
 }
 
@@ -302,10 +296,6 @@ export class DevtoolsRuntime {
     this.session.endedAt = isoNow();
 
     if (this.session.channel !== "voice") {
-      this.session.evalResult = maybeEvaluateWithLlm({
-        transcript: this.session.transcript,
-        responses: this.session.deliveries.flatMap((delivery) => delivery.response.parsed.chunks)
-      });
       this.publishState();
       return null;
     }
@@ -320,7 +310,6 @@ export class DevtoolsRuntime {
     });
     const delivery = await this.dispatchAndRecord(payload);
     this.session.callEnded = payload.data;
-    this.session.evalResult = this.buildEvalResult(payload.data);
     this.publishState();
     return delivery;
   }
@@ -347,16 +336,9 @@ export class DevtoolsRuntime {
     }
 
     const callEndedDelivery = await this.endCall();
-    const expectedActions = scenario.turns.flatMap((turn) => turn.expect?.actions ?? []);
-    if (this.session.callEnded) {
-      this.session.evalResult = this.buildEvalResult(this.session.callEnded, scenario.expectedOutcome, expectedActions);
-    } else {
-      this.session.evalResult = this.buildEvalResult(undefined, scenario.expectedOutcome, expectedActions);
-    }
     this.session.scenarioResult = evaluateScenario(scenario, {
       turns: turnDeliveries.map(toScenarioTurnObservation),
-      ...(callEndedDelivery ? { callEnded: toScenarioTurnObservation(callEndedDelivery) } : {}),
-      evalResult: this.session.evalResult
+      ...(callEndedDelivery ? { callEnded: toScenarioTurnObservation(callEndedDelivery) } : {})
     });
     for (const assertion of this.session.scenarioResult.assertions) {
       if (!assertion.passed) this.session.warnings.push(assertion.message);
@@ -491,23 +473,6 @@ export class DevtoolsRuntime {
     this.pushTranscript({ role: "agent", content: responseText }, isoNow(), channel);
   }
 
-  private buildEvalResult(
-    callEnded?: CallEndedEnvelope["data"],
-    expectedOutcome?: EvalResult["outcome"],
-    expectedActions?: string[]
-  ): EvalResult {
-    return evaluateConversation({
-      transcript: this.session.transcript,
-      callEnded,
-      expectedOutcome,
-      expectedActions,
-      responses: this.session.deliveries.filter((item) => item.event === "agent.message").flatMap((item) => item.response.parsed.chunks),
-      deadAirTurns: this.session.deliveries
-        .filter((item) => item.event === "agent.message")
-        .filter((item) => item.warnings.some((warning) => warning.includes("silence") || warning.includes("dead air"))).length
-    });
-  }
-
   private pushTranscript(turn: TranscriptTurn, at: string, channel: "sms" | "voice"): void {
     this.session.transcript.push(turn);
     this.history.push({ ...turn, at, channel });
@@ -628,7 +593,6 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   app.get<{
     Params: { baselineSessionId: string; candidateSessionId: string };
     Querystring: {
-      maxScoreDrop?: string;
       maxLatencyIncreasePercent?: string;
       latencyGraceMs?: string;
       requireTranscriptMatch?: string;
@@ -785,8 +749,6 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     endedAt: session.endedAt,
     transcriptTurns: session.transcript.length,
     deliveries: session.deliveries.length,
-    outcome: session.evalResult?.outcome,
-    score: session.evalResult?.score,
     baselineName: session.baseline?.name
   };
 }
@@ -837,13 +799,11 @@ function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
 }
 
 function comparisonOptionsFromQuery(query: {
-  maxScoreDrop?: string;
   maxLatencyIncreasePercent?: string;
   latencyGraceMs?: string;
   requireTranscriptMatch?: string;
 }): RunComparisonOptions {
   return compact({
-    maxScoreDrop: optionalNumber(query.maxScoreDrop),
     maxLatencyIncreasePercent: optionalNumber(query.maxLatencyIncreasePercent),
     latencyGraceMs: optionalNumber(query.latencyGraceMs),
     requireTranscriptMatch: query.requireTranscriptMatch === undefined ? undefined : query.requireTranscriptMatch === "true"

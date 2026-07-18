@@ -53,23 +53,8 @@ export interface TranscriptTurn {
   content: string;
 }
 
-export interface EvalResult {
-  outcome: "resolved" | "handed_off" | "failed";
-  stayedOnTask: boolean;
-  correctActions: boolean | null;
-  score: number;
-  reasons: string[];
-  metrics: {
-    turnCount: number;
-    agentTurns: number;
-    userTurns: number;
-    deadAirTurns: number;
-    durationSeconds?: number;
-  };
-}
-
 export interface ScenarioAssertion {
-  kind: "delivery" | "outcome" | "action";
+  kind: "delivery" | "action";
   passed: boolean;
   expected: string;
   observed: string;
@@ -103,7 +88,6 @@ export interface InspectorSession {
     durationSeconds: number;
     disconnectionReason: string;
   };
-  evalResult?: EvalResult;
   scenarioResult?: ScenarioResult;
   baseline?: {
     name: string;
@@ -121,8 +105,6 @@ export interface InspectorSessionSummary {
   endedAt?: string;
   transcriptTurns: number;
   deliveries: number;
-  outcome?: EvalResult["outcome"];
-  score?: number;
   baselineName?: string;
 }
 
@@ -131,8 +113,6 @@ export interface RunComparison {
   candidateSessionId: string;
   passed: boolean;
   regressions: string[];
-  outcome: { baseline?: string; candidate?: string; changed: boolean; regressed: boolean };
-  score: { baseline?: number; candidate?: number; delta?: number; regressed: boolean };
   actions: { baseline: string[]; candidate: string[]; missing: string[]; added: string[]; regressed: boolean };
   transcript: { baselineTurns: number; candidateTurns: number; changed: boolean; regressed: boolean };
   latency: { baselineAverageMs: number; candidateAverageMs: number; deltaMs: number; deltaPercent: number; regressed: boolean };

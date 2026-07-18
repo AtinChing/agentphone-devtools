@@ -1,4 +1,4 @@
-import type { AgentResponseChunk, EvalResult, Scenario, ScenarioAssertion, ScenarioResult } from "./types.js";
+import type { AgentResponseChunk, Scenario, ScenarioAssertion, ScenarioResult } from "./types.js";
 
 export interface ScenarioTurnObservation {
   ok: boolean;
@@ -11,7 +11,6 @@ export interface ScenarioTurnObservation {
 export interface ScenarioObservation {
   turns: ScenarioTurnObservation[];
   callEnded?: ScenarioTurnObservation;
-  evalResult: EvalResult;
 }
 
 export function evaluateScenario(scenario: Scenario, observation: ScenarioObservation): ScenarioResult {
@@ -105,19 +104,6 @@ export function evaluateScenario(scenario: Scenario, observation: ScenarioObserv
       message: passed
         ? "Call-ended webhook delivery succeeded"
         : `Call-ended webhook delivery failed (${deliveryObservation(observation.callEnded)})`
-    });
-  }
-
-  if (scenario.expectedOutcome) {
-    const passed = observation.evalResult.outcome === scenario.expectedOutcome;
-    assertions.push({
-      kind: "outcome",
-      passed,
-      expected: scenario.expectedOutcome,
-      observed: observation.evalResult.outcome,
-      message: passed
-        ? `Observed expected outcome ${scenario.expectedOutcome}`
-        : `Expected outcome ${scenario.expectedOutcome}, observed ${observation.evalResult.outcome}`
     });
   }
 

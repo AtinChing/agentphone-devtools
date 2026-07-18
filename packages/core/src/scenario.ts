@@ -22,7 +22,6 @@ const scenarioSchema = z
             caller: z.string().min(1),
             expect: z
               .object({
-                outcome: z.enum(["resolved", "handed_off", "failed"]).optional(),
                 actions: z.array(z.string()).optional(),
                 status: z.number().int().min(100).max(599).optional(),
                 timedOut: z.boolean().optional(),
@@ -46,8 +45,7 @@ const scenarioSchema = z
           })
           .strict()
       )
-      .min(1),
-    expectedOutcome: z.enum(["resolved", "handed_off", "failed"]).optional()
+      .min(1)
   })
   .strict();
 
@@ -58,11 +56,7 @@ export async function loadScenarioFile(path: string): Promise<Scenario> {
 
 export function parseScenario(raw: string, source = "scenario"): Scenario {
   const parsed = source.endsWith(".json") ? JSON.parse(raw) : YAML.parse(raw);
-  const scenario = scenarioSchema.parse(parsed);
-  return {
-    ...scenario,
-    expectedOutcome: scenario.expectedOutcome ?? scenario.turns.find((turn) => turn.expect?.outcome)?.expect?.outcome
-  };
+  return scenarioSchema.parse(parsed);
 }
 
 export function scenarioToRecentHistory(

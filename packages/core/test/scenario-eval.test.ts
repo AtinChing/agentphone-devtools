@@ -1,14 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateScenario, type EvalResult, type Scenario } from "../src/index.js";
-
-const evalResult: EvalResult = {
-  outcome: "handed_off",
-  stayedOnTask: true,
-  correctActions: true,
-  score: 80,
-  reasons: ["handler requested transfer"],
-  metrics: { turnCount: 2, agentTurns: 1, userTurns: 1, deadAirTurns: 0 }
-};
+import { evaluateScenario, type Scenario } from "../src/index.js";
 
 const scenario: Scenario = {
   name: "Escalate billing issue",
@@ -20,38 +11,34 @@ const scenario: Scenario = {
   conversationState: null,
   contextLimit: 10,
   timeoutSeconds: 30,
-  expectedOutcome: "handed_off",
   turns: [{ caller: "I need a billing specialist", expect: { actions: ["transfer"] } }]
 };
 
 describe("scenario assertions", () => {
-  it("passes successful deliveries, per-turn actions, and the final outcome", () => {
+  it("passes successful deliveries and per-turn actions", () => {
     const result = evaluateScenario(scenario, {
       turns: [{ ok: true, status: 200, responses: [{ action: "transfer", transferNumber: "+15551234567" }] }],
-      callEnded: { ok: true, status: 204, responses: [] },
-      evalResult
+      callEnded: { ok: true, status: 204, responses: [] }
     });
 
-    expect(result).toMatchObject({ passed: true, passedCount: 4, failedCount: 0 });
-    expect(result.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery", "outcome"]);
+    expect(result).toMatchObject({ passed: true, passedCount: 3, failedCount: 0 });
+    expect(result.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery"]);
   });
 
-  it("explains failed deliveries, missing actions, and outcome mismatches", () => {
+  it("explains failed deliveries and missing actions", () => {
     const result = evaluateScenario(scenario, {
-      turns: [{ ok: false, status: 500, responses: [{ text: "Try again later" }] }],
-      evalResult: { ...evalResult, outcome: "failed", correctActions: false }
+      turns: [{ ok: false, status: 500, responses: [{ text: "Try again later" }] }]
     });
 
-    expect(result).toMatchObject({ passed: false, passedCount: 0, failedCount: 3 });
-    expect(result.assertions.map((assertion) => assertion.observed)).toEqual(["HTTP 500", "none", "failed"]);
+    expect(result).toMatchObject({ passed: false, passedCount: 0, failedCount: 2 });
+    expect(result.assertions.map((assertion) => assertion.observed)).toEqual(["HTTP 500", "none"]);
   });
 
   it("recognizes hangup and transfer aliases", () => {
     const result = evaluateScenario(
       { ...scenario, turns: [{ caller: "Done", expect: { actions: ["hangup", "transfer"] } }] },
       {
-        turns: [{ ok: true, status: 200, responses: [{ hangup: true, transferNumber: "+15551234567" }] }],
-        evalResult
+        turns: [{ ok: true, status: 200, responses: [{ hangup: true, transferNumber: "+15551234567" }] }]
       }
     );
 

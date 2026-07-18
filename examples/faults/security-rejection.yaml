@@ -8,7 +8,6 @@ to: "+15551234567"
 conversationState: null
 contextLimit: 10
 timeoutSeconds: 30
-expectedOutcome: failed
 turns:
   - caller: "This delivery should be rejected before it reaches agent logic."
     fault:

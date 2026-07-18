@@ -12,7 +12,6 @@ import {
 import { findBaselineForScenario, type CiBaselineEntry } from "./baseline.js";
 
 export interface CiRunOptions {
-  minimumScore: number;
   reportPath?: string;
   junitPath?: string;
   baselines?: CiBaselineEntry[];
@@ -21,7 +20,6 @@ export interface CiRunOptions {
 
 export interface CiRunResult {
   passed: boolean;
-  scorePassed: boolean;
   session: InspectorSession;
   comparison?: RunComparison;
   baselineMissing?: boolean;
@@ -29,9 +27,6 @@ export interface CiRunResult {
     scenarioPath: string;
     passed: boolean;
     sessionId: string;
-    outcome?: string;
-    score?: number;
-    minimumScore: number;
     assertions: {
       passed: number;
       failed: number;
@@ -55,7 +50,6 @@ export interface CiSuiteResult {
     total: number;
     passedCount: number;
     failedCount: number;
-    minimumScore: number;
     scenarios: CiRunResult["summary"][];
     reportPath?: string;
     junitPath?: string;
@@ -83,8 +77,6 @@ export async function runScenarioInCi(
           scenarioPath,
           ci: {
             passed: result.passed,
-            scorePassed: result.scorePassed,
-            minimumScore: options.minimumScore,
             baselineMissing: result.baselineMissing ?? false
           },
           ...(result.comparison ? { comparison: result.comparison } : {})
@@ -98,7 +90,7 @@ export async function runScenarioInCi(
 
   if (junitPath) {
     await mkdir(dirname(junitPath), { recursive: true });
-    await writeFile(junitPath, buildJunitReport(session, scenarioPath, options.minimumScore, result), "utf8");
+    await writeFile(junitPath, buildJunitReport(session, scenarioPath, result), "utf8");
   }
 
   return {
@@ -132,12 +124,12 @@ export async function runScenarioSuiteInCi(
 
   if (reportPath) {
     await mkdir(dirname(reportPath), { recursive: true });
-    await writeFile(reportPath, buildJsonSuiteReport(runs, options.minimumScore), "utf8");
+    await writeFile(reportPath, buildJsonSuiteReport(runs), "utf8");
   }
 
   if (junitPath) {
     await mkdir(dirname(junitPath), { recursive: true });
-    await writeFile(junitPath, buildJunitSuiteReport(runs, options.minimumScore), "utf8");
+    await writeFile(junitPath, buildJunitSuiteReport(runs), "utf8");
   }
 
   return {
@@ -148,7 +140,6 @@ export async function runScenarioSuiteInCi(
       total: runs.length,
       passedCount,
       failedCount: runs.length - passedCount,
-      minimumScore: options.minimumScore,
       scenarios: runs.map((run) => run.summary),
       ...(reportPath ? { reportPath } : {}),
       ...(junitPath ? { junitPath } : {})
@@ -158,7 +149,6 @@ export async function runScenarioSuiteInCi(
 
 export function buildJsonSuiteReport(
   runs: CiRunResult[],
-  minimumScore: number,
   generatedAt = new Date().toISOString()
 ): string {
   const passedCount = runs.filter((run) => run.passed).length;
@@ -170,13 +160,11 @@ export function buildJsonSuiteReport(
         passed: passedCount === runs.length,
         total: runs.length,
         passedCount,
-        failedCount: runs.length - passedCount,
-        minimumScore
+        failedCount: runs.length - passedCount
       },
       runs: runs.map((run) => ({
         scenarioPath: run.summary.scenarioPath,
         passed: run.passed,
-        scorePassed: run.scorePassed,
         baselineMissing: run.baselineMissing ?? false,
         ...(run.comparison ? { comparison: run.comparison } : {}),
         session: run.session
@@ -190,18 +178,15 @@ export function buildJsonSuiteReport(
 export function buildJunitReport(
   session: InspectorSession,
   scenarioPath: string,
-  minimumScore: number,
-  result?: Pick<CiRunResult, "scorePassed" | "comparison" | "baselineMissing">
+  result?: Pick<CiRunResult, "comparison" | "baselineMissing">
 ): string {
-  const scorePassed = result?.scorePassed ?? Boolean(session.evalResult && session.evalResult.score >= minimumScore);
-  return `<?xml version="1.0" encoding="UTF-8"?>\n${junitTestSuite(session, scenarioPath, minimumScore, {
-    scorePassed,
+  return `<?xml version="1.0" encoding="UTF-8"?>\n${junitTestSuite(session, scenarioPath, {
     comparison: result?.comparison,
     baselineMissing: result?.baselineMissing
   }).join("\n")}\n`;
 }
 
-export function buildJunitSuiteReport(runs: CiRunResult[], minimumScore: number): string {
+export function buildJunitSuiteReport(runs: CiRunResult[]): string {
   const stats = runs.map((run) => junitStats(run.session, run));
   const tests = stats.reduce((total, item) => total + item.tests, 0);
   const failures = stats.reduce((total, item) => total + item.failures, 0);
@@ -211,23 +196,21 @@ export function buildJunitSuiteReport(runs: CiRunResult[], minimumScore: number)
     `<testsuites name="AgentPhone scenario suite" tests="${tests}" failures="${failures}" time="${durationSeconds.toFixed(3)}">`
   ];
   for (const run of runs) {
-    lines.push(...junitTestSuite(run.session, run.summary.scenarioPath, minimumScore, run).map((line) => `  ${line}`));
+    lines.push(...junitTestSuite(run.session, run.summary.scenarioPath, run).map((line) => `  ${line}`));
   }
   lines.push("</testsuites>");
   return `${lines.join("\n")}\n`;
 }
 
 function evaluateCiRun(session: InspectorSession, scenarioPath: string, options: CiRunOptions): CiRunResult {
-  const scorePassed = Boolean(session.evalResult && session.evalResult.score >= options.minimumScore);
   const baselineRequested = Boolean(options.baselines);
   const baseline = options.baselines ? findBaselineForScenario(options.baselines, scenarioPath) : undefined;
   const comparison = baseline ? compareRuns(baseline, session, options.comparisonOptions) : undefined;
   const baselineMissing = baselineRequested && !baseline;
   const baselinePassed = !baselineRequested || Boolean(comparison?.passed);
-  const passed = session.scenarioResult?.passed === true && scorePassed && baselinePassed;
+  const passed = session.scenarioResult?.passed === true && baselinePassed;
   return {
     passed,
-    scorePassed,
     session,
     ...(comparison ? { comparison } : {}),
     ...(baselineMissing ? { baselineMissing: true } : {}),
@@ -235,9 +218,6 @@ function evaluateCiRun(session: InspectorSession, scenarioPath: string, options:
       scenarioPath,
       passed,
       sessionId: session.id,
-      outcome: session.evalResult?.outcome,
-      score: session.evalResult?.score,
-      minimumScore: options.minimumScore,
       assertions: {
         passed: session.scenarioResult?.passedCount ?? 0,
         failed: session.scenarioResult?.failedCount ?? 0
@@ -259,8 +239,7 @@ function evaluateCiRun(session: InspectorSession, scenarioPath: string, options:
 function junitTestSuite(
   session: InspectorSession,
   scenarioPath: string,
-  minimumScore: number,
-  result: Pick<CiRunResult, "scorePassed" | "comparison" | "baselineMissing">
+  result: Pick<CiRunResult, "comparison" | "baselineMissing">
 ): string[] {
   const assertions = session.scenarioResult?.assertions ?? [];
   const stats = junitStats(session, result);
@@ -268,9 +247,6 @@ function junitTestSuite(
     `<testsuite name="${xmlEscape(`AgentPhone: ${basename(scenarioPath)}`)}" tests="${stats.tests}" failures="${stats.failures}" time="${stats.durationSeconds.toFixed(3)}">`,
     "  <properties>",
     `    <property name="sessionId" value="${xmlEscape(session.id)}"/>`,
-    `    <property name="outcome" value="${xmlEscape(session.evalResult?.outcome ?? "unknown")}"/>`,
-    `    <property name="score" value="${session.evalResult?.score ?? 0}"/>`,
-    `    <property name="minimumScore" value="${minimumScore}"/>`,
     "  </properties>"
   ];
 
@@ -285,14 +261,6 @@ function junitTestSuite(
     lines.push("  </testcase>");
   }
 
-  const observedScore = session.evalResult?.score ?? 0;
-  lines.push('  <testcase classname="agentphone.scenario" name="minimum eval score">');
-  if (!result.scorePassed) {
-    lines.push(
-      `    <failure message="${xmlEscape(`Eval score ${observedScore} is below minimum ${minimumScore}`)}">${xmlEscape(`Expected score >= ${minimumScore}\nObserved score: ${observedScore}`)}</failure>`
-    );
-  }
-  lines.push("  </testcase>");
   if (result.comparison || result.baselineMissing) {
     lines.push('  <testcase classname="agentphone.scenario" name="baseline regression">');
     if (result.baselineMissing) {
@@ -310,14 +278,14 @@ function junitTestSuite(
 
 function junitStats(
   session: InspectorSession,
-  result: Pick<CiRunResult, "scorePassed" | "comparison" | "baselineMissing">
+  result: Pick<CiRunResult, "comparison" | "baselineMissing">
 ) {
   const assertions = session.scenarioResult?.assertions ?? [];
   const hasBaselineTest = Boolean(result.comparison || result.baselineMissing);
   const baselineFailed = Boolean(result.baselineMissing || (result.comparison && !result.comparison.passed));
   return {
-    tests: assertions.length + 1 + (hasBaselineTest ? 1 : 0),
-    failures: assertions.filter((assertion) => !assertion.passed).length + (result.scorePassed ? 0 : 1) + (baselineFailed ? 1 : 0),
+    tests: assertions.length + (hasBaselineTest ? 1 : 0),
+    failures: assertions.filter((assertion) => !assertion.passed).length + (baselineFailed ? 1 : 0),
     durationSeconds: session.deliveries.reduce((total, delivery) => total + delivery.latencyMs, 0) / 1000
   };
 }

@@ -4,20 +4,18 @@ import type { InspectorSession } from "../src/index.js";
 
 describe("run baseline comparison", () => {
   it("passes equivalent or improved candidate runs", () => {
-    const baseline = session({ id: "baseline", score: 80, latencyMs: 100, action: "transfer" });
-    const candidate = session({ id: "candidate", score: 90, latencyMs: 120, action: "transfer" });
+    const baseline = session({ id: "baseline", latencyMs: 100, action: "transfer" });
+    const candidate = session({ id: "candidate", latencyMs: 120, action: "transfer" });
 
     const comparison = compareRuns(baseline, candidate);
 
-    expect(comparison).toMatchObject({ passed: true, regressions: [], score: { delta: 10 }, actions: { missing: [] } });
+    expect(comparison).toMatchObject({ passed: true, regressions: [], actions: { missing: [] } });
   });
 
-  it("reports outcome, score, action, transcript, latency, and warning regressions", () => {
-    const baseline = session({ id: "baseline", score: 95, latencyMs: 100, action: "transfer" });
+  it("reports action, transcript, latency, and warning regressions", () => {
+    const baseline = session({ id: "baseline", latencyMs: 100, action: "transfer" });
     const candidate = session({
       id: "candidate",
-      outcome: "failed",
-      score: 40,
       latencyMs: 250,
       transcriptText: "Something changed",
       warning: "New parser warning"
@@ -27,21 +25,17 @@ describe("run baseline comparison", () => {
 
     expect(comparison.passed).toBe(false);
     expect(comparison).toMatchObject({
-      outcome: { regressed: true },
-      score: { regressed: true, delta: -55 },
       actions: { regressed: true, missing: ["transfer"] },
       transcript: { regressed: true, changed: true },
       latency: { regressed: true, deltaMs: 150 },
       warnings: { regressed: true, added: ["New parser warning"] }
     });
-    expect(comparison.regressions).toHaveLength(6);
+    expect(comparison.regressions).toHaveLength(4);
   });
 });
 
 function session(options: {
   id: string;
-  outcome?: "resolved" | "handed_off" | "failed";
-  score: number;
   latencyMs: number;
   action?: string;
   transcriptText?: string;
@@ -84,14 +78,6 @@ function session(options: {
         retries: 0
       }
     ],
-    evalResult: {
-      outcome: options.outcome ?? "handed_off",
-      stayedOnTask: true,
-      correctActions: null,
-      score: options.score,
-      reasons: [],
-      metrics: { turnCount: 2, agentTurns: 1, userTurns: 1, deadAirTurns: 0 }
-    },
     warnings: options.warning ? [options.warning] : []
   };
 }

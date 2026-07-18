@@ -569,7 +569,7 @@ export function Inspector() {
                     <span className="mt-1 block truncate text-xs text-slate-500">
                       {run.channel} / {run.transcriptTurns} turns / {run.deliveries} deliveries
                     </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">{run.outcome ? `${run.outcome} / ${run.score ?? 0}` : run.status}</span>
+                    <span className="mt-1 block truncate text-xs text-slate-500">{run.status}</span>
                     {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-fern">Baseline: {run.baselineName}</span> : null}
                   </button>
                   {run.id !== liveSession?.id ? (
@@ -694,8 +694,6 @@ export function Inspector() {
             </section>
           ) : null}
 
-          {session?.evalResult ? <EvalCard result={session.evalResult} /> : null}
-
           {session?.scenarioResult ? <ScenarioCard result={session.scenarioResult} /> : null}
 
           {session ? (
@@ -754,31 +752,6 @@ function PayloadBlock({ value }: { value: unknown | null }) {
     <pre className="max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5 text-slate-700">
       {value ? JSON.stringify(value, null, 2) : "null"}
     </pre>
-  );
-}
-
-function EvalCard({ result }: { result: NonNullable<InspectorSession["evalResult"]> }) {
-  const color = result.outcome === "resolved" ? "text-fern" : result.outcome === "handed_off" ? "text-caution" : "text-danger";
-  return (
-    <section className="rounded-lg border border-line bg-white shadow-soft">
-      <PanelHeader icon={<CheckCircle2 size={16} />} title="Eval" meta={`${result.score}/100`} />
-      <div className="space-y-3 px-4 pb-4 text-sm">
-        <div className={`text-base font-semibold ${color}`}>{result.outcome}</div>
-        <div className="grid grid-cols-2 gap-2">
-          <KeyValue name="on task" value={String(result.stayedOnTask)} />
-          <KeyValue name="actions" value={result.correctActions === null ? "n/a" : String(result.correctActions)} />
-          <KeyValue name="turns" value={String(result.metrics.turnCount)} />
-          <KeyValue name="dead air" value={String(result.metrics.deadAirTurns)} />
-        </div>
-        {result.reasons.length ? (
-          <ul className="space-y-1 text-xs leading-5 text-slate-600">
-            {result.reasons.map((reason, index) => (
-              <li key={`${reason}-${index}`}>{reason}</li>
-            ))}
-          </ul>
-        ) : null}
-      </div>
-    </section>
   );
 }
 
@@ -847,8 +820,6 @@ function ComparisonCard({
               {comparison.passed ? "No regressions" : `${comparison.regressions.length} regression(s)`}
             </div>
             <div className="grid grid-cols-2 gap-2">
-              <KeyValue name="outcome" value={`${comparison.outcome.baseline ?? "?"} → ${comparison.outcome.candidate ?? "?"}`} />
-              <KeyValue name="score delta" value={comparison.score.delta === undefined ? "n/a" : String(comparison.score.delta)} />
               <KeyValue name="latency delta" value={`${comparison.latency.deltaMs}ms`} />
               <KeyValue name="missing actions" value={comparison.actions.missing.join(", ") || "none"} />
               <KeyValue name="transcript" value={comparison.transcript.changed ? "changed" : "same"} />
@@ -906,9 +877,7 @@ function summarizeLive(session: InspectorSession): InspectorSessionSummary {
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     transcriptTurns: session.transcript.length,
-    deliveries: session.deliveries.length,
-    outcome: session.evalResult?.outcome,
-    score: session.evalResult?.score
+    deliveries: session.deliveries.length
   };
 }
 

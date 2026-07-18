@@ -146,7 +146,6 @@ export interface DispatchOptions {
 export interface ScenarioTurn {
   caller: string;
   expect?: {
-    outcome?: "resolved" | "handed_off" | "failed";
     actions?: string[];
     status?: number;
     timedOut?: boolean;
@@ -178,11 +177,10 @@ export interface Scenario {
   contextLimit: number;
   timeoutSeconds: number;
   turns: ScenarioTurn[];
-  expectedOutcome?: "resolved" | "handed_off" | "failed";
 }
 
 export interface ScenarioAssertion {
-  kind: "delivery" | "outcome" | "action";
+  kind: "delivery" | "action";
   passed: boolean;
   expected: string;
   observed: string;
@@ -195,28 +193,4 @@ export interface ScenarioResult {
   assertions: ScenarioAssertion[];
   passedCount: number;
   failedCount: number;
-}
-
-export interface EvalInput {
-  transcript: TranscriptTurn[];
-  callEnded?: CallEndedData;
-  responses?: AgentResponseChunk[];
-  expectedOutcome?: "resolved" | "handed_off" | "failed";
-  expectedActions?: string[];
-  deadAirTurns?: number;
-}
-
-export interface EvalResult {
-  outcome: "resolved" | "handed_off" | "failed";
-  stayedOnTask: boolean;
-  correctActions: boolean | null;
-  score: number;
-  reasons: string[];
-  metrics: {
-    turnCount: number;
-    agentTurns: number;
-    userTurns: number;
-    deadAirTurns: number;
-    durationSeconds?: number;
-  };
 }

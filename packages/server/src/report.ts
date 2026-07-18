@@ -30,8 +30,6 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
       ["Ended", session.endedAt ?? "n/a"],
       ["Transcript turns", String(session.transcript.length)],
       ["Deliveries", String(session.deliveries.length)],
-      ["Eval outcome", session.evalResult?.outcome ?? "n/a"],
-      ["Eval score", session.evalResult ? String(session.evalResult.score) : "n/a"],
       [
         "Scenario assertions",
         session.scenarioResult ? `${session.scenarioResult.passedCount} passed, ${session.scenarioResult.failedCount} failed` : "n/a"
@@ -48,29 +46,6 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
     }
   } else {
     lines.push("_No transcript turns recorded._");
-  }
-
-  if (session.evalResult) {
-    lines.push(
-      "",
-      "## Eval",
-      "",
-      table([
-        ["Field", "Value"],
-        ["Outcome", session.evalResult.outcome],
-        ["Score", String(session.evalResult.score)],
-        ["Stayed on task", String(session.evalResult.stayedOnTask)],
-        ["Correct actions", session.evalResult.correctActions === null ? "n/a" : String(session.evalResult.correctActions)],
-        ["Turn count", String(session.evalResult.metrics.turnCount)],
-        ["Dead air turns", String(session.evalResult.metrics.deadAirTurns)],
-        ["Duration seconds", session.evalResult.metrics.durationSeconds === undefined ? "n/a" : String(session.evalResult.metrics.durationSeconds)]
-      ]),
-      ""
-    );
-    if (session.evalResult.reasons.length) {
-      lines.push("### Reasons", "");
-      for (const reason of session.evalResult.reasons) lines.push(`- ${singleLine(reason)}`);
-    }
   }
 
   if (session.scenarioResult) {

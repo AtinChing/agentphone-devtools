@@ -10,10 +10,7 @@ export interface ScenarioExportDefaults {
 export function buildScenarioFromSession(session: InspectorSession, defaults: ScenarioExportDefaults): Scenario {
   const turns = session.transcript
     .filter((turn) => turn.role === "user")
-    .map((turn, index, all) => ({
-      caller: turn.content,
-      ...(index === all.length - 1 && session.evalResult ? { expect: { outcome: session.evalResult.outcome } } : {})
-    }));
+    .map((turn) => ({ caller: turn.content }));
 
   return {
     name: `Recorded run ${session.id}`,
@@ -26,7 +23,6 @@ export function buildScenarioFromSession(session: InspectorSession, defaults: Sc
     conversationState: defaults.conversationState ?? null,
     contextLimit: defaults.contextLimit,
     timeoutSeconds: defaults.timeoutSeconds,
-    ...(session.evalResult ? { expectedOutcome: session.evalResult.outcome } : {}),
     turns
   };
 }
@@ -48,7 +44,6 @@ export function stringifyScenarioYaml(scenario: Scenario): string {
     ...yamlValueLines(scenario.conversationState, 2),
     `contextLimit: ${scenario.contextLimit}`,
     `timeoutSeconds: ${scenario.timeoutSeconds}`,
-    ...(scenario.expectedOutcome ? [`expectedOutcome: ${scenario.expectedOutcome}`] : []),
     "turns:"
   ];
 
@@ -57,7 +52,6 @@ export function stringifyScenarioYaml(scenario: Scenario): string {
     if (turn.waitMs !== undefined) lines.push(`    waitMs: ${turn.waitMs}`);
     if (turn.expect) {
       lines.push("    expect:");
-      if (turn.expect.outcome) lines.push(`      outcome: ${turn.expect.outcome}`);
       if (turn.expect.actions?.length) {
         lines.push("      actions:");
         for (const action of turn.expect.actions) lines.push(`        - ${yamlScalar(action)}`);
