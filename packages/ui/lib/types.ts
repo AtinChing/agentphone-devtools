@@ -41,6 +41,7 @@ export interface InspectorDelivery {
   ok: boolean;
   warnings: string[];
   retries: number;
+  faults?: string[];
 }
 
 export interface TranscriptTurn {

@@ -148,8 +148,22 @@ export interface ScenarioTurn {
   expect?: {
     outcome?: "resolved" | "handed_off" | "failed";
     actions?: string[];
+    status?: number;
+    timedOut?: boolean;
+    retries?: number;
   };
+  fault?: DeliveryFault;
   waitMs?: number;
+}
+
+export interface DeliveryFault {
+  invalidSignature?: boolean;
+  omitSignature?: boolean;
+  staleTimestampSeconds?: number;
+  tamperBody?: boolean;
+  malformedJson?: boolean;
+  duplicateWebhookId?: boolean;
+  simulateTimeout?: boolean;
 }
 
 export interface Scenario {

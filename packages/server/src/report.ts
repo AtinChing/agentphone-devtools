@@ -127,7 +127,8 @@ function appendDelivery(lines: string[], delivery: InspectorDelivery, index: num
       ["Latency", `${delivery.latencyMs}ms`],
       ["OK", String(delivery.ok)],
       ["Timed out", String(delivery.timedOut)],
-      ["Retries", String(delivery.retries)]
+      ["Retries", String(delivery.retries)],
+      ["Faults", delivery.faults?.join(", ") ?? "none"]
     ]),
     "",
     "Request body:",

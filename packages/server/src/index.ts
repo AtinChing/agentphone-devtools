@@ -12,6 +12,7 @@ import {
   evaluateConversation,
   evaluateScenario,
   id,
+  injectDeliveryFaults,
   isoNow,
   loadScenarioFile,
   maybeEvaluateWithLlm,
@@ -22,6 +23,7 @@ import {
   type CallEndedEnvelope,
   type ConversationState,
   type DispatchResult,
+  type DeliveryFault,
   type EvalResult,
   type Scenario,
   type ScenarioResult,
@@ -74,6 +76,7 @@ export interface InspectorDelivery {
   ok: boolean;
   warnings: string[];
   retries: number;
+  faults?: string[];
 }
 
 export interface InspectorSession {
@@ -202,7 +205,7 @@ export class DevtoolsRuntime {
     };
   }
 
-  async sendCallerTurn(text: string, channel = this.config.channel): Promise<InspectorDelivery> {
+  async sendCallerTurn(text: string, channel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
     this.session.status = "running";
     const timestamp = isoNow();
     const recentHistory = scenarioToRecentHistory(this.history, this.config.contextLimit);
@@ -227,7 +230,7 @@ export class DevtoolsRuntime {
           });
 
     this.pushTranscript({ role: "user", content: text }, timestamp, channel);
-    const delivery = await this.dispatchAndRecord(payload);
+    const delivery = await this.dispatchAndRecord(payload, fault);
     this.recordAgentResponse(delivery, channel);
     this.publishState();
     return delivery;
@@ -278,7 +281,7 @@ export class DevtoolsRuntime {
 
     const turnDeliveries: InspectorDelivery[] = [];
     for (const turn of scenario.turns) {
-      turnDeliveries.push(await this.sendCallerTurn(turn.caller, scenario.channel));
+      turnDeliveries.push(await this.sendCallerTurn(turn.caller, scenario.channel, turn.fault));
       if (turn.waitMs) await new Promise((resolve) => setTimeout(resolve, turn.waitMs));
     }
 
@@ -301,9 +304,14 @@ export class DevtoolsRuntime {
     return this.getState();
   }
 
-  private async dispatchAndRecord(payload: AgentPhoneEnvelope): Promise<InspectorDelivery> {
-    const signed = buildSignedDelivery(payload, { secret: this.config.secret });
-    const { result, retries } = await this.dispatchPossiblyWithRetry(signed);
+  private async dispatchAndRecord(payload: AgentPhoneEnvelope, fault?: DeliveryFault): Promise<InspectorDelivery> {
+    const initial = buildSignedDelivery(payload, { secret: this.config.secret });
+    const injected = injectDeliveryFaults(initial, fault, {
+      secret: this.config.secret,
+      previousWebhookId: this.session.deliveries.at(-1)?.webhookId
+    });
+    const signed = injected.delivery;
+    const { result, retries } = await this.dispatchPossiblyWithRetry(signed, fault?.simulateTimeout === true);
     const delivery: InspectorDelivery = {
       id: id("del"),
       event: payload.event,
@@ -327,7 +335,8 @@ export class DevtoolsRuntime {
       timedOut: result.timedOut,
       ok: result.ok,
       warnings: [...result.parsed.warnings, ...(result.error ? [result.error] : [])],
-      retries
+      retries,
+      ...(injected.applied.length ? { faults: injected.applied } : {})
     };
 
     this.session.deliveries.push(delivery);
@@ -336,18 +345,20 @@ export class DevtoolsRuntime {
     return delivery;
   }
 
-  private async dispatchPossiblyWithRetry(signed: SignedDelivery): Promise<{ result: DispatchResult; retries: number }> {
-    const delays = [0, 250, 750, 1500, 3000, 5000];
+  private async dispatchPossiblyWithRetry(signed: SignedDelivery, simulateTimeout = false): Promise<{ result: DispatchResult; retries: number }> {
+    const delays = simulateTimeout ? [0, 1, 1, 1, 1, 1] : [0, 250, 750, 1500, 3000, 5000];
     let result: DispatchResult | undefined;
     let retries = 0;
 
     for (let attempt = 0; attempt < delays.length; attempt += 1) {
       if (attempt > 0) await new Promise((resolve) => setTimeout(resolve, delays[attempt]));
-      result = await dispatchSignedDelivery(signed, {
-        targetUrl: this.config.targetUrl,
-        timeoutSeconds: this.config.timeoutSeconds,
-        onChunk: (chunk: AgentResponseChunk) => this.emit("chunk", chunk)
-      });
+      result = simulateTimeout
+        ? simulatedTimeoutResult(this.config.timeoutSeconds)
+        : await dispatchSignedDelivery(signed, {
+            targetUrl: this.config.targetUrl,
+            timeoutSeconds: this.config.timeoutSeconds,
+            onChunk: (chunk: AgentResponseChunk) => this.emit("chunk", chunk)
+          });
       if (!this.config.retryOnNon200 || result.ok) return { result, retries };
       if (attempt < delays.length - 1) {
         retries += 1;
@@ -495,10 +506,10 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   }>("/api/reset", async (request) => runtime.reset(request.body));
 
   app.post<{
-    Body: { text: string; channel?: "sms" | "voice" };
+    Body: { text: string; channel?: "sms" | "voice"; fault?: DeliveryFault };
   }>("/api/send", async (request, reply) => {
     if (!request.body?.text) return reply.code(400).send({ error: "text is required" });
-    return runtime.sendCallerTurn(request.body.text, request.body.channel);
+    return runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
   });
 
   app.post<{
@@ -610,6 +621,25 @@ function toScenarioTurnObservation(delivery: InspectorDelivery) {
     ok: delivery.ok,
     status: delivery.response.status,
     timedOut: delivery.timedOut,
+    retries: delivery.retries,
     responses: delivery.response.parsed.chunks
+  };
+}
+
+function simulatedTimeoutResult(timeoutSeconds: number): DispatchResult {
+  return {
+    ok: false,
+    status: 0,
+    statusText: "Timeout",
+    latencyMs: timeoutSeconds * 1000,
+    timedOut: true,
+    headers: {},
+    rawResponseBody: "",
+    parsed: {
+      mode: "empty",
+      chunks: [],
+      warnings: [`Handler exceeded ${timeoutSeconds}s timeout`]
+    },
+    error: "Simulated webhook timeout"
   };
 }

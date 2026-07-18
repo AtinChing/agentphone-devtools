@@ -4,6 +4,7 @@ export interface ScenarioTurnObservation {
   ok: boolean;
   status: number;
   timedOut?: boolean;
+  retries?: number;
   responses: AgentResponseChunk[];
 }
 
@@ -18,17 +19,64 @@ export function evaluateScenario(scenario: Scenario, observation: ScenarioObserv
 
   scenario.turns.forEach((turn, index) => {
     const observed = observation.turns[index];
-    const deliveryPassed = observed?.ok === true && observed.timedOut !== true;
-    assertions.push({
-      kind: "delivery",
-      passed: deliveryPassed,
-      expected: "successful webhook delivery",
-      observed: observed ? deliveryObservation(observed) : "no delivery",
-      turnIndex: index,
-      message: deliveryPassed
-        ? `Turn ${index + 1} webhook delivery succeeded`
-        : `Turn ${index + 1} webhook delivery failed (${observed ? deliveryObservation(observed) : "no delivery"})`
-    });
+    const hasDeliveryExpectation =
+      turn.expect?.status !== undefined || turn.expect?.timedOut !== undefined || turn.expect?.retries !== undefined;
+    if (!hasDeliveryExpectation) {
+      const deliveryPassed = observed?.ok === true && observed.timedOut !== true;
+      assertions.push({
+        kind: "delivery",
+        passed: deliveryPassed,
+        expected: "successful webhook delivery",
+        observed: observed ? deliveryObservation(observed) : "no delivery",
+        turnIndex: index,
+        message: deliveryPassed
+          ? `Turn ${index + 1} webhook delivery succeeded`
+          : `Turn ${index + 1} webhook delivery failed (${observed ? deliveryObservation(observed) : "no delivery"})`
+      });
+    }
+
+    if (turn.expect?.status !== undefined) {
+      const passed = observed?.status === turn.expect.status;
+      assertions.push({
+        kind: "delivery",
+        passed,
+        expected: `HTTP ${turn.expect.status}`,
+        observed: observed ? deliveryObservation(observed) : "no delivery",
+        turnIndex: index,
+        message: passed
+          ? `Turn ${index + 1} returned expected HTTP ${turn.expect.status}`
+          : `Turn ${index + 1} expected HTTP ${turn.expect.status}, observed ${observed ? deliveryObservation(observed) : "no delivery"}`
+      });
+    }
+
+    if (turn.expect?.timedOut !== undefined) {
+      const passed = Boolean(observed?.timedOut) === turn.expect.timedOut;
+      assertions.push({
+        kind: "delivery",
+        passed,
+        expected: turn.expect.timedOut ? "timeout" : "no timeout",
+        observed: observed?.timedOut ? "timeout" : "no timeout",
+        turnIndex: index,
+        message: passed
+          ? `Turn ${index + 1} ${turn.expect.timedOut ? "timed out as expected" : "did not time out"}`
+          : `Turn ${index + 1} timeout expectation was not met`
+      });
+    }
+
+    if (turn.expect?.retries !== undefined) {
+      const observedRetries = observed?.retries ?? 0;
+      const passed = observedRetries === turn.expect.retries;
+      assertions.push({
+        kind: "delivery",
+        passed,
+        expected: `${turn.expect.retries} retries`,
+        observed: `${observedRetries} retries`,
+        turnIndex: index,
+        message: passed
+          ? `Turn ${index + 1} retried ${observedRetries} time(s) as expected`
+          : `Turn ${index + 1} expected ${turn.expect.retries} retries, observed ${observedRetries}`
+      });
+    }
 
     const expectedActions = turn.expect?.actions ?? [];
     const observedActions = collectObservedActions(observed?.responses ?? []);

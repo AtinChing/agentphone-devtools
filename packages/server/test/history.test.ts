@@ -3,7 +3,7 @@ import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import { parseScenario } from "@agentphone-devtools/core";
+import { parseScenario, verifyWebhook } from "@agentphone-devtools/core";
 import { createDevtoolsServer, DevtoolsRuntime, type DevtoolsServerConfig } from "../src/index.js";
 
 const cleanup: Array<() => void | Promise<void>> = [];
@@ -187,6 +187,66 @@ describe("persistent run history", () => {
     expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
     expect(session.scenarioResult?.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "action", "delivery", "outcome"]);
   });
+
+  it("passes expected security rejections from injected request faults", async () => {
+    const directory = temporaryDirectory();
+    const target = await verifyingWebhookTarget("whsec_super_secret_value");
+    const runtime = new DevtoolsRuntime(testConfig(directory, target));
+
+    const session = await runtime.runScenario({
+      name: "Reject unsigned webhook",
+      channel: "sms",
+      agentId: "agt_local",
+      numberId: "num_local",
+      from: "+15559876543",
+      to: "+15551234567",
+      conversationState: null,
+      contextLimit: 10,
+      timeoutSeconds: 5,
+      expectedOutcome: "failed",
+      turns: [
+        {
+          caller: "Unsigned request",
+          fault: { omitSignature: true },
+          expect: { status: 401 }
+        }
+      ]
+    });
+
+    expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
+    expect(session.deliveries[0]).toMatchObject({ faults: ["missing_signature"], response: { status: 401 } });
+  });
+
+  it("simulates timeouts through the configured retry policy", async () => {
+    const directory = temporaryDirectory();
+    const runtime = new DevtoolsRuntime({
+      ...testConfig(directory, "http://127.0.0.1:1/webhook"),
+      retryOnNon200: true
+    });
+
+    const session = await runtime.runScenario({
+      name: "Timeout retries",
+      channel: "sms",
+      agentId: "agt_local",
+      numberId: "num_local",
+      from: "+15559876543",
+      to: "+15551234567",
+      conversationState: null,
+      contextLimit: 10,
+      timeoutSeconds: 5,
+      expectedOutcome: "failed",
+      turns: [
+        {
+          caller: "Timeout please",
+          fault: { simulateTimeout: true },
+          expect: { timedOut: true, retries: 5 }
+        }
+      ]
+    });
+
+    expect(session.scenarioResult).toMatchObject({ passed: true, failedCount: 0 });
+    expect(session.deliveries[0]).toMatchObject({ timedOut: true, retries: 5, faults: ["simulated_timeout"] });
+  });
 });
 
 function temporaryDirectory(): string {
@@ -213,6 +273,29 @@ async function webhookTarget(responseBody: Record<string, unknown> = { text: "Ch
   const server: Server = createServer((_request, response) => {
     response.writeHead(200, { "Content-Type": "application/json" });
     response.end(JSON.stringify(responseBody));
+  });
+  await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
+  cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));
+  const address = server.address();
+  if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
+  return `http://127.0.0.1:${address.port}/webhook`;
+}
+
+async function verifyingWebhookTarget(secret: string): Promise<string> {
+  const server: Server = createServer((request, response) => {
+    const chunks: Buffer[] = [];
+    request.on("data", (chunk) => chunks.push(Buffer.from(chunk)));
+    request.on("end", () => {
+      const body = Buffer.concat(chunks);
+      const valid = verifyWebhook(
+        body,
+        String(request.headers["x-webhook-signature"] ?? ""),
+        String(request.headers["x-webhook-timestamp"] ?? ""),
+        secret
+      );
+      response.writeHead(valid ? 200 : 401, { "Content-Type": "application/json" });
+      response.end(JSON.stringify(valid ? { text: "accepted" } : { error: "invalid signature" }));
+    });
   });
   await new Promise<void>((resolve) => server.listen(0, "127.0.0.1", resolve));
   cleanup.push(() => new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve()))));

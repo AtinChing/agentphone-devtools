@@ -23,7 +23,22 @@ const scenarioSchema = z
             expect: z
               .object({
                 outcome: z.enum(["resolved", "handed_off", "failed"]).optional(),
-                actions: z.array(z.string()).optional()
+                actions: z.array(z.string()).optional(),
+                status: z.number().int().min(100).max(599).optional(),
+                timedOut: z.boolean().optional(),
+                retries: z.number().int().min(0).max(10).optional()
+              })
+              .strict()
+              .optional(),
+            fault: z
+              .object({
+                invalidSignature: z.boolean().optional(),
+                omitSignature: z.boolean().optional(),
+                staleTimestampSeconds: z.number().int().min(301).max(86_400).optional(),
+                tamperBody: z.boolean().optional(),
+                malformedJson: z.boolean().optional(),
+                duplicateWebhookId: z.boolean().optional(),
+                simulateTimeout: z.boolean().optional()
               })
               .strict()
               .optional(),
