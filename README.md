@@ -27,6 +27,10 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 - Scenario recording from live or saved runs into replayable YAML or JSON.
 - Scenario replay from YAML or JSON with Zod validation.
 - Per-turn delivery and action assertions plus final outcome assertions.
+- Scenario-driven webhook fault injection for signatures, timestamps, bodies, IDs, timeouts, and retries.
+- Editable delivery replay from live or historical runs with re-signing and source lineage.
+- Persistent approved baselines with six-dimension regression comparison in the Inspector and CI.
+- Validated runtime configuration from the Inspector without exposing the signing secret.
 - Headless single-scenario and multi-scenario CI suites with score gates, aggregate reports, and meaningful exit codes.
 - Deterministic eval rubric for resolved / handed off / failed, task focus, expected actions, turn counts, and dead air.
 - Reference Express handler that verifies signatures before replying.
@@ -175,6 +179,99 @@ npx agentphone-devtools \
 ```
 
 Suite stdout reports the total, passed, and failed scenario counts plus a compact result for every file. Aggregate JSON retains each full secret-safe session. Aggregate JUnit uses one nested test suite per scenario. The process exits with status `1` if any scenario fails while still running every valid scenario in the suite.
+
+## Fault Injection
+
+Add a `fault` object to any caller turn to modify only that webhook delivery. Faults are applied after the normal AgentPhone payload and signature are built, so security failures exercise the same dispatch and inspection path as successful requests.
+
+```yaml
+turns:
+  - caller: "This unsigned request must be rejected."
+    fault:
+      omitSignature: true
+    expect:
+      status: 401
+      retries: 0
+```
+
+Supported fields are:
+
+- `invalidSignature`: replace the HMAC with an invalid same-length signature.
+- `omitSignature`: remove `X-Webhook-Signature`.
+- `staleTimestampSeconds`: re-sign with a timestamp 301–86400 seconds old.
+- `tamperBody`: alter the body after signing.
+- `malformedJson`: send malformed JSON with a valid signature.
+- `duplicateWebhookId`: reuse the preceding webhook ID.
+- `simulateTimeout`: produce a deterministic timeout without contacting the target.
+
+Expected delivery behavior can use `status`, `timedOut`, and `retries`. A configured rejection such as HTTP 401 therefore passes the scenario instead of being mistaken for a delivery failure.
+
+Run the included zero-cost security check with the example handler running:
+
+```bash
+npx agentphone-devtools \
+  --ci \
+  --scenario examples/faults/security-rejection.yaml \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo
+```
+
+## Delivery Replay
+
+Select any delivery from the live timeline or a saved run and click **Edit and replay**. The JSON body is editable before sending. Replays use the current runtime target and signing secret, generate a fresh webhook ID and timestamp by default, and can optionally preserve either value. The resulting delivery records its source session and delivery IDs in history and reports.
+
+The same operation is available from the local API:
+
+```text
+POST /api/replay
+```
+
+The request accepts `sessionId`, `deliveryId`, optional replacement `body`, optional `targetUrl`, `preserveWebhookId`, `preserveTimestamp`, and the same optional `fault` object used by scenarios.
+
+## Baseline Regression Comparison
+
+Open an approved run and click the bookmark button to give it a persistent baseline name. The **Baseline** card can compare any viewed run against a saved baseline across:
+
+- Outcome changes and regressions.
+- Eval score delta.
+- Missing or added actions.
+- Normalized transcript changes.
+- Average webhook latency and percentage increase.
+- Newly introduced session or delivery warnings.
+
+Baseline markers survive restarts in local history. Programmatic comparison is available at:
+
+```text
+POST   /api/history/:sessionId/baseline
+DELETE /api/history/:sessionId/baseline
+GET    /api/compare/:baselineSessionId/:candidateSessionId
+```
+
+Use a previous CI JSON report as a regression gate with `--baseline`. A single-run report applies to one scenario; aggregate suite reports match scenarios by full path and then unique filename.
+
+```bash
+npx agentphone-devtools \
+  --ci \
+  --scenario-dir examples/scenarios \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo \
+  --baseline .agentphone-devtools/ci/approved-suite.json \
+  --max-score-drop 0 \
+  --max-latency-increase 25
+```
+
+Add `--require-transcript-match` when exact normalized transcript text is part of the contract. Baseline regressions affect the process exit code and appear in both JSON and JUnit reports.
+
+## Inspector Runtime Configuration
+
+Click the settings button in the Inspector header to edit the target webhook, signing secret, default channel, timeout, recent-history context limit, and retry behavior without restarting. Values are validated server-side before they are applied. Invalid updates return every validation issue and leave the active configuration unchanged.
+
+The secret field is write-only: the API and UI receive only `secretPreview`, and leaving the field blank preserves the existing secret. History path, retention, bound host, and ports remain startup-only settings.
+
+```text
+GET  /api/config
+POST /api/config
+```
 
 ## Repo Layout
 
