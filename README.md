@@ -17,7 +17,7 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 
 ## What Ships
 
-- Simulator for `agent.message` over SMS and voice, `agent.call_ended`, and `agent.reaction` builders.
+- Simulator for `agent.message` over SMS and voice plus `agent.call_ended` builders.
 - HMAC-SHA256 signing over the exact raw request bytes sent to the webhook.
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.

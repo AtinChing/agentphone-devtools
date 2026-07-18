@@ -1,7 +1,7 @@
 export type MessageChannel = "sms" | "mms" | "imessage";
 export type VoiceChannel = "voice";
 export type AgentPhoneChannel = MessageChannel | VoiceChannel;
-export type AgentPhoneEvent = "agent.message" | "agent.call_ended" | "agent.reaction";
+export type AgentPhoneEvent = "agent.message" | "agent.call_ended";
 export type Direction = "inbound" | "outbound";
 
 export type ConversationState = Record<string, unknown> | null;
@@ -67,25 +67,10 @@ export interface CallEndedData {
   callSuccessful: boolean;
 }
 
-export type ReactionType = "love" | "like" | "dislike" | "laugh" | "emphasize" | "question";
-
-export interface ReactionData {
-  conversationId: string;
-  numberId: string;
-  reactionType: ReactionType;
-  fromNumber: string;
-  direction: Direction;
-  messageId: string;
-  messageBody: string;
-  messageMediaUrl: string | null;
-  createdAt: string;
-}
-
 export type MessageEnvelope = CommonEnvelope<"agent.message", MessageChannel, MessageData>;
 export type VoiceMessageEnvelope = CommonEnvelope<"agent.message", "voice", VoiceMessageData>;
 export type CallEndedEnvelope = CommonEnvelope<"agent.call_ended", "voice", CallEndedData>;
-export type ReactionEnvelope = CommonEnvelope<"agent.reaction", "imessage", ReactionData>;
-export type AgentPhoneEnvelope = MessageEnvelope | VoiceMessageEnvelope | CallEndedEnvelope | ReactionEnvelope;
+export type AgentPhoneEnvelope = MessageEnvelope | VoiceMessageEnvelope | CallEndedEnvelope;
 
 export interface SignedDelivery<TPayload extends AgentPhoneEnvelope = AgentPhoneEnvelope> {
   payload: TPayload;

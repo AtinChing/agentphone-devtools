@@ -8,8 +8,6 @@ import type {
   MessageChannel,
   MessageEnvelope,
   RecentHistoryItem,
-  ReactionEnvelope,
-  ReactionType,
   SimulatorIdentity,
   TranscriptTurn,
   VoiceMessageEnvelope
@@ -91,20 +89,6 @@ export const callEndedDataSchema = z
   })
   .strict();
 
-export const reactionDataSchema = z
-  .object({
-    conversationId: z.string().min(1),
-    numberId: z.string().min(1),
-    reactionType: z.enum(["love", "like", "dislike", "laugh", "emphasize", "question"]),
-    fromNumber: phoneNumberSchema,
-    direction: directionSchema,
-    messageId: z.string().min(1),
-    messageBody: z.string(),
-    messageMediaUrl: z.string().url().nullable(),
-    createdAt: isoDateSchema
-  })
-  .strict();
-
 export const messageEnvelopeSchema = z
   .object({
     event: z.literal("agent.message"),
@@ -132,16 +116,7 @@ export const callEndedEnvelopeSchema = z
   })
   .strict();
 
-export const reactionEnvelopeSchema = z
-  .object({
-    event: z.literal("agent.reaction"),
-    channel: z.literal("imessage"),
-    data: reactionDataSchema,
-    ...baseEnvelopeFields
-  })
-  .strict();
-
-export const agentPhoneEnvelopeSchema = z.union([messageEnvelopeSchema, voiceMessageEnvelopeSchema, callEndedEnvelopeSchema, reactionEnvelopeSchema]);
+export const agentPhoneEnvelopeSchema = z.union([messageEnvelopeSchema, voiceMessageEnvelopeSchema, callEndedEnvelopeSchema]);
 
 export const defaultIdentity: SimulatorIdentity = {
   agentId: "agt_local",
@@ -273,42 +248,6 @@ export function buildCallEndedEvent(input: CallEndedBuilderInput): CallEndedEnve
   };
 
   return callEndedEnvelopeSchema.parse(envelope);
-}
-
-export interface ReactionBuilderInput extends Partial<SimulatorIdentity> {
-  conversationId?: string;
-  reactionType: ReactionType;
-  messageId: string;
-  messageBody: string;
-  messageMediaUrl?: string | null;
-  timestamp?: string;
-  conversationState?: ConversationState;
-  recentHistory?: RecentHistoryItem[];
-}
-
-export function buildReactionEvent(input: ReactionBuilderInput): ReactionEnvelope {
-  const timestamp = input.timestamp ?? isoNow();
-  const envelope: ReactionEnvelope = {
-    event: "agent.reaction",
-    channel: "imessage",
-    timestamp,
-    agentId: input.agentId ?? defaultIdentity.agentId,
-    data: {
-      conversationId: input.conversationId ?? id("conv"),
-      numberId: input.numberId ?? defaultIdentity.numberId,
-      reactionType: input.reactionType,
-      fromNumber: input.from ?? defaultIdentity.from,
-      direction: "inbound",
-      messageId: input.messageId,
-      messageBody: input.messageBody,
-      messageMediaUrl: input.messageMediaUrl ?? null,
-      createdAt: timestamp
-    },
-    conversationState: input.conversationState ?? null,
-    recentHistory: input.recentHistory ?? []
-  };
-
-  return reactionEnvelopeSchema.parse(envelope);
 }
 
 export function eventType(payload: AgentPhoneEnvelope): AgentPhoneEvent {

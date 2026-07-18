@@ -19,7 +19,7 @@ export interface ParsedAgentResponse {
 
 export interface InspectorDelivery {
   id: string;
-  event: "agent.message" | "agent.call_ended" | "agent.reaction";
+  event: "agent.message" | "agent.call_ended";
   channel: "sms" | "mms" | "imessage" | "voice";
   direction: "inbound";
   timestamp: string;
