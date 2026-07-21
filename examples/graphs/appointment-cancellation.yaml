@@ -1,0 +1,77 @@
+version: 1
+metadata:
+  name: Appointment cancellation
+  description: Shared-prefix example for recorded, reviewed, and forked test paths.
+  channel: voice
+  agentId: agt_local
+  numberId: num_local
+  from: "+15559876543"
+  to: "+15551234567"
+  conversationState: null
+  contextLimit: 10
+  timeoutSeconds: 30
+nodes:
+  cancel_request:
+    caller: I need to cancel my appointment.
+    expect:
+      actions: [request_confirmation_code]
+    review:
+      status: approved
+  valid_code:
+    caller: My confirmation code is 4821.
+    expect:
+      actions: [cancel_appointment]
+      outcome: resolved
+    review:
+      status: approved
+  invalid_code:
+    caller: My confirmation code is 4812.
+    expect:
+      actions: [request_confirmation_code]
+    review:
+      status: approved
+  retry_success:
+    caller: Sorry, it is actually 4821.
+    expect:
+      actions: [cancel_appointment]
+      outcome: resolved
+    review:
+      status: approved
+edges:
+  - from: cancel_request
+    to: valid_code
+    label: gives valid code
+  - from: cancel_request
+    to: invalid_code
+    label: gives invalid code
+  - from: invalid_code
+    to: retry_success
+    label: retries successfully
+paths:
+  cancellation_success:
+    route: [cancel_request, valid_code]
+    tags: [happy_path]
+    expectedOutcome: resolved
+  identity_retry:
+    route: [cancel_request, invalid_code, retry_success]
+    tags: [retry]
+    expectedOutcome: resolved
+fixtureProfiles:
+  cafe_audio:
+    apply:
+      invalid_code:
+        audio:
+          path: audio/cancel-noisy.wav
+          transcript: My confirmation code is 4812.
+          noiseProfile: cafe
+  delayed_confirmation:
+    apply:
+      retry_success:
+        timing:
+          leadingSilenceMs: 800
+runs:
+  smoke:
+    paths: [cancellation_success, identity_retry]
+    fixtureProfiles: [cafe_audio, delayed_confirmation]
+    maxGeneratedCases: 24
+maxGeneratedCases: 24

@@ -47,6 +47,9 @@ Useful options:
 ```text
 --scenario <path>          Replay a scenario; repeat in CI mode to build a suite
 --scenario-dir <path>      Recursively run a directory of scenarios in CI mode
+--graph <path>             Compile a conversation graph into flat scenarios
+--graph-run <name>         Named graph run selector
+--export-dir <path>        Write compiled flat scenarios from --graph
 --timeout <seconds>        Voice webhook timeout, 5 to 120 seconds
 --context-limit <0-50>     recentHistory size
 --retry-on-non-200         Retry failed deliveries with compressed backoff
@@ -174,6 +177,28 @@ npx agentphone-devtools \
 
 Suite stdout reports the total, passed, and failed scenario counts plus a compact result for every file. Aggregate JSON retains each full secret-safe session. Aggregate JUnit uses one nested test suite per scenario. The process exits with status `1` if any scenario fails while still running every valid scenario in the suite.
 
+## Conversation Graphs
+
+For branched conversations, author one YAML family graph instead of duplicating shared turns across flat scenario files. Named paths reuse shared nodes; fixture profiles overlay audio, timing, telephony, and delivery metadata; named runs select approved paths and bound case generation.
+
+```bash
+# Compile in memory and run in CI
+npx agentphone-devtools \
+  --ci \
+  --graph examples/graphs/appointment-cancellation.yaml \
+  --graph-run smoke \
+  --target http://localhost:3000/webhook \
+  --secret whsec_demo
+
+# Explicit flat exports only (normal runs never write these)
+npx agentphone-devtools \
+  --graph examples/graphs/appointment-cancellation.yaml \
+  --graph-run smoke \
+  --export-dir .agentphone-devtools/exports
+```
+
+Conversation graph files are skipped by `--scenario-dir` discovery and rejected as `--scenario` inputs so the flat runner contract stays unchanged. The graph remains the source of truth; exported YAML is derived interchange.
+
 ## Fault Injection
 
 Add a `fault` object to any caller turn to modify only that webhook delivery. Faults are applied after the normal AgentPhone payload and signature are built, so security failures exercise the same dispatch and inspection path as successful requests.
@@ -256,12 +281,13 @@ Transcript changes remain visible for review but do not fail regression gates be
 ## Repo Layout
 
 ```text
-packages/core      payload builders, signer, dispatcher, scenarios, assertions
+packages/core      payload builders, signer, dispatcher, scenarios, graphs, assertions
 packages/server    Fastify simulator API and SSE stream
 packages/ui        Next.js inspector
 packages/cli       npx-runnable entrypoint
 examples/handler-express
 examples/scenarios
+examples/graphs
 ```
 
 ## Demo Script
