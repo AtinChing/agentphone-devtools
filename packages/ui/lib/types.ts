@@ -170,7 +170,32 @@ export interface LoadedGraphFamily {
     nodes: Record<string, GraphNode>;
     edges: Array<{ from: string; to: string; label: string }>;
     paths: Record<string, { route: string[]; tags?: string[]; description?: string }>;
+    fixtureProfiles?: Record<string, unknown>;
+    runs?: Record<string, { paths?: string[]; tags?: string[]; fixtureProfiles?: string[]; maxGeneratedCases?: number }>;
   };
   paths: PathReviewSummary[];
+}
+
+export interface GraphCoverageReport {
+  paths: PathReviewSummary[];
+  approvedPathCount: number;
+  pendingPathCount: number;
+  edges: Array<{ from: string; to: string; label: string; coveredBy: string[]; covered: boolean }>;
+  coveredEdgeCount: number;
+  pairwise: Array<{ left: string; right: string; covered: boolean; coveringPaths: string[] }>;
+  coveredPairCount: number;
+  unsupported: Array<{
+    kind: "audio" | "timing" | "telephony" | "delivery";
+    location: string;
+    detail: string;
+    support: "locally-simulated" | "metadata-only" | "unsupported";
+  }>;
+  cap: {
+    limit: number;
+    selectedCount: number;
+    omitted: Array<{ pathName: string; runName?: string; fixtureProfiles: string[]; reason: string }>;
+  };
+  selectedPathNames: string[];
+  selectedProfileNames: string[];
 }
 

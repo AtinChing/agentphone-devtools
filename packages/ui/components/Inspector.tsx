@@ -412,11 +412,7 @@ export function Inspector() {
                 busy={graph.busy}
                 canRecordFromSession={Boolean(liveSession?.transcript.some((turn) => turn.role === "user"))}
                 onSelectFamily={(id) => void graph.openFamily(id)}
-                onSelectPath={(pathName) => {
-                  graph.setSelectedPath(pathName);
-                  const route = graph.family?.graph.paths[pathName]?.route ?? [];
-                  graph.setSelectedNodeId(route[0] ?? null);
-                }}
+                onSelectPath={(pathName) => void graph.selectPath(pathName)}
                 onRecordFromSession={() => void graph.recordFromSession()}
               />
             ) : leftView === "timeline" && session?.deliveries.length ? (
@@ -471,8 +467,14 @@ export function Inspector() {
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
           <PanelHeader
             icon={leftView === "graphs" ? <Network size={16} /> : <Play size={16} />}
-            title={leftView === "graphs" ? "Focused path" : "Transcript"}
-            meta={leftView === "graphs" ? graph.focusedPath?.pathName ?? "select a path" : viewingLive ? session?.status ?? "idle" : "saved run"}
+            title={leftView === "graphs" ? (graph.centerMode === "map" ? "Graph map" : "Focused path") : "Transcript"}
+            meta={
+              leftView === "graphs"
+                ? graph.focusedPath?.pathName ?? "select a path"
+                : viewingLive
+                  ? session?.status ?? "idle"
+                  : "saved run"
+            }
           />
           <div ref={transcriptRef} className="h-[calc(100vh-245px)] min-h-[360px] overflow-auto px-4 py-4">
             {leftView === "graphs" ? (
@@ -486,7 +488,13 @@ export function Inspector() {
                 forkCaller={graph.forkCaller}
                 busy={graph.busy}
                 error={graph.error}
+                coverage={graph.coverage}
+                centerMode={graph.centerMode}
+                coverageFilter={graph.coverageFilter}
+                onCenterModeChange={graph.setCenterMode}
+                onCoverageFilterChange={graph.setCoverageFilter}
                 onSelectNode={graph.setSelectedNodeId}
+                onSelectPath={(pathName) => void graph.selectPath(pathName)}
                 onCorrectionChange={graph.setCorrection}
                 onForkNameChange={graph.setForkName}
                 onForkCallerChange={graph.setForkCaller}
@@ -514,7 +522,7 @@ export function Inspector() {
 
           {leftView === "graphs" ? (
             <div className="border-t border-line px-4 py-3 text-xs text-slate-500">
-              Approve shared nodes, mark incorrect turns, then fork a continuation. Graph YAML stays the source of truth.
+              Use Graph map for semantic zoom, minimap, and coverage filters. Switch to Focused path to approve, correct, or fork turns.
             </div>
           ) : (
           <div className="border-t border-line p-3">

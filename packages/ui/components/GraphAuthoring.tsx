@@ -2,7 +2,8 @@
 
 import { useEffect, useMemo, useState } from "react";
 import { CheckCircle2, GitBranch, GitFork, Network, Plus, XCircle } from "lucide-react";
-import type { GraphFamilySummary, LoadedGraphFamily, PathReviewSummary } from "@/lib/types";
+import type { GraphCoverageReport, GraphFamilySummary, LoadedGraphFamily, PathReviewSummary } from "@/lib/types";
+import { GraphCanvas, type CoverageFilterOption } from "@/components/GraphCanvas";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -14,13 +15,27 @@ interface GraphAuthoringProps {
 export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphAuthoringProps) {
   const [families, setFamilies] = useState<GraphFamilySummary[]>([]);
   const [family, setFamily] = useState<LoadedGraphFamily | null>(null);
+  const [coverage, setCoverage] = useState<GraphCoverageReport | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [selectedNodeId, setSelectedNodeId] = useState<string | null>(null);
+  const [centerMode, setCenterMode] = useState<"path" | "map">("map");
+  const [coverageFilter, setCoverageFilter] = useState<CoverageFilterOption>("all");
   const [error, setError] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   const [forkName, setForkName] = useState("");
   const [forkCaller, setForkCaller] = useState("");
   const [correction, setCorrection] = useState("");
+
+  async function loadCoverage(id: string, pathName?: string | null) {
+    const query = pathName ? `?path=${encodeURIComponent(pathName)}` : "";
+    const response = await fetch(`${SERVER_URL}/api/graphs/${encodeURIComponent(id)}/coverage${query}`);
+    if (!response.ok) {
+      setCoverage(null);
+      return;
+    }
+    const payload = (await response.json()) as { coverage: GraphCoverageReport };
+    setCoverage(payload.coverage);
+  }
 
   async function refreshFamilies(preferredId?: string) {
     const response = await fetch(`${SERVER_URL}/api/graphs`);
@@ -31,6 +46,7 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
     if (nextId) await openFamily(nextId, listed);
     else {
       setFamily(null);
+      setCoverage(null);
       setSelectedPath(null);
       setSelectedNodeId(null);
     }
@@ -55,12 +71,14 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
         left.name.localeCompare(right.name)
       );
     });
-    const pathName = selectedPath && loaded.paths.some((path) => path.pathName === selectedPath)
-      ? selectedPath
-      : loaded.paths[0]?.pathName ?? null;
+    const pathName =
+      selectedPath && loaded.paths.some((path) => path.pathName === selectedPath)
+        ? selectedPath
+        : (loaded.paths[0]?.pathName ?? null);
     setSelectedPath(pathName);
-    const route = pathName ? loaded.graph.paths[pathName]?.route ?? [] : [];
-    setSelectedNodeId((current) => (current && route.includes(current) ? current : route[0] ?? null));
+    const route = pathName ? (loaded.graph.paths[pathName]?.route ?? []) : [];
+    setSelectedNodeId((current) => (current && route.includes(current) ? current : (route[0] ?? null)));
+    await loadCoverage(id, pathName);
   }
 
   useEffect(() => {
@@ -125,14 +143,14 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
       );
       const payload = await response.json();
       if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Review failed");
-      setFamily(payload as LoadedGraphFamily);
+      const loaded = payload as LoadedGraphFamily;
+      setFamily(loaded);
       setFamilies((current) =>
         current.map((item) =>
-          item.id === family.id
-            ? { ...item, paths: (payload as LoadedGraphFamily).paths, pathCount: (payload as LoadedGraphFamily).paths.length }
-            : item
+          item.id === family.id ? { ...item, paths: loaded.paths, pathCount: loaded.paths.length } : item
         )
       );
+      await loadCoverage(family.id, selectedPath);
     });
   }
 
@@ -162,6 +180,7 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
       setFamilies((current) =>
         current.map((item) => (item.id === family.id ? { ...item, paths: loaded.paths, pathCount: loaded.paths.length } : item))
       );
+      await loadCoverage(family.id, forkName.trim());
     });
   }
 
@@ -179,16 +198,27 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
       await refreshFamilies(loaded.id);
       setSelectedPath(loaded.paths[0]?.pathName ?? null);
       setSelectedNodeId(loaded.paths[0]?.route[0] ?? null);
+      setCenterMode("path");
     });
+  }
+
+  async function selectPath(pathName: string) {
+    setSelectedPath(pathName);
+    const route = family?.graph.paths[pathName]?.route ?? [];
+    setSelectedNodeId(route[0] ?? null);
+    if (family) await loadCoverage(family.id, pathName);
   }
 
   return {
     families,
     family,
+    coverage,
     selectedPath,
     selectedNodeId,
     focusedPath,
     focusedNodes,
+    centerMode,
+    coverageFilter,
     error,
     busy,
     forkName,
@@ -196,6 +226,8 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
     correction,
     setSelectedPath,
     setSelectedNodeId,
+    setCenterMode,
+    setCoverageFilter,
     setForkName,
     setForkCaller,
     setCorrection,
@@ -203,7 +235,8 @@ export function useGraphAuthoring({ canRecordFromSession, onBusyChange }: GraphA
     refreshFamilies,
     reviewSelected,
     forkFromSelected,
-    recordFromSession
+    recordFromSession,
+    selectPath
   };
 }
 
@@ -281,19 +314,25 @@ export function FocusedPathTranscript(props: {
   forkCaller: string;
   busy: boolean;
   error: string | null;
+  coverage: GraphCoverageReport | null;
+  centerMode: "path" | "map";
+  coverageFilter: CoverageFilterOption;
+  onCenterModeChange: (mode: "path" | "map") => void;
+  onCoverageFilterChange: (filter: CoverageFilterOption) => void;
   onSelectNode: (nodeId: string) => void;
+  onSelectPath: (pathName: string) => void;
   onCorrectionChange: (value: string) => void;
   onForkNameChange: (value: string) => void;
   onForkCallerChange: (value: string) => void;
   onReview: (status: "approved" | "rejected" | "pending") => void;
   onFork: () => void;
 }) {
-  if (!props.family || !props.focusedPath) {
+  if (!props.family) {
     return (
       <div className="grid h-full place-items-center px-6 text-center text-sm text-slate-500">
         <div>
           <Network className="mx-auto mb-3 text-slate-400" size={28} />
-          Select a named path to review shared turns, approve corrections, and fork alternatives.
+          Select a family graph to inspect coverage, zoom the map, and review focused paths.
         </div>
       </div>
     );
@@ -301,107 +340,140 @@ export function FocusedPathTranscript(props: {
 
   return (
     <div className="space-y-4">
-      <div className="rounded-md border border-line bg-mist px-3 py-2">
-        <div className="text-sm font-medium text-ink">{props.focusedPath.pathName}</div>
-        <div className="mt-1 text-xs text-slate-500">
-          {props.family.graph.metadata.name} · {props.focusedPath.approvedCount}/{props.focusedPath.nodeCount} approved
-          {props.focusedPath.tags.length ? ` · ${props.focusedPath.tags.join(", ")}` : ""}
+      <div className="flex flex-wrap items-center justify-between gap-2">
+        <div className="inline-flex rounded-md border border-line bg-white p-1">
+          <button
+            onClick={() => props.onCenterModeChange("map")}
+            className={`rounded px-2 py-1 text-[11px] font-medium ${props.centerMode === "map" ? "bg-ink text-white" : "text-slate-600"}`}
+          >
+            Graph map
+          </button>
+          <button
+            onClick={() => props.onCenterModeChange("path")}
+            className={`rounded px-2 py-1 text-[11px] font-medium ${props.centerMode === "path" ? "bg-ink text-white" : "text-slate-600"}`}
+          >
+            Focused path
+          </button>
         </div>
+        {props.focusedPath ? (
+          <div className="text-xs text-slate-500">
+            {props.focusedPath.pathName} · {props.focusedPath.approvedCount}/{props.focusedPath.nodeCount} approved
+          </div>
+        ) : null}
       </div>
 
-      {props.focusedNodes.map(({ nodeId, node }, index) => {
-        const selected = props.selectedNodeId === nodeId;
-        const status = node.review?.status ?? "pending";
-        return (
-          <button
-            key={nodeId}
-            onClick={() => props.onSelectNode(nodeId)}
-            className={`w-full rounded-lg border px-4 py-3 text-left transition ${
-              selected ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"
-            }`}
-          >
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
-                Node {index + 1} · {nodeId}
-              </span>
-              <StatusPill status={status} />
-            </div>
-            <div className="text-sm leading-6 text-ink">{node.caller}</div>
-            {node.review?.correctedTranscript && node.review.correctedTranscript !== node.caller ? (
-              <div className="mt-2 rounded-md border border-line bg-white px-3 py-2 text-xs text-slate-600">
-                Corrected: {node.review.correctedTranscript}
-              </div>
-            ) : null}
-          </button>
-        );
-      })}
-
-      {props.selectedNodeId ? (
-        <div className="rounded-lg border border-line bg-white p-3">
-          <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Review selected node</div>
-          <textarea
-            value={props.correction}
-            onChange={(event) => props.onCorrectionChange(event.target.value)}
-            rows={3}
-            className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-fern"
-            placeholder="Corrected caller transcript"
-          />
-          <div className="mt-2 flex flex-wrap gap-2">
-            <button
-              onClick={() => props.onReview("approved")}
-              disabled={props.busy}
-              className="inline-flex h-9 items-center gap-1 rounded-md bg-ink px-3 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
-            >
-              <CheckCircle2 size={14} />
-              Approve
-            </button>
-            <button
-              onClick={() => props.onReview("rejected")}
-              disabled={props.busy}
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-danger hover:border-danger disabled:opacity-50"
-            >
-              <XCircle size={14} />
-              Mark incorrect
-            </button>
-            <button
-              onClick={() => props.onReview("pending")}
-              disabled={props.busy}
-              className="inline-flex h-9 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
-            >
-              Reset pending
-            </button>
-          </div>
-
-          <div className="mt-4 border-t border-line pt-3">
-            <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
-              <GitFork size={14} />
-              Fork from here
-            </div>
-            <div className="grid gap-2">
-              <input
-                value={props.forkName}
-                onChange={(event) => props.onForkNameChange(event.target.value)}
-                className="h-9 rounded-md border border-line px-3 text-sm outline-none focus:border-fern"
-                placeholder="new_path_name"
-              />
-              <input
-                value={props.forkCaller}
-                onChange={(event) => props.onForkCallerChange(event.target.value)}
-                className="h-9 rounded-md border border-line px-3 text-sm outline-none focus:border-fern"
-                placeholder="Continuation caller text"
-              />
-              <button
-                onClick={props.onFork}
-                disabled={props.busy || !props.forkName.trim() || !props.forkCaller.trim()}
-                className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white text-xs font-medium text-ink hover:border-slate-400 disabled:opacity-50"
-              >
-                <GitBranch size={14} />
-                Create forked path
-              </button>
-            </div>
-          </div>
+      {props.centerMode === "map" ? (
+        <GraphCanvas
+          family={props.family}
+          coverage={props.coverage}
+          selectedPath={props.focusedPath?.pathName ?? null}
+          selectedNodeId={props.selectedNodeId}
+          coverageFilter={props.coverageFilter}
+          onCoverageFilterChange={props.onCoverageFilterChange}
+          onSelectNode={props.onSelectNode}
+          onSelectPath={props.onSelectPath}
+        />
+      ) : !props.focusedPath ? (
+        <div className="rounded-md border border-dashed border-line px-4 py-8 text-center text-sm text-slate-500">
+          Select a named path to review turns.
         </div>
-      ) : null}
+      ) : (
+        <>
+          {props.focusedNodes.map(({ nodeId, node }, index) => {
+            const selected = props.selectedNodeId === nodeId;
+            const status = node.review?.status ?? "pending";
+            return (
+              <button
+                key={nodeId}
+                onClick={() => props.onSelectNode(nodeId)}
+                className={`w-full rounded-lg border px-4 py-3 text-left transition ${
+                  selected ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"
+                }`}
+              >
+                <div className="mb-2 flex items-center justify-between gap-2">
+                  <span className="text-[11px] font-medium uppercase tracking-wide text-slate-500">
+                    Node {index + 1} · {nodeId}
+                  </span>
+                  <StatusPill status={status} />
+                </div>
+                <div className="text-sm leading-6 text-ink">{node.caller}</div>
+                {node.review?.correctedTranscript && node.review.correctedTranscript !== node.caller ? (
+                  <div className="mt-2 rounded-md border border-line bg-white px-3 py-2 text-xs text-slate-600">
+                    Corrected: {node.review.correctedTranscript}
+                  </div>
+                ) : null}
+              </button>
+            );
+          })}
+
+          {props.selectedNodeId ? (
+            <div className="rounded-lg border border-line bg-white p-3">
+              <div className="mb-2 text-xs font-medium uppercase tracking-wide text-slate-500">Review selected node</div>
+              <textarea
+                value={props.correction}
+                onChange={(event) => props.onCorrectionChange(event.target.value)}
+                rows={3}
+                className="w-full rounded-md border border-line bg-white px-3 py-2 text-sm outline-none focus:border-fern"
+                placeholder="Corrected caller transcript"
+              />
+              <div className="mt-2 flex flex-wrap gap-2">
+                <button
+                  onClick={() => props.onReview("approved")}
+                  disabled={props.busy}
+                  className="inline-flex h-9 items-center gap-1 rounded-md bg-ink px-3 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                >
+                  <CheckCircle2 size={14} />
+                  Approve
+                </button>
+                <button
+                  onClick={() => props.onReview("rejected")}
+                  disabled={props.busy}
+                  className="inline-flex h-9 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-danger hover:border-danger disabled:opacity-50"
+                >
+                  <XCircle size={14} />
+                  Mark incorrect
+                </button>
+                <button
+                  onClick={() => props.onReview("pending")}
+                  disabled={props.busy}
+                  className="inline-flex h-9 items-center gap-1 rounded-md border border-line bg-white px-3 text-xs font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                >
+                  Reset pending
+                </button>
+              </div>
+
+              <div className="mt-4 border-t border-line pt-3">
+                <div className="mb-2 flex items-center gap-2 text-xs font-medium uppercase tracking-wide text-slate-500">
+                  <GitFork size={14} />
+                  Fork from here
+                </div>
+                <div className="grid gap-2">
+                  <input
+                    value={props.forkName}
+                    onChange={(event) => props.onForkNameChange(event.target.value)}
+                    className="h-9 rounded-md border border-line px-3 text-sm outline-none focus:border-fern"
+                    placeholder="new_path_name"
+                  />
+                  <input
+                    value={props.forkCaller}
+                    onChange={(event) => props.onForkCallerChange(event.target.value)}
+                    className="h-9 rounded-md border border-line px-3 text-sm outline-none focus:border-fern"
+                    placeholder="Continuation caller text"
+                  />
+                  <button
+                    onClick={props.onFork}
+                    disabled={props.busy || !props.forkName.trim() || !props.forkCaller.trim()}
+                    className="inline-flex h-9 items-center justify-center gap-2 rounded-md border border-line bg-white text-xs font-medium text-ink hover:border-slate-400 disabled:opacity-50"
+                  >
+                    <GitBranch size={14} />
+                    Create forked path
+                  </button>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </>
+      )}
 
       {props.error ? <div className="text-xs text-danger">{props.error}</div> : null}
     </div>
