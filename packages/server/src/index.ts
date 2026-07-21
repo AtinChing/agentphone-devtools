@@ -1,10 +1,12 @@
 import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
+import { join } from "node:path";
 import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
 import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
+import { GraphAuthoringStore } from "./graphs.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -20,10 +22,12 @@ import {
   type AgentPhoneChannel,
   type AgentPhoneEnvelope,
   type AgentResponseChunk,
+  type ApplyNodeReviewInput,
   type CallEndedEnvelope,
   type ConversationState,
   type DispatchResult,
   type DeliveryFault,
+  type ForkPathInput,
   type Scenario,
   type ScenarioResult,
   type SignedDelivery,
@@ -33,6 +37,7 @@ import {
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
 export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 export { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
+export { GraphAuthoringStore, familyIdFromPath, type GraphFamilySummary, type LoadedGraphFamily } from "./graphs.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -45,6 +50,8 @@ export interface DevtoolsServerConfig {
   retryOnNon200?: boolean;
   historyPath: string;
   historyLimit: number;
+  /** Directory of conversation graph YAML/JSON family files. */
+  graphsPath?: string;
 }
 
 export interface InspectorRequest {
@@ -496,15 +503,86 @@ export class DevtoolsRuntime {
   }
 }
 
-export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime }> {
+export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{
+  app: FastifyInstance;
+  runtime: DevtoolsRuntime;
+  graphs: GraphAuthoringStore;
+}> {
   const app = Fastify({ logger: false });
   const runtime = new DevtoolsRuntime(config);
+  const graphs = new GraphAuthoringStore(config.graphsPath ?? join(process.cwd(), "examples/graphs"));
 
   await app.register(cors, { origin: true });
 
   app.get("/health", async () => ({ ok: true }));
   app.get("/api/state", async () => runtime.getState());
   app.get("/api/history", async () => runtime.getHistory());
+  app.get("/api/graphs", async () => graphs.listFamilies());
+
+  app.get<{ Params: { graphId: string } }>("/api/graphs/:graphId", async (request, reply) => {
+    const family = await graphs.loadFamily(request.params.graphId);
+    if (!family) return reply.code(404).send({ error: "graph not found" });
+    return family;
+  });
+
+  app.post<{ Params: { graphId: string; nodeId: string }; Body: ApplyNodeReviewInput }>(
+    "/api/graphs/:graphId/nodes/:nodeId/review",
+    async (request, reply) => {
+      if (!request.body?.status) return reply.code(400).send({ error: "status is required" });
+      try {
+        return await graphs.reviewNode(request.params.graphId, request.params.nodeId, request.body);
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  );
+
+  app.post<{ Params: { graphId: string }; Body: ForkPathInput }>("/api/graphs/:graphId/fork", async (request, reply) => {
+    const body = request.body;
+    if (!body?.sourcePath || !body.fromNodeId || !body.newPathName) {
+      return reply.code(400).send({ error: "sourcePath, fromNodeId, and newPathName are required" });
+    }
+    try {
+      return await graphs.forkPath(request.params.graphId, body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{
+    Params: { graphId: string };
+    Body: { runs?: string[]; paths?: string[]; tags?: string[] };
+  }>("/api/graphs/:graphId/compile", async (request, reply) => {
+    try {
+      return await graphs.compileFamily(request.params.graphId, request.body ?? {});
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{
+    Body: {
+      name?: string;
+      channel?: "sms" | "voice";
+      fileName?: string;
+      pathName?: string;
+    };
+  }>("/api/graphs/from-session", async (request, reply) => {
+    const session = runtime.getState();
+    const callerTurns = session.transcript.filter((turn) => turn.role === "user").map((turn) => ({ caller: turn.content }));
+    if (!callerTurns.length) return reply.code(422).send({ error: "session has no caller turns to record" });
+    try {
+      return await graphs.createFromCallerTurns({
+        name: request.body?.name ?? `Recorded ${session.id.slice(0, 8)}`,
+        channel: request.body?.channel ?? session.channel,
+        turns: callerTurns,
+        ...(request.body?.fileName ? { fileName: request.body.fileName } : {}),
+        ...(request.body?.pathName ? { pathName: request.body.pathName } : {})
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     const session = runtime.getHistorySession(request.params.sessionId);
@@ -666,17 +744,24 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     request.raw.on("close", unsubscribe);
   });
 
-  return { app, runtime };
+  return { app, runtime, graphs };
 }
 
-export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; close: () => Promise<void> }> {
-  const { app, runtime } = await createDevtoolsServer(config);
+export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{
+  app: FastifyInstance;
+  runtime: DevtoolsRuntime;
+  graphs: GraphAuthoringStore;
+  url: string;
+  close: () => Promise<void>;
+}> {
+  const { app, runtime, graphs } = await createDevtoolsServer(config);
   const host = config.host ?? "127.0.0.1";
   await app.listen({ port: config.port, host });
   const url = `http://${host}:${config.port}`;
   return {
     app,
     runtime,
+    graphs,
     url,
     close: () => app.close()
   };

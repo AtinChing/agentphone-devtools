@@ -403,7 +403,8 @@ function buildServerConfig(options: CliOptions): DevtoolsServerConfig {
     port: options.port,
     retryOnNon200: options.retryOnNon200,
     historyPath: options.historyPath,
-    historyLimit: options.historyLimit
+    historyLimit: options.historyLimit,
+    graphsPath: resolve(process.env.AGENTPHONE_DEVTOOLS_GRAPHS_PATH ?? join(process.cwd(), "examples/graphs"))
   };
 }
 
