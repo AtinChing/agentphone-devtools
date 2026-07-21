@@ -1,8 +1,9 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, Network, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison } from "@/lib/types";
+import { FocusedPathTranscript, GraphFamilyList, useGraphAuthoring } from "@/components/GraphAuthoring";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -10,7 +11,7 @@ export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
   const [liveSession, setLiveSession] = useState<InspectorSession | null>(null);
   const [runs, setRuns] = useState<InspectorSessionSummary[]>([]);
-  const [leftView, setLeftView] = useState<"timeline" | "runs">("timeline");
+  const [leftView, setLeftView] = useState<"timeline" | "runs" | "graphs">("timeline");
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -30,6 +31,10 @@ export function Inspector() {
   const [comparison, setComparison] = useState<RunComparison | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
+  const viewingLive = viewingSessionId === null;
+  const graph = useGraphAuthoring({
+    canRecordFromSession: Boolean(liveSession?.transcript.some((turn) => turn.role === "user"))
+  });
 
   useEffect(() => {
     fetch(`${SERVER_URL}/api/state`)
@@ -260,8 +265,6 @@ export function Inspector() {
     setComparison((await response.json()) as RunComparison);
   }
 
-  const viewingLive = viewingSessionId === null;
-
   return (
     <main className="min-h-screen">
       <header className="border-b border-line bg-white">
@@ -384,13 +387,39 @@ export function Inspector() {
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />} title={leftView === "timeline" ? "Timeline" : "Runs"} meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`} />
-          <div className="grid grid-cols-2 border-b border-line p-2">
+          <PanelHeader
+            icon={leftView === "timeline" ? <Clock3 size={16} /> : leftView === "runs" ? <History size={16} /> : <Network size={16} />}
+            title={leftView === "timeline" ? "Timeline" : leftView === "runs" ? "Runs" : "Graphs"}
+            meta={
+              leftView === "timeline"
+                ? `${session?.deliveries.length ?? 0} deliveries`
+                : leftView === "runs"
+                  ? `${runs.length} saved`
+                  : `${graph.families.length} families`
+            }
+          />
+          <div className="grid grid-cols-3 border-b border-line p-2">
             <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
             <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
+            <ViewTab active={leftView === "graphs"} onClick={() => setLeftView("graphs")} icon={<Network size={14} />} label="Graphs" />
           </div>
           <div className="max-h-[calc(100vh-220px)] overflow-auto px-3 py-3">
-            {leftView === "timeline" && session?.deliveries.length ? (
+            {leftView === "graphs" ? (
+              <GraphFamilyList
+                families={graph.families}
+                family={graph.family}
+                selectedPath={graph.selectedPath}
+                busy={graph.busy}
+                canRecordFromSession={Boolean(liveSession?.transcript.some((turn) => turn.role === "user"))}
+                onSelectFamily={(id) => void graph.openFamily(id)}
+                onSelectPath={(pathName) => {
+                  graph.setSelectedPath(pathName);
+                  const route = graph.family?.graph.paths[pathName]?.route ?? [];
+                  graph.setSelectedNodeId(route[0] ?? null);
+                }}
+                onRecordFromSession={() => void graph.recordFromSession()}
+              />
+            ) : leftView === "timeline" && session?.deliveries.length ? (
               session.deliveries.map((delivery) => (
                 <button
                   key={delivery.id}
@@ -440,9 +469,31 @@ export function Inspector() {
         </section>
 
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={<Play size={16} />} title="Transcript" meta={viewingLive ? session?.status ?? "idle" : "saved run"} />
+          <PanelHeader
+            icon={leftView === "graphs" ? <Network size={16} /> : <Play size={16} />}
+            title={leftView === "graphs" ? "Focused path" : "Transcript"}
+            meta={leftView === "graphs" ? graph.focusedPath?.pathName ?? "select a path" : viewingLive ? session?.status ?? "idle" : "saved run"}
+          />
           <div ref={transcriptRef} className="h-[calc(100vh-245px)] min-h-[360px] overflow-auto px-4 py-4">
-            {session?.transcript.length ? (
+            {leftView === "graphs" ? (
+              <FocusedPathTranscript
+                family={graph.family}
+                focusedPath={graph.focusedPath}
+                focusedNodes={graph.focusedNodes}
+                selectedNodeId={graph.selectedNodeId}
+                correction={graph.correction}
+                forkName={graph.forkName}
+                forkCaller={graph.forkCaller}
+                busy={graph.busy}
+                error={graph.error}
+                onSelectNode={graph.setSelectedNodeId}
+                onCorrectionChange={graph.setCorrection}
+                onForkNameChange={graph.setForkName}
+                onForkCallerChange={graph.setForkCaller}
+                onReview={(status) => void graph.reviewSelected(status)}
+                onFork={() => void graph.forkFromSelected()}
+              />
+            ) : session?.transcript.length ? (
               <div className="space-y-3">
                 {session.transcript.map((turn, index) => (
                   <div key={`${turn.role}-${index}`} className={`flex ${turn.role === "agent" ? "justify-start" : "justify-end"}`}>
@@ -461,6 +512,11 @@ export function Inspector() {
             )}
           </div>
 
+          {leftView === "graphs" ? (
+            <div className="border-t border-line px-4 py-3 text-xs text-slate-500">
+              Approve shared nodes, mark incorrect turns, then fork a continuation. Graph YAML stays the source of truth.
+            </div>
+          ) : (
           <div className="border-t border-line p-3">
             <div className="flex gap-2">
               <input
@@ -485,6 +541,7 @@ export function Inspector() {
               </button>
             </div>
           </div>
+          )}
         </section>
 
         <aside className="space-y-4">

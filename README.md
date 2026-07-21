@@ -199,6 +199,17 @@ npx agentphone-devtools \
 
 Conversation graph files are skipped by `--scenario-dir` discovery and rejected as `--scenario` inputs so the flat runner contract stays unchanged. The graph remains the source of truth; exported YAML is derived interchange.
 
+### Inspector authoring (thin)
+
+Open the **Graphs** tab in the inspector to:
+
+1. Browse family graphs and named paths
+2. Review a focused path turn-by-turn (approve / mark incorrect / correct transcript)
+3. Fork a continuation from a checkpoint node into a new named path
+4. Record the live session as a pending draft graph
+
+Edits write back to the family YAML under `examples/graphs` (or `AGENTPHONE_DEVTOOLS_GRAPHS_PATH`).
+
 ## Fault Injection
 
 Add a `fault` object to any caller turn to modify only that webhook delivery. Faults are applied after the normal AgentPhone payload and signature are built, so security failures exercise the same dispatch and inspection path as successful requests.

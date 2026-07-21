@@ -118,3 +118,59 @@ export interface RunComparison {
   latency: { baselineAverageMs: number; candidateAverageMs: number; deltaMs: number; deltaPercent: number; regressed: boolean };
   warnings: { baseline: string[]; candidate: string[]; added: string[]; regressed: boolean };
 }
+
+export type GraphReviewStatus = "pending" | "approved" | "rejected";
+
+export interface PathReviewSummary {
+  pathName: string;
+  route: string[];
+  tags: string[];
+  description?: string;
+  expectedOutcome?: "resolved" | "handed_off" | "failed";
+  nodeCount: number;
+  approvedCount: number;
+  pendingCount: number;
+  rejectedCount: number;
+  status: "approved" | "pending" | "rejected" | "mixed";
+}
+
+export interface GraphFamilySummary {
+  id: string;
+  name: string;
+  channel: "sms" | "voice";
+  path: string;
+  pathCount: number;
+  paths: PathReviewSummary[];
+}
+
+export interface GraphNodeReview {
+  status: GraphReviewStatus;
+  annotations?: string[];
+  originalTranscript?: string;
+  correctedTranscript?: string;
+}
+
+export interface GraphNode {
+  caller: string;
+  expect?: {
+    outcome?: "resolved" | "handed_off" | "failed";
+    actions?: string[];
+    status?: number;
+    timedOut?: boolean;
+    retries?: number;
+  };
+  review?: GraphNodeReview;
+}
+
+export interface LoadedGraphFamily {
+  id: string;
+  path: string;
+  graph: {
+    metadata: { name: string; channel: "sms" | "voice"; description?: string };
+    nodes: Record<string, GraphNode>;
+    edges: Array<{ from: string; to: string; label: string }>;
+    paths: Record<string, { route: string[]; tags?: string[]; description?: string }>;
+  };
+  paths: PathReviewSummary[];
+}
+
