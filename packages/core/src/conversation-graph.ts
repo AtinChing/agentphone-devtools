@@ -636,6 +636,12 @@ function yamlScalar(value: unknown): string {
   return JSON.stringify(value);
 }
 
+/** Serialize a validated conversation graph to YAML for explicit persistence. */
+export function stringifyConversationGraphYaml(graph: ConversationGraph): string {
+  validateConversationGraph(graph);
+  return `${YAML.stringify(graph).trimEnd()}\n`;
+}
+
 function isPlainObject(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
