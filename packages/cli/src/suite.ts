@@ -1,5 +1,6 @@
-import { readdir, stat } from "node:fs/promises";
+import { readdir, readFile, stat } from "node:fs/promises";
 import { extname, join, resolve } from "node:path";
+import { rawLooksLikeConversationGraph } from "@agentphone-devtools/core";
 
 const SCENARIO_EXTENSIONS = new Set([".json", ".yaml", ".yml"]);
 const SKIPPED_DIRECTORIES = new Set([".agentphone-devtools", ".git", ".next", "dist", "node_modules"]);
@@ -21,6 +22,9 @@ export async function resolveScenarioInputs(
     const metadata = await statOrThrow(path, `Scenario file was not found: ${input}`);
     if (!metadata.isFile()) throw new Error(`Scenario path is not a file: ${input}`);
     if (!isScenarioFile(path)) throw new Error(`Scenario file must use .json, .yaml, or .yml: ${input}`);
+    if (await isConversationGraphFile(path)) {
+      throw new Error(`Conversation graph files require --graph: ${input}`);
+    }
     appendUnique(scenarios, seen, path);
   }
 
@@ -48,10 +52,18 @@ async function walk(directory: string, scenarios: string[]): Promise<void> {
   for (const entry of entries) {
     const path = join(directory, entry.name);
     if (entry.isFile() && isScenarioFile(entry.name)) {
-      scenarios.push(path);
+      if (!(await isConversationGraphFile(path))) scenarios.push(path);
     } else if (entry.isDirectory() && !entry.name.startsWith(".") && !SKIPPED_DIRECTORIES.has(entry.name)) {
       await walk(path, scenarios);
     }
+  }
+}
+
+async function isConversationGraphFile(path: string): Promise<boolean> {
+  try {
+    return rawLooksLikeConversationGraph(await readFile(path, "utf8"), path);
+  } catch {
+    return false;
   }
 }
 

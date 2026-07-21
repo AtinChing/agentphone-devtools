@@ -1,5 +1,6 @@
 import { mkdir, writeFile } from "node:fs/promises";
 import { basename, dirname, resolve } from "node:path";
+import type { Scenario } from "@agentphone-devtools/core";
 import {
   buildJsonReport,
   DevtoolsRuntime,
@@ -108,13 +109,25 @@ export async function runScenarioSuiteInCi(
   scenarioPaths: string[],
   options: CiRunOptions
 ): Promise<CiSuiteResult> {
-  if (scenarioPaths.length === 0) throw new Error("A scenario suite must contain at least one scenario");
+  return runScenarioInputsInCi(
+    config,
+    scenarioPaths.map((scenarioPath) => ({ scenario: scenarioPath, label: scenarioPath })),
+    options
+  );
+}
+
+export async function runScenarioInputsInCi(
+  config: DevtoolsServerConfig,
+  inputs: Array<{ scenario: string | Scenario; label: string }>,
+  options: CiRunOptions
+): Promise<CiSuiteResult> {
+  if (inputs.length === 0) throw new Error("A scenario suite must contain at least one scenario");
 
   const runtime = new DevtoolsRuntime(config);
   const runs: CiRunResult[] = [];
-  for (const scenarioPath of scenarioPaths) {
-    const session = await runtime.runScenario(scenarioPath);
-    runs.push(evaluateCiRun(session, scenarioPath, options));
+  for (const input of inputs) {
+    const session = await runtime.runScenario(input.scenario);
+    runs.push(evaluateCiRun(session, input.label, options));
   }
 
   const passedCount = runs.filter((run) => run.passed).length;

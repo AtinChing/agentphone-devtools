@@ -6,7 +6,8 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
 import { startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
-import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
+import { runScenarioInCi, runScenarioInputsInCi, runScenarioSuiteInCi } from "./ci.js";
+import { compileGraphSuite, exportGraphSuite } from "./graph.js";
 import { resolveScenarioInputs } from "./suite.js";
 import { loadBaselineArtifact } from "./baseline.js";
 
@@ -20,6 +21,9 @@ interface CliOptions {
   uiPort: number;
   scenarios: string[];
   scenarioDirectories: string[];
+  graphs: string[];
+  graphRuns: string[];
+  exportDir?: string;
   noOpen: boolean;
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
@@ -41,8 +45,25 @@ async function main() {
   const options = parseArgs(process.argv.slice(2));
   const serverConfig = buildServerConfig(options);
 
+  if (options.exportDir) {
+    if (options.graphs.length === 0) throw new Error("--export-dir requires --graph");
+    const written: string[] = [];
+    for (const graphPath of options.graphs) {
+      written.push(
+        ...(await exportGraphSuite(
+          {
+            graphPath,
+            ...(options.graphRuns.length ? { runs: options.graphRuns } : {})
+          },
+          options.exportDir
+        ))
+      );
+    }
+    console.log(JSON.stringify({ exported: written }, null, 2));
+    return;
+  }
+
   if (options.ci) {
-    const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
     const baselines = options.baselinePath ? await loadBaselineArtifact(options.baselinePath) : undefined;
     const runOptions = {
       reportPath: options.reportJson,
@@ -52,6 +73,37 @@ async function main() {
         maxLatencyIncreasePercent: options.maxLatencyIncreasePercent
       }
     };
+
+    if (options.graphs.length > 0) {
+      const inputs = [];
+      for (const graphPath of options.graphs) {
+        const compiled = await compileGraphSuite({
+          graphPath,
+          ...(options.graphRuns.length ? { runs: options.graphRuns } : {})
+        });
+        for (const item of compiled) {
+          inputs.push({ scenario: item.scenario, label: item.label });
+        }
+      }
+      if (options.scenarios.length > 0 || options.scenarioDirectories.length > 0) {
+        const scenarioPaths = await resolveScenarioInputs({
+          files: options.scenarios,
+          directories: options.scenarioDirectories
+        });
+        for (const scenarioPath of scenarioPaths) {
+          inputs.push({ scenario: scenarioPath, label: scenarioPath });
+        }
+      }
+      const result = await runScenarioInputsInCi(serverConfig, inputs, runOptions);
+      console.log(JSON.stringify(result.summary, null, 2));
+      if (!result.passed) process.exitCode = 1;
+      return;
+    }
+
+    const scenarioPaths = await resolveScenarioInputs({
+      files: options.scenarios,
+      directories: options.scenarioDirectories
+    });
     const result =
       options.scenarioDirectories.length > 0 || scenarioPaths.length > 1
         ? await runScenarioSuiteInCi(serverConfig, scenarioPaths, runOptions)
@@ -92,7 +144,20 @@ async function main() {
     process.exit(0);
   });
 
-  if (options.scenarios.length === 1) {
+  if (options.graphs.length === 1) {
+    const compiled = await compileGraphSuite({
+      graphPath: options.graphs[0],
+      ...(options.graphRuns.length ? { runs: options.graphRuns } : {})
+    });
+    for (const item of compiled) {
+      console.log(`Running compiled graph case: ${item.label}`);
+      await server.runtime.runScenario(item.scenario);
+    }
+    if (options.exitAfterScenario) {
+      await shutdown();
+      return;
+    }
+  } else if (options.scenarios.length === 1) {
     const scenarioPath = resolve(process.cwd(), options.scenarios[0]);
     await server.runtime.runScenario(scenarioPath);
     if (options.exitAfterScenario) {
@@ -186,7 +251,9 @@ function parseArgs(args: string[]): CliOptions {
     ci: false,
     maxLatencyIncreasePercent: 25,
     scenarios: [],
-    scenarioDirectories: []
+    scenarioDirectories: [],
+    graphs: [],
+    graphRuns: []
   };
 
   for (let i = 0; i < args.length; i += 1) {
@@ -232,6 +299,17 @@ function parseArgs(args: string[]): CliOptions {
         options.scenarioDirectories.push(requireValue(args, ++i, arg));
         options.interactive = false;
         break;
+      case "--graph":
+        options.graphs.push(requireValue(args, ++i, arg));
+        options.interactive = false;
+        break;
+      case "--graph-run":
+        options.graphRuns.push(requireValue(args, ++i, arg));
+        break;
+      case "--export-dir":
+        options.exportDir = requireValue(args, ++i, arg);
+        options.interactive = false;
+        break;
       case "--no-open":
         options.noOpen = true;
         break;
@@ -271,6 +349,14 @@ function parseArgs(args: string[]): CliOptions {
         } else if (arg.startsWith("--scenario-dir=")) {
           options.scenarioDirectories.push(arg.slice("--scenario-dir=".length));
           options.interactive = false;
+        } else if (arg.startsWith("--graph=")) {
+          options.graphs.push(arg.slice("--graph=".length));
+          options.interactive = false;
+        } else if (arg.startsWith("--graph-run=")) {
+          options.graphRuns.push(arg.slice("--graph-run=".length));
+        } else if (arg.startsWith("--export-dir=")) {
+          options.exportDir = arg.slice("--export-dir=".length);
+          options.interactive = false;
         } else {
           throw new Error(`Unknown option: ${arg}`);
         }
@@ -286,11 +372,21 @@ function parseArgs(args: string[]): CliOptions {
   if (!Number.isFinite(options.maxLatencyIncreasePercent) || options.maxLatencyIncreasePercent < 0) {
     throw new Error("--max-latency-increase must be zero or greater");
   }
-  if (options.ci && options.scenarios.length === 0 && options.scenarioDirectories.length === 0) {
-    throw new Error("--ci requires --scenario or --scenario-dir");
+  if (options.graphRuns.length > 0 && options.graphs.length === 0) {
+    throw new Error("--graph-run requires --graph");
+  }
+  if (options.exportDir && options.ci) throw new Error("--export-dir cannot be combined with --ci");
+  if (
+    options.ci &&
+    options.scenarios.length === 0 &&
+    options.scenarioDirectories.length === 0 &&
+    options.graphs.length === 0
+  ) {
+    throw new Error("--ci requires --scenario, --scenario-dir, or --graph");
   }
   if (!options.ci && options.scenarioDirectories.length > 0) throw new Error("--scenario-dir requires --ci");
   if (!options.ci && options.scenarios.length > 1) throw new Error("Repeated --scenario requires --ci");
+  if (!options.ci && options.graphs.length > 1) throw new Error("Repeated --graph requires --ci or --export-dir");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
   if (options.reportJunit && !options.ci) throw new Error("--report-junit requires --ci");
   if (options.baselinePath && !options.ci) throw new Error("--baseline requires --ci");
@@ -328,6 +424,8 @@ function printHelp() {
 Usage:
   npx agentphone-devtools --target http://localhost:3000/webhook --secret whsec_demo
   npx agentphone-devtools --target http://localhost:3000/webhook --secret whsec_demo --scenario examples/scenarios/ev-support.yaml
+  npx agentphone-devtools --graph examples/graphs/appointment-cancellation.yaml --export-dir .agentphone-devtools/exports
+  npx agentphone-devtools --ci --graph examples/graphs/appointment-cancellation.yaml --graph-run smoke --target http://localhost:3000/webhook --secret whsec_demo
 
 Options:
   --target <url>             Webhook URL to receive simulated AgentPhone events
@@ -335,6 +433,9 @@ Options:
   --channel <sms|voice>      Interactive channel, default voice
   --scenario <path>          Scenario to replay; repeat in CI mode to build a suite
   --scenario-dir <path>      Recursively run all YAML/JSON scenarios in CI mode
+  --graph <path>             Compile a conversation graph into flat scenarios in memory
+  --graph-run <name>         Named graph run selector; repeatable
+  --export-dir <path>        Explicitly write compiled flat scenarios from --graph
   --timeout <seconds>        Voice webhook timeout, default 30
   --context-limit <0-50>     recentHistory limit, default 10
   --server-port <port>       Simulator API port, default 4318
@@ -344,7 +445,7 @@ Options:
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
   --exit-after-scenario      Exit after scenario completes
-  --ci                       Run one or more scenarios headlessly
+  --ci                       Run one or more scenarios/graphs headlessly
   --report-json <path>       Write the full run report in CI mode
   --report-junit <path>      Write JUnit XML with one test per assertion
   --baseline <report.json>   Fail CI when behavior regresses from a prior report

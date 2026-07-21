@@ -62,6 +62,21 @@ describe("scenario suite discovery", () => {
       "Scenario file must use"
     );
   });
+
+  it("skips conversation graphs during directory discovery and rejects them as --scenario", async () => {
+    const directory = temporaryDirectory();
+    write(directory, "flat.yaml", "name: Flat\nturns:\n  - caller: hi\n");
+    write(
+      directory,
+      "family.yaml",
+      "version: 1\nnodes:\n  first:\n    caller: hi\n    review:\n      status: approved\npaths:\n  only:\n    route: [first]\n"
+    );
+
+    expect(await discoverScenarioDirectory(directory)).toEqual([join(directory, "flat.yaml")]);
+    await expect(resolveScenarioInputs({ files: ["family.yaml"], directories: [] }, directory)).rejects.toThrow(
+      /require --graph/
+    );
+  });
 });
 
 function temporaryDirectory(): string {
@@ -70,8 +85,8 @@ function temporaryDirectory(): string {
   return directory;
 }
 
-function write(directory: string, path: string): void {
+function write(directory: string, path: string, contents = "{}"): void {
   const destination = join(directory, path);
   mkdirSync(dirname(destination), { recursive: true });
-  writeFileSync(destination, "{}", "utf8");
+  writeFileSync(destination, contents, "utf8");
 }
