@@ -15,6 +15,7 @@ const scenarioSchema = z
     conversationState: z.record(z.unknown()).nullable().default(null),
     contextLimit: z.number().int().min(0).max(50).default(10),
     timeoutSeconds: z.number().int().min(5).max(120).default(30),
+    expectedOutcome: z.enum(["resolved", "handed_off", "failed"]).optional(),
     turns: z
       .array(
         z
@@ -22,6 +23,7 @@ const scenarioSchema = z
             caller: z.string().min(1),
             expect: z
               .object({
+                outcome: z.enum(["resolved", "handed_off", "failed"]).optional(),
                 actions: z.array(z.string()).optional(),
                 status: z.number().int().min(100).max(599).optional(),
                 timedOut: z.boolean().optional(),

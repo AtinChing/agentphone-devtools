@@ -43,18 +43,29 @@ export function stringifyScenarioYaml(scenario: Scenario): string {
     "conversationState:",
     ...yamlValueLines(scenario.conversationState, 2),
     `contextLimit: ${scenario.contextLimit}`,
-    `timeoutSeconds: ${scenario.timeoutSeconds}`,
-    "turns:"
+    `timeoutSeconds: ${scenario.timeoutSeconds}`
   ];
+  if (scenario.expectedOutcome) lines.push(`expectedOutcome: ${scenario.expectedOutcome}`);
+  lines.push("turns:");
 
   for (const turn of scenario.turns) {
     lines.push(`  - caller: ${yamlScalar(turn.caller)}`);
     if (turn.waitMs !== undefined) lines.push(`    waitMs: ${turn.waitMs}`);
     if (turn.expect) {
       lines.push("    expect:");
+      if (turn.expect.outcome) lines.push(`      outcome: ${turn.expect.outcome}`);
       if (turn.expect.actions?.length) {
         lines.push("      actions:");
         for (const action of turn.expect.actions) lines.push(`        - ${yamlScalar(action)}`);
+      }
+      if (turn.expect.status !== undefined) lines.push(`      status: ${turn.expect.status}`);
+      if (turn.expect.timedOut !== undefined) lines.push(`      timedOut: ${turn.expect.timedOut}`);
+      if (turn.expect.retries !== undefined) lines.push(`      retries: ${turn.expect.retries}`);
+    }
+    if (turn.fault) {
+      lines.push("    fault:");
+      for (const [key, value] of Object.entries(turn.fault)) {
+        if (value !== undefined) lines.push(`      ${key}: ${JSON.stringify(value)}`);
       }
     }
   }

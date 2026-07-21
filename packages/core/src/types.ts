@@ -131,6 +131,7 @@ export interface DispatchOptions {
 export interface ScenarioTurn {
   caller: string;
   expect?: {
+    outcome?: "resolved" | "handed_off" | "failed";
     actions?: string[];
     status?: number;
     timedOut?: boolean;
@@ -161,6 +162,8 @@ export interface Scenario {
   conversationState: ConversationState;
   contextLimit: number;
   timeoutSeconds: number;
+  /** Optional path-level outcome retained when compiling from a conversation graph. */
+  expectedOutcome?: "resolved" | "handed_off" | "failed";
   turns: ScenarioTurn[];
 }
 
