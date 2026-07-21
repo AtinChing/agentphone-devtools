@@ -1,6 +1,7 @@
 export * from "./audio-fixtures.js";
 export * from "./conversation-graph.js";
 export * from "./graph-authoring.js";
+export * from "./graph-coverage.js";
 export * from "./dispatch.js";
 export * from "./events.js";
 export * from "./faults.js";
