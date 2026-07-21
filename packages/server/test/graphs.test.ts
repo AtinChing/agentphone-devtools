@@ -58,6 +58,10 @@ paths:
     expect(compiled.cases).toHaveLength(1);
     expect(compiled.cases[0].scenario.turns.map((turn) => turn.caller)).toEqual(["Hello", "Billing help"]);
 
+    const coverage = await store.coverage("family", { paths: ["billing"] });
+    expect(coverage.coverage.coveredEdgeCount).toBeGreaterThan(0);
+    expect(coverage.coverage.paths[0]?.pathName).toBe("billing");
+
     const yaml = readFileSync(join(directory, "family.yaml"), "utf8");
     expect(yaml).toContain("outage");
     expect(yaml).toContain("approved");

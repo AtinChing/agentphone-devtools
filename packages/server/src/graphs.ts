@@ -2,6 +2,7 @@ import { access, mkdir, readdir, readFile, rename, writeFile } from "node:fs/pro
 import { basename, dirname, extname, join, resolve } from "node:path";
 import {
   applyNodeReview,
+  buildGraphCoverageReport,
   compileConversationGraphCases,
   draftGraphFromCallerTurns,
   forkPathFromNode,
@@ -12,6 +13,7 @@ import {
   validateConversationGraph,
   type ApplyNodeReviewInput,
   type ConversationGraph,
+  type ConversationGraphCompileOptions,
   type ForkPathInput,
   type PathReviewSummary
 } from "@agentphone-devtools/core";
@@ -113,6 +115,15 @@ export class GraphAuthoringStore {
       id: loaded.id,
       path: loaded.path,
       cases: compileConversationGraphCases(loaded.graph, options)
+    };
+  }
+
+  async coverage(id: string, options: ConversationGraphCompileOptions = {}) {
+    const loaded = await this.requireFamily(id);
+    return {
+      id: loaded.id,
+      path: loaded.path,
+      coverage: buildGraphCoverageReport(loaded.graph, options)
     };
   }
 

@@ -560,6 +560,21 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     }
   });
 
+  app.get<{
+    Params: { graphId: string };
+    Querystring: { run?: string; path?: string; tag?: string };
+  }>("/api/graphs/:graphId/coverage", async (request, reply) => {
+    try {
+      return await graphs.coverage(request.params.graphId, {
+        ...(request.query.run ? { runs: [request.query.run] } : {}),
+        ...(request.query.path ? { paths: [request.query.path] } : {}),
+        ...(request.query.tag ? { tags: [request.query.tag] } : {})
+      });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post<{
     Body: {
       name?: string;
