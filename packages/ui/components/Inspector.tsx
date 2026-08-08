@@ -538,38 +538,45 @@ export function Inspector() {
 
   return (
     <main className="min-h-screen">
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4">
+      <header className="bg-ink text-white">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-md border border-line bg-skyglass text-fern">
-              <Activity size={18} aria-hidden="true" />
+            <div className="grid h-8 w-8 place-items-center rounded bg-fern text-white">
+              <Activity size={16} aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-normal text-ink">AgentPhone DevTools</h1>
-              <div className="data mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                <span className="truncate">{session?.targetUrl ?? "waiting for simulator"}</span>
-                <span>{session?.secretPreview ?? ""}</span>
-                <span className={connected ? "text-fern" : "text-caution"}>{connected ? "live" : "offline"}</span>
+              <h1 className="flex items-baseline gap-2 truncate text-sm font-semibold text-white">
+                AgentPhone
+                <span className="micro font-normal text-emerald-300">devtools</span>
+              </h1>
+              <div className="data mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-300">
+                <span className="truncate rounded bg-white/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
+                <span className="rounded bg-white/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
+                <span className={`flex items-center gap-1 ${connected ? "text-emerald-300" : "text-amber-300"}`}>
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
+                  {connected ? "live" : "offline"}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <select
               value={channel}
               onChange={(event) => setChannel(event.target.value as "sms" | "voice")}
-              className="h-9 rounded-md border border-line bg-white px-3 text-sm text-ink outline-none focus:border-fern"
+              className="data h-8 rounded border border-white/20 bg-transparent px-2 text-xs text-white outline-none focus:border-emerald-300 [&>option]:text-ink"
               aria-label="Channel"
             >
               <option value="voice">voice</option>
               <option value="sms">sms</option>
             </select>
+            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
             <button
               onClick={() => {
                 setStepError(null);
                 setStepStripOpen((open) => !open);
               }}
-              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 ${stepState?.active ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white ${stepState?.active ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
               title={stepState?.active ? "Step session active" : "Step through a scenario"}
               aria-label="Step through a scenario"
             >
@@ -578,7 +585,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("json")}
               disabled={!session}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export JSON report"
               aria-label="Export JSON report"
             >
@@ -587,7 +594,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("md")}
               disabled={!session}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export Markdown report"
               aria-label="Export Markdown report"
             >
@@ -596,25 +603,27 @@ export function Inspector() {
             <button
               onClick={exportScenario}
               disabled={!session || !session.transcript.some((turn) => turn.role === "user")}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export scenario YAML"
               aria-label="Export scenario YAML"
             >
               <FileCode2 size={16} />
             </button>
+            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
             <button
               onClick={() => void toggleBaseline()}
               disabled={!session}
-              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
               title={session?.baseline ? "Remove baseline" : "Save as baseline"}
               aria-label={session?.baseline ? "Remove baseline" : "Save as baseline"}
             >
               <Bookmark size={16} fill={session?.baseline ? "currentColor" : "none"} />
             </button>
+            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
             <button
               onClick={reset}
               disabled={!viewingLive}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Reset session"
               aria-label="Reset session"
             >
@@ -623,7 +632,7 @@ export function Inspector() {
             <button
               onClick={endCall}
               disabled={!viewingLive}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="End call"
               aria-label="End call"
             >
@@ -632,10 +641,10 @@ export function Inspector() {
           </div>
         </div>
         {stepStripOpen ? (
-          <div className="border-t border-line bg-mist">
+          <div className="border-t border-white/10 bg-[#161614]">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
               <label className="min-w-[320px] flex-1">
-                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Scenario path (relative to the CLI&apos;s working directory)</span>
+                <span className="micro mb-1 block text-slate-400">Scenario path (relative to the CLI&apos;s working directory)</span>
                 <input
                   value={stepScenarioPath}
                   onChange={(event) => setStepScenarioPath(event.target.value)}
@@ -649,25 +658,25 @@ export function Inspector() {
               </label>
               <button
                 onClick={() => void startStepScenario()}
-                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700"
+                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110"
               >
                 Start stepping
               </button>
               {stepState?.active ? (
                 <button
                   onClick={() => void endStep()}
-                  className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+                  className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
                 >
                   End current step session
                 </button>
               ) : null}
               <button
                 onClick={() => setStepStripOpen(false)}
-                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
               >
                 Close
               </button>
-              <div className="w-full text-xs text-slate-500">
+              <div className="w-full text-xs text-slate-400">
                 Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
                 Tip: the Runs tab can step-replay any saved run.
               </div>
@@ -676,10 +685,10 @@ export function Inspector() {
           </div>
         ) : null}
         {baselineEditorOpen ? (
-          <div className="border-t border-line bg-mist">
+          <div className="border-t border-white/10 bg-[#161614]">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
               <label className="min-w-[260px] flex-1">
-                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Baseline name</span>
+                <span className="micro mb-1 block text-slate-400">Baseline name</span>
                 <input
                   value={baselineName}
                   onChange={(event) => setBaselineName(event.target.value)}
@@ -694,14 +703,14 @@ export function Inspector() {
               <button
                 onClick={() => void saveBaseline()}
                 disabled={baselineSaving}
-                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
               >
                 {baselineSaving ? "Saving…" : "Save baseline"}
               </button>
               <button
                 onClick={() => setBaselineEditorOpen(false)}
                 disabled={baselineSaving}
-                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -712,7 +721,7 @@ export function Inspector() {
       </header>
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
-        <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
+        <section className="min-h-[520px] rounded-lg border border-line bg-white">
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
             title={leftView === "timeline" ? "Timeline" : "Runs"}
@@ -791,7 +800,7 @@ export function Inspector() {
           </div>
         </section>
 
-        <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
+        <section className="min-h-[520px] overflow-hidden rounded-lg border border-line bg-white shadow-soft">
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
             title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
@@ -909,22 +918,21 @@ export function Inspector() {
               </div>
             ) : null}
             {session?.transcript.length ? (
-              <div className="space-y-3">
+              <div>
                 {transcriptRows.map(({ turn, ordinal }, index) => {
                   const label = ordinal !== null ? session.turnLabels?.find((item) => item.turnIndex === ordinal - 1) : undefined;
                   return (
-                    <div key={`${turn.role}-${index}`}>
-                      <div className={`flex ${turn.role === "agent" ? "justify-start" : "justify-end"}`}>
-                        <div
-                          className={`max-w-[78%] rounded-lg border px-4 py-3 text-sm leading-6 ${
-                            turn.role === "agent" ? "border-line bg-mist text-ink" : "border-fern bg-fern text-white"
-                          }`}
-                        >
+                    <div key={`${turn.role}-${index}`} className="group border-b border-line/60">
+                      <div className="flex items-start gap-3 py-2.5">
+                        <span className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}>
+                          {turn.role === "agent" ? "agent" : "caller"}
+                        </span>
+                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-ink"}`}>
                           {turn.content}
                         </div>
                       </div>
                       {ordinal !== null ? (
-                        <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
+                        <div className="flex items-center gap-1 pb-1.5 pl-[60px] text-[11px] text-slate-400 opacity-60 transition group-hover:opacity-100">
                           {label?.verdict ? (
                             <span
                               title={label.note}
@@ -933,7 +941,7 @@ export function Inspector() {
                               {label.verdict}
                             </span>
                           ) : null}
-                          <span className="mr-1">turn {ordinal}</span>
+                          <span className="data mr-1">t{ordinal}</span>
                           <button
                             onClick={() => void labelTurn(ordinal, "good")}
                             className={`grid h-6 w-6 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${label?.verdict === "good" ? "text-fern" : ""}`}
@@ -965,7 +973,7 @@ export function Inspector() {
                         </div>
                       ) : null}
                       {forkTurn === ordinal && ordinal !== null ? (
-                        <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3">
+                        <div className="mb-2 ml-[60px] rounded-md border border-indigo-200 bg-indigo-50 p-3">
                           <div className="mb-2 text-xs font-medium text-indigo-700">
                             New branch from the checkpoint after turn {ordinal} — same history and state, different next line:
                           </div>
@@ -1079,7 +1087,7 @@ export function Inspector() {
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-line bg-white shadow-soft">
+          <section className="overflow-hidden rounded-lg border border-line bg-white">
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
             {selected ? (
@@ -1122,13 +1130,13 @@ export function Inspector() {
             ) : null}
           </section>
 
-          <section className="rounded-lg border border-line bg-white shadow-soft">
+          <section className="overflow-hidden rounded-lg border border-line bg-white">
             <PanelHeader icon={<CheckCircle2 size={16} />} title="Response" meta={selected ? String(selected.response.status) : ""} />
             <PayloadBlock value={selected ? { status: selected.response.status, headers: selected.response.headers, parsed: selected.response.parsed, rawBody: selected.response.rawBody } : null} />
           </section>
 
           {session?.callEnded ? (
-            <section className="rounded-lg border border-line bg-white shadow-soft">
+            <section className="rounded-lg border border-line bg-white">
               <PanelHeader icon={<PhoneOff size={16} />} title="Call Ended" meta={`${session.callEnded.durationSeconds}s`} />
               <div className="space-y-2 px-4 pb-4 text-sm">
                 <KeyValue name="summary" value={session.callEnded.summary} />
@@ -1181,12 +1189,12 @@ export function Inspector() {
 
 function PanelHeader({ icon, title, meta }: { icon: React.ReactNode; title: string; meta?: string }) {
   return (
-    <div className="flex h-12 items-center justify-between border-b border-line px-4">
-      <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <span className="text-slate-500">{icon}</span>
+    <div className="flex h-9 items-center justify-between border-b border-line px-3">
+      <div className="micro flex items-center gap-1.5 text-slate-500">
+        <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
         {title}
       </div>
-      {meta ? <span className="max-w-[170px] truncate text-xs text-slate-500">{meta}</span> : null}
+      {meta ? <span className="data max-w-[180px] truncate text-[10px] text-slate-400">{meta}</span> : null}
     </div>
   );
 }
@@ -1205,15 +1213,40 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
 
 function PayloadBlock({ value }: { value: unknown | null }) {
   return (
-    <pre className="max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5 text-slate-700">
-      {value ? JSON.stringify(value, null, 2) : "null"}
+    <pre className="console-pane max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5">
+      {tokenizeJson(value ? JSON.stringify(value, null, 2) : "null")}
     </pre>
   );
 }
 
+// Minimal JSON tinting via React spans (no innerHTML): keys green, strings
+// light, numbers/keywords amber, punctuation dim.
+const JSON_TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)|("(?:[^"\\]|\\.)*")|\b(true|false|null)\b|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g;
+
+function tokenizeJson(json: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  let index = 0;
+  for (const match of json.matchAll(JSON_TOKEN)) {
+    const start = match.index ?? 0;
+    if (start > cursor) nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{json.slice(cursor, start)}</span>);
+    if (match[1] !== undefined) {
+      nodes.push(<span key={index++} style={{ color: "#8fd694" }}>{match[1]}</span>);
+      nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{match[2]}</span>);
+    } else if (match[3] !== undefined) {
+      nodes.push(<span key={index++}>{match[3]}</span>);
+    } else {
+      nodes.push(<span key={index++} style={{ color: "#e0b16b" }}>{match[0]}</span>);
+    }
+    cursor = start + match[0].length;
+  }
+  if (cursor < json.length) nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{json.slice(cursor)}</span>);
+  return nodes;
+}
+
 function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenarioResult"]> }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-soft">
+    <section className="rounded-lg border border-line bg-white">
       <PanelHeader
         icon={result.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
         title="Scenario"
@@ -1247,7 +1280,7 @@ function ComparisonCard({
   comparison: RunComparison | null;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-soft">
+    <section className="rounded-lg border border-line bg-white">
       <PanelHeader icon={<Scale size={16} />} title="Baseline" meta={comparison ? (comparison.passed ? "passed" : "regressed") : session.baseline?.name} />
       <div className="space-y-3 px-4 pb-4 text-sm">
         <select

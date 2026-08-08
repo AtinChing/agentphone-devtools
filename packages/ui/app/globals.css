@@ -15,6 +15,24 @@
   background-size: 22px 22px;
 }
 
+/* Uppercase mono micro-label — panel titles, gutters, chrome text. */
+.micro {
+  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Dark code pane for payloads. */
+.console-pane {
+  background: #171715;
+  color: #d8d6ca;
+}
+.console-pane::-webkit-scrollbar-thumb {
+  background: #3f3e3a;
+  border-color: #171715;
+}
+
 :root {
   color-scheme: light;
 }
