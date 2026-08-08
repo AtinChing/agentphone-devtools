@@ -6,6 +6,7 @@ import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml,
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
+import { StepController } from "./step-controller.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -42,6 +43,12 @@ export {
   type ScenarioExportDefaults,
   type ScenarioExportOptions
 } from "./scenario-export.js";
+export {
+  StepController,
+  type StepExpectResult,
+  type StepQueueTurn,
+  type StepState
+} from "./step-controller.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -178,6 +185,7 @@ export interface InspectorSessionSummary {
   transcriptTurns: number;
   deliveries: number;
   baselineName?: string;
+  forkedFrom?: InspectorSession["forkedFrom"];
 }
 
 type SseClient = {
@@ -643,14 +651,20 @@ export class DevtoolsRuntime {
     this.emit("history", this.getHistory());
   }
 
+  /** Broadcast a custom event to all SSE subscribers (used by StepController). */
+  publishEvent(event: string, data: unknown): void {
+    this.emit(event, data);
+  }
+
   private emit(event: string, data: unknown): void {
     for (const client of this.clients) client.write(event, data);
   }
 }
 
-export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime }> {
+export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; step: StepController }> {
   const app = Fastify({ logger: false });
   const runtime = new DevtoolsRuntime(config);
+  const step: StepController = new StepController(runtime, () => runtime.publishEvent("step", step.state()));
 
   await app.register(cors, { origin: true });
 
@@ -682,25 +696,31 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
       .send(buildMarkdownReport(session));
   });
 
-  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.json", async (request, reply) => {
-    const scenario = runtime.getScenarioExport(request.params.sessionId);
-    if (!scenario) return reply.code(404).send({ error: "session not found" });
-    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
-    return reply
-      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "json")}"`)
-      .type("application/json")
-      .send(stringifyScenarioJson(scenario));
-  });
+  app.get<{ Params: { sessionId: string }; Querystring: { assertions?: string } }>(
+    "/api/history/:sessionId/scenario.json",
+    async (request, reply) => {
+      const scenario = runtime.getScenarioExport(request.params.sessionId, exportOptionsFromQuery(request.query));
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      return reply
+        .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "json")}"`)
+        .type("application/json")
+        .send(stringifyScenarioJson(scenario));
+    }
+  );
 
-  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.yaml", async (request, reply) => {
-    const scenario = runtime.getScenarioExport(request.params.sessionId);
-    if (!scenario) return reply.code(404).send({ error: "session not found" });
-    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
-    return reply
-      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "yaml")}"`)
-      .type("application/yaml; charset=utf-8")
-      .send(stringifyScenarioYaml(scenario));
-  });
+  app.get<{ Params: { sessionId: string }; Querystring: { assertions?: string } }>(
+    "/api/history/:sessionId/scenario.yaml",
+    async (request, reply) => {
+      const scenario = runtime.getScenarioExport(request.params.sessionId, exportOptionsFromQuery(request.query));
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      return reply
+        .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "yaml")}"`)
+        .type("application/yaml; charset=utf-8")
+        .send(stringifyScenarioYaml(scenario));
+    }
+  );
 
   app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     if (request.params.sessionId === runtime.getState().id) {
@@ -772,6 +792,83 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     return runtime.runScenario(body.scenario ?? body.path!, body.overrides ?? {});
   });
 
+  app.post<{ Params: { sessionId: string }; Body: TurnLabel }>(
+    "/api/history/:sessionId/labels",
+    async (request, reply) => {
+      try {
+        const session = runtime.setTurnLabel(request.params.sessionId, {
+          turnIndex: request.body?.turnIndex,
+          ...(request.body?.verdict ? { verdict: request.body.verdict } : {}),
+          ...(request.body?.note ? { note: request.body.note } : {})
+        } as TurnLabel);
+        if (!session) return reply.code(404).send({ error: "session not found" });
+        return session;
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  );
+
+  app.get("/api/step", async () => step.state());
+
+  app.post<{ Body: { scenarioPath?: string; sessionId?: string } }>("/api/step/start", async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      if (body.scenarioPath) return step.startFromScenario(await loadScenarioFile(body.scenarioPath));
+      if (body.sessionId) return step.startFromSession(body.sessionId);
+      return reply.code(400).send({ error: "scenarioPath or sessionId is required" });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/step/send", async (_request, reply) => {
+    try {
+      return (await step.sendNext()).state;
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { caller?: string } }>("/api/step/edit", async (request, reply) => {
+    try {
+      return step.editNext(request.body?.caller ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { caller?: string } }>("/api/step/add", async (request, reply) => {
+    try {
+      return step.addTurn(request.body?.caller ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { turnIndex?: number; caller?: string; sessionId?: string } }>(
+    "/api/step/fork",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      try {
+        return step.fork(Number(body.turnIndex), {
+          ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+          ...(body.caller ? { caller: body.caller } : {})
+        });
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  );
+
+  app.post("/api/step/end", async (_request, reply) => {
+    try {
+      return await step.end();
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.post<{
     Body: ReplayDeliveryInput;
   }>("/api/replay", async (request, reply) => {
@@ -815,10 +912,11 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     }, 15_000);
 
     const unsubscribe = runtime.subscribe(client);
+    client.write("step", step.state());
     request.raw.on("close", unsubscribe);
   });
 
-  return { app, runtime };
+  return { app, runtime, step };
 }
 
 export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; port: number; close: () => Promise<void> }> {
@@ -922,7 +1020,8 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     endedAt: session.endedAt,
     transcriptTurns: session.transcript.length,
     deliveries: session.deliveries.length,
-    baselineName: session.baseline?.name
+    baselineName: session.baseline?.name,
+    ...(session.forkedFrom ? { forkedFrom: session.forkedFrom } : {})
   };
 }
 
@@ -969,6 +1068,10 @@ function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
     Boolean(envelope.data && typeof envelope.data === "object") &&
     Array.isArray(envelope.recentHistory)
   );
+}
+
+function exportOptionsFromQuery(query: { assertions?: string }): ScenarioExportOptions {
+  return query.assertions === "1" || query.assertions === "true" ? { scaffoldAssertions: true } : {};
 }
 
 function comparisonOptionsFromQuery(query: {

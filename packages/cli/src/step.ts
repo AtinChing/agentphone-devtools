@@ -1,24 +1,15 @@
 import { mkdirSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
-import {
-  collectObservedActions,
-  loadScenarioFile,
-  type Scenario,
-  type ScenarioTurn
-} from "@agentphone-devtools/core";
+import { collectObservedActions, loadScenarioFile } from "@agentphone-devtools/core";
 import {
   DevtoolsRuntime,
+  StepController,
   stringifyScenarioYaml,
   type DevtoolsServerConfig,
-  type InspectorDelivery
+  type InspectorDelivery,
+  type StepState
 } from "@agentphone-devtools/server";
-
-interface PendingTurn {
-  caller: string;
-  expect?: ScenarioTurn["expect"];
-  edited?: boolean;
-}
 
 const useColor = process.stdout.isTTY === true;
 const paint = (code: string) => (text: string) => (useColor ? `[${code}m${text}[0m` : text);
@@ -29,27 +20,20 @@ const red = paint("31");
 const cyan = paint("36");
 
 /**
- * Interactive turn-by-turn scenario runner. Line-based commands so it works
- * both at a TTY and with piped stdin (which is how debugger-demo.sh drives it).
+ * Interactive turn-by-turn scenario runner: a readline shell over the same
+ * StepController the Inspector API exposes, so the CLI and browser share one
+ * stepping implementation. Line-based commands work both at a TTY and with
+ * piped stdin (which is how debugger-demo.sh drives it).
  */
 export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath: string): Promise<number> {
   const scenario = await loadScenarioFile(scenarioPath);
   const runtime = new DevtoolsRuntime(config);
-  runtime.reset({
-    channel: scenario.channel,
-    timeoutSeconds: scenario.timeoutSeconds,
-    contextLimit: scenario.contextLimit,
-    conversationState: scenario.conversationState
-  });
-
-  const queue: PendingTurn[] = scenario.turns.map((turn) => ({
-    caller: turn.caller,
-    ...(turn.expect ? { expect: turn.expect } : {})
-  }));
+  const step = new StepController(runtime);
+  let state = step.startFromScenario(scenario);
   const exported: string[] = [];
 
   console.log(bold(`Step debugger: ${scenario.name}`));
-  console.log(dim(`${scenario.channel} -> ${config.targetUrl} | ${queue.length} scripted turn(s)`));
+  console.log(dim(`${scenario.channel} -> ${config.targetUrl} | ${state.queue.length} scripted turn(s)`));
   console.log(dim("Commands: c send | e edit next | t <text> add turn | g/b [note] label last | fork <n> | x [path] export | state | q quit | help"));
 
   const rl = new LineReader();
@@ -57,9 +41,10 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
 
   try {
     while (!ended) {
-      const completed = completedTurns(runtime);
-      if (queue.length > 0) {
-        console.log(`\n${cyan(`next [turn ${completed + 1}]`)} caller: ${queue[0].caller}${queue[0].edited ? dim(" (edited)") : ""}`);
+      state = step.state();
+      if (state.queue.length > 0) {
+        const next = state.queue[0];
+        console.log(`\n${cyan(`next [turn ${state.completedTurns + 1}]`)} caller: ${next.caller}${next.edited ? dim(" (edited)") : ""}`);
       } else {
         console.log(`\n${dim("No scripted turns left. `t <text>` adds one; `q` ends the call.")}`);
       }
@@ -70,137 +55,122 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
       const [command, ...rest] = line.split(/\s+/);
       const argText = line.slice(command.length).trim();
 
-      switch (command) {
-        case "":
-          break;
-        case "c":
-        case "continue": {
-          const pending = queue.shift();
-          if (!pending) {
-            console.log(red("Nothing queued. `t <text>` adds a turn."));
+      try {
+        switch (command) {
+          case "":
+            break;
+          case "c":
+          case "continue": {
+            console.log(dim(`sending turn ${state.completedTurns + 1}...`));
+            const result = await step.sendNext();
+            printDelivery(result.delivery, result.state.lastResult?.turnNumber ?? state.completedTurns + 1);
+            printExpectations(result.state);
+            printSnapshot(runtime, result.state, false);
             break;
           }
-          await sendTurn(runtime, scenario, pending);
-          break;
-        }
-        case "e":
-        case "edit": {
-          if (!queue.length) {
-            console.log(red("Nothing queued to edit."));
+          case "e":
+          case "edit": {
+            const text = argText || (await rl.question("new caller text> "))?.trim();
+            if (!text) {
+              console.log(red("Kept the original text."));
+              break;
+            }
+            step.editNext(text);
             break;
           }
-          const text = argText || (await rl.question("new caller text> "))?.trim();
-          if (!text) {
-            console.log(red("Kept the original text."));
+          case "t":
+          case "turn": {
+            if (!argText) {
+              console.log(red("Usage: t <caller text>"));
+              break;
+            }
+            step.addTurn(argText);
             break;
           }
-          queue[0] = { ...queue[0], caller: text, edited: true };
-          break;
-        }
-        case "t":
-        case "turn": {
-          if (!argText) {
-            console.log(red("Usage: t <caller text>"));
+          case "g":
+          case "good":
+          case "b":
+          case "bad": {
+            const turnIndex = state.completedTurns - 1;
+            if (turnIndex < 0) {
+              console.log(red("No completed turn to label yet."));
+              break;
+            }
+            const verdict = command.startsWith("g") ? "good" : "bad";
+            runtime.setTurnLabel(runtime.getState().id, {
+              turnIndex,
+              verdict,
+              ...(argText ? { note: argText } : {})
+            });
+            console.log(`${verdict === "good" ? green("labeled good") : red("labeled bad")}: turn ${turnIndex + 1}${argText ? ` — ${argText}` : ""}`);
             break;
           }
-          queue.push({ caller: argText });
-          break;
-        }
-        case "g":
-        case "good":
-        case "b":
-        case "bad": {
-          const turnIndex = completedTurns(runtime) - 1;
-          if (turnIndex < 0) {
-            console.log(red("No completed turn to label yet."));
+          case "fork": {
+            const at = Number(rest[0]);
+            if (!Number.isInteger(at) || at < 1 || at > state.completedTurns) {
+              console.log(red(`Usage: fork <1..${state.completedTurns}> (completed turns)`));
+              break;
+            }
+            const text = (await rl.question(`caller text for the new branch after turn ${at}> `))?.trim();
+            if (!text) {
+              console.log(red("Fork cancelled: a branch needs its next caller text."));
+              break;
+            }
+            const source = runtime.getState().id;
+            const forked = step.fork(at, { caller: text });
+            console.log(green(`Forked ${source} after turn ${at} -> new run ${forked.sessionId}`));
+            console.log(dim(`Checkpoint carried: ${at * 2} history turn(s) + conversationState. \`c\` sends the branch turn.`));
             break;
           }
-          const verdict = command.startsWith("g") ? "good" : "bad";
-          runtime.setTurnLabel(runtime.getState().id, {
-            turnIndex,
-            verdict,
-            ...(argText ? { note: argText } : {})
-          });
-          console.log(`${verdict === "good" ? green("labeled good") : red("labeled bad")}: turn ${turnIndex + 1}${argText ? ` — ${argText}` : ""}`);
-          break;
-        }
-        case "fork": {
-          const at = Number(rest[0]);
-          const total = completedTurns(runtime);
-          if (!Number.isInteger(at) || at < 1 || at > total) {
-            console.log(red(`Usage: fork <1..${total}> (completed turns)`));
+          case "x":
+          case "export": {
+            const session = runtime.getState();
+            const exportScenario = runtime.getScenarioExport(session.id, { scaffoldAssertions: true });
+            if (!exportScenario || !exportScenario.turns.length) {
+              console.log(red("Nothing to export yet."));
+              break;
+            }
+            const path = resolve(argText || join(process.cwd(), ".agentphone-devtools", "exports", `${session.id}.yaml`));
+            mkdirSync(dirname(path), { recursive: true });
+            writeFileSync(path, stringifyScenarioYaml(exportScenario), "utf8");
+            exported.push(path);
+            console.log(green(`Exported ${exportScenario.turns.length} turn(s) with scaffolded assertions -> ${path}`));
             break;
           }
-          const text = (await rl.question(`caller text for the new branch after turn ${at}> `))?.trim();
-          if (!text) {
-            console.log(red("Fork cancelled: a branch needs its next caller text."));
+          case "state": {
+            printSnapshot(runtime, step.state(), true);
             break;
           }
-          const source = runtime.getState().id;
-          const forked = runtime.forkFromSession(source, at);
-          queue.length = 0; // the branch diverges; scripted turns no longer apply
-          queue.push({ caller: text });
-          console.log(green(`Forked ${source} after turn ${at} -> new run ${forked.id}`));
-          console.log(dim(`Checkpoint carried: ${at * 2} history turn(s) + conversationState. \`c\` sends the branch turn.`));
-          break;
-        }
-        case "x":
-        case "export": {
-          const state = runtime.getState();
-          const exportScenario = runtime.getScenarioExport(state.id, { scaffoldAssertions: true });
-          if (!exportScenario) {
-            console.log(red("Nothing to export yet."));
+          case "help":
+          case "?": {
+            console.log("c: send next | e [text]: edit next | t <text>: queue turn | g/b [note]: label last turn");
+            console.log("fork <n>: branch after completed turn n | x [path]: export scenario | state | q: end call and quit");
             break;
           }
-          const path = resolve(
-            argText || join(process.cwd(), ".agentphone-devtools", "exports", `${state.id}.yaml`)
-          );
-          mkdirSync(dirname(path), { recursive: true });
-          writeFileSync(path, stringifyScenarioYaml(exportScenario), "utf8");
-          exported.push(path);
-          console.log(green(`Exported ${countUserTurns(state)} turn(s) with scaffolded assertions -> ${path}`));
-          break;
+          case "q":
+          case "quit": {
+            ended = true;
+            break;
+          }
+          default:
+            console.log(red(`Unknown command: ${command} (try \`help\`)`));
         }
-        case "state": {
-          printSnapshot(runtime, true);
-          break;
-        }
-        case "help":
-        case "?": {
-          console.log("c: send next | e [text]: edit next | t <text>: queue turn | g/b [note]: label last turn");
-          console.log("fork <n>: branch after completed turn n | x [path]: export scenario | state | q: end call and quit");
-          break;
-        }
-        case "q":
-        case "quit": {
-          ended = true;
-          break;
-        }
-        default:
-          console.log(red(`Unknown command: ${command} (try \`help\`)`));
+      } catch (error) {
+        console.log(red(error instanceof Error ? error.message : String(error)));
       }
     }
   } finally {
     rl.close();
   }
 
-  await runtime.endCall();
-  const state = runtime.getState();
-  console.log(`\n${bold("Session ended:")} ${state.id}`);
-  console.log(`  turns: ${countUserTurns(state)} | deliveries: ${state.deliveries.length} | labels: ${state.turnLabels?.length ?? 0}`);
-  if (state.forkedFrom) console.log(`  forked from: ${state.forkedFrom.sessionId} after turn ${state.forkedFrom.turnIndex}`);
+  await step.end();
+  const session = runtime.getState();
+  console.log(`\n${bold("Session ended:")} ${session.id}`);
+  console.log(`  turns: ${countUserTurns(session)} | deliveries: ${session.deliveries.length} | labels: ${session.turnLabels?.length ?? 0}`);
+  if (session.forkedFrom) console.log(`  forked from: ${session.forkedFrom.sessionId} after turn ${session.forkedFrom.turnIndex}`);
   for (const path of exported) console.log(`  exported: ${path}`);
   console.log(dim(`  run history: ${config.historyPath}`));
   return 0;
-}
-
-async function sendTurn(runtime: DevtoolsRuntime, scenario: Scenario, pending: PendingTurn): Promise<void> {
-  const turnNumber = completedTurns(runtime) + 1;
-  console.log(dim(`sending turn ${turnNumber}...`));
-  const delivery = await runtime.sendCallerTurn(pending.caller, scenario.channel);
-  printDelivery(delivery, turnNumber);
-  checkExpectations(pending, delivery);
-  printSnapshot(runtime, false);
 }
 
 function printDelivery(delivery: InspectorDelivery, turnNumber: number): void {
@@ -217,30 +187,29 @@ function printDelivery(delivery: InspectorDelivery, turnNumber: number): void {
   for (const warning of delivery.warnings) console.log(`  ${red("warning")} ${warning}`);
 }
 
-function checkExpectations(pending: PendingTurn, delivery: InspectorDelivery): void {
-  const expectedActions = pending.expect?.actions;
-  if (!expectedActions?.length) return;
-  const observed = collectObservedActions(delivery.response.parsed.chunks);
-  for (const expected of expectedActions) {
-    const hit = observed.includes(expected);
-    console.log(`  expect  ${hit ? green("PASS") : red("FAIL")} action ${expected}${hit ? "" : ` (observed: ${observed.join(", ") || "none"})`}`);
+function printExpectations(state: StepState): void {
+  for (const expectation of state.lastResult?.expectResults ?? []) {
+    const observed = expectation.observed.join(", ") || "none";
+    console.log(
+      `  expect  ${expectation.passed ? green("PASS") : red("FAIL")} action ${expectation.action}${expectation.passed ? "" : ` (observed: ${observed})`}`
+    );
   }
 }
 
-function printSnapshot(runtime: DevtoolsRuntime, full: boolean): void {
-  const snapshot = runtime.conversationSnapshot();
-  const state = runtime.getState();
-  console.log(`  ${cyan("checkpoint")} ${dim(`recentHistory: ${snapshot.recentHistory.length} turn(s), conversationState: ${JSON.stringify(snapshot.conversationState)}`)}`);
-  if (state.forkedFrom) console.log(`  ${cyan("lineage")}    ${dim(`forked from ${state.forkedFrom.sessionId} after turn ${state.forkedFrom.turnIndex}`)}`);
+function printSnapshot(runtime: DevtoolsRuntime, state: StepState, full: boolean): void {
+  if (!state.checkpoint) return;
+  console.log(
+    `  ${cyan("checkpoint")} ${dim(`recentHistory: ${state.checkpoint.recentHistoryTurns} turn(s), conversationState: ${JSON.stringify(state.checkpoint.conversationState)}`)}`
+  );
+  const session = runtime.getState();
+  if (session.forkedFrom) {
+    console.log(`  ${cyan("lineage")}    ${dim(`forked from ${session.forkedFrom.sessionId} after turn ${session.forkedFrom.turnIndex}`)}`);
+  }
   if (full) {
-    for (const entry of snapshot.recentHistory) {
+    for (const entry of runtime.conversationSnapshot().recentHistory) {
       console.log(`    ${dim(`${entry.direction === "inbound" ? "caller" : "agent "} |`)} ${entry.content}`);
     }
   }
-}
-
-function completedTurns(runtime: DevtoolsRuntime): number {
-  return countUserTurns(runtime.getState());
 }
 
 function countUserTurns(state: { transcript: Array<{ role: string }> }): number {
