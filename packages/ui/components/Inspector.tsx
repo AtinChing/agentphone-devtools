@@ -538,7 +538,7 @@ export function Inspector() {
 
   return (
     <main className="min-h-screen">
-      <header className="bg-ink text-white">
+      <header className="border-b border-line bg-[#111110] text-white">
         <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
             <div className="grid h-8 w-8 place-items-center rounded bg-fern text-white">
@@ -550,8 +550,8 @@ export function Inspector() {
                 <span className="micro font-normal text-emerald-300">devtools</span>
               </h1>
               <div className="data mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-300">
-                <span className="truncate rounded bg-white/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
-                <span className="rounded bg-white/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
+                <span className="truncate rounded bg-panel/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
+                <span className="rounded bg-panel/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
                 <span className={`flex items-center gap-1 ${connected ? "text-emerald-300" : "text-amber-300"}`}>
                   <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
                   {connected ? "live" : "offline"}
@@ -564,13 +564,13 @@ export function Inspector() {
             <select
               value={channel}
               onChange={(event) => setChannel(event.target.value as "sms" | "voice")}
-              className="data h-8 rounded border border-white/20 bg-transparent px-2 text-xs text-white outline-none focus:border-emerald-300 [&>option]:text-ink"
+              className="data h-8 rounded border border-white/20 bg-transparent px-2 text-xs text-white outline-none focus:border-emerald-300 [&>option]:text-bright"
               aria-label="Channel"
             >
               <option value="voice">voice</option>
               <option value="sms">sms</option>
             </select>
-            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={() => {
                 setStepError(null);
@@ -609,7 +609,7 @@ export function Inspector() {
             >
               <FileCode2 size={16} />
             </button>
-            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={() => void toggleBaseline()}
               disabled={!session}
@@ -619,7 +619,7 @@ export function Inspector() {
             >
               <Bookmark size={16} fill={session?.baseline ? "currentColor" : "none"} />
             </button>
-            <span className="mx-1 h-5 w-px bg-white/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={reset}
               disabled={!viewingLive}
@@ -721,7 +721,7 @@ export function Inspector() {
       </header>
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
-        <section className="min-h-[520px] rounded-lg border border-line bg-white">
+        <section className="min-h-[520px] rounded-lg border border-line bg-panel">
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
             title={leftView === "timeline" ? "Timeline" : "Runs"}
@@ -738,11 +738,11 @@ export function Inspector() {
                   key={delivery.id}
                   onClick={() => setSelectedId(delivery.id)}
                   className={`mb-2 grid w-full grid-cols-[1fr_auto] gap-2 rounded-md border px-3 py-2 text-left transition ${
-                    selected?.id === delivery.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"
+                    selected?.id === delivery.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-ink">
+                    <span className="block truncate text-sm font-medium text-bright">
                       {delivery.event}
                       {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
                     </span>
@@ -759,9 +759,9 @@ export function Inspector() {
               <EmptyLine label="No deliveries yet" />
             ) : runs.length ? (
               runs.map((run) => (
-                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"}`}>
+                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"}`}>
                   <button onClick={() => void openRun(run)} className="min-w-0 flex-1 px-3 py-2 text-left">
-                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <span className="flex items-center gap-2 text-sm font-medium text-bright">
                       {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
                       <span className="truncate">{formatRunDate(run.startedAt)}</span>
                     </span>
@@ -800,7 +800,7 @@ export function Inspector() {
           </div>
         </section>
 
-        <section className="min-h-[520px] overflow-hidden rounded-lg border border-line bg-white shadow-soft">
+        <section className="min-h-[520px] overflow-hidden rounded-lg border border-line bg-panel shadow-soft">
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
             title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
@@ -839,7 +839,7 @@ export function Inspector() {
                         {` · state: ${selectedNode.turnNumber * 2} history turn(s)`}
                         {selectedNode.actions.length ? ` · ${selectedNode.actions.join(", ")}` : ""}
                       </div>
-                      <div className="mt-1 truncate text-sm font-medium text-ink">{selectedNode.caller}</div>
+                      <div className="mt-1 truncate text-sm font-medium text-bright">{selectedNode.caller}</div>
                       <div className="mt-0.5 truncate text-sm text-slate-600">{selectedNode.agentReply ?? "(no reply)"}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -865,7 +865,7 @@ export function Inspector() {
                             const run = runs.find((item) => item.id === selectedNode.runId);
                             if (run) void openRun(run);
                           }}
-                          className="ml-1 h-7 rounded border border-line bg-white px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
+                          className="ml-1 h-7 rounded border border-line bg-panel px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
                         >
                           open run
                         </button>
@@ -879,7 +879,7 @@ export function Inspector() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void forkFromNode(selectedNode);
                       }}
-                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern"
+                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern"
                       placeholder="Fork from this state — what does the caller say instead?"
                       aria-label="Caller text for the new branch"
                     />
@@ -893,7 +893,7 @@ export function Inspector() {
                     <button
                       onClick={() => void forkFromNode(selectedNode)}
                       disabled={treeForkBusy}
-                      className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                      className="h-9 rounded-md bg-cta px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
                     >
                       {treeForkBusy ? "Forking…" : "Fork from here"}
                     </button>
@@ -927,7 +927,7 @@ export function Inspector() {
                         <span className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}>
                           {turn.role === "agent" ? "agent" : "caller"}
                         </span>
-                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-ink"}`}>
+                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-bright"}`}>
                           {turn.content}
                         </div>
                       </div>
@@ -984,7 +984,7 @@ export function Inspector() {
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") void submitFork();
                               }}
-                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-white px-3 text-sm outline-none focus:border-indigo-400"
+                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-panel px-3 text-sm outline-none focus:border-indigo-400"
                               placeholder="What does the caller say instead?"
                               aria-label="Caller text for the new branch"
                               autoFocus
@@ -1037,7 +1037,7 @@ export function Inspector() {
                 ))}
                 <button
                   onClick={() => void endStep()}
-                  className="ml-auto rounded-md border border-line bg-white px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
+                  className="ml-auto rounded-md border border-line bg-panel px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
                 >
                   End step
                 </button>
@@ -1054,7 +1054,7 @@ export function Inspector() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void sendTurn();
                 }}
-                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
+                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
                 placeholder={
                   !viewingLive
                     ? "Saved run is read-only"
@@ -1075,7 +1075,7 @@ export function Inspector() {
               <button
                 onClick={sendTurn}
                 disabled={!viewingLive || (stepState?.active && stepState.sending)}
-                className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="grid h-10 w-10 place-items-center rounded-md bg-cta text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                 title={stepState?.active ? "Send next step" : "Send turn"}
                 aria-label={stepState?.active ? "Send next step" : "Send turn"}
               >
@@ -1087,14 +1087,14 @@ export function Inspector() {
         </section>
 
         <aside className="space-y-4">
-          <section className="overflow-hidden rounded-lg border border-line bg-white">
+          <section className="overflow-hidden rounded-lg border border-line bg-panel">
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
             {selected ? (
               <div className="border-t border-line p-3">
                 <button
                   onClick={() => setReplayOpen((open) => !open)}
-                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-medium text-slate-700 hover:border-slate-400"
+                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-panel text-sm font-medium text-slate-700 hover:border-slate-400"
                 >
                   <RefreshCw size={15} />
                   Edit and replay
@@ -1120,7 +1120,7 @@ export function Inspector() {
                     <button
                       onClick={() => void replayDelivery()}
                       disabled={replayBusy}
-                      className="h-9 w-full rounded-md bg-ink text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                      className="h-9 w-full rounded-md bg-cta text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
                     >
                       {replayBusy ? "Replaying…" : "Send replay"}
                     </button>
@@ -1130,13 +1130,13 @@ export function Inspector() {
             ) : null}
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-line bg-white">
+          <section className="overflow-hidden rounded-lg border border-line bg-panel">
             <PanelHeader icon={<CheckCircle2 size={16} />} title="Response" meta={selected ? String(selected.response.status) : ""} />
             <PayloadBlock value={selected ? { status: selected.response.status, headers: selected.response.headers, parsed: selected.response.parsed, rawBody: selected.response.rawBody } : null} />
           </section>
 
           {session?.callEnded ? (
-            <section className="rounded-lg border border-line bg-white">
+            <section className="rounded-lg border border-line bg-panel">
               <PanelHeader icon={<PhoneOff size={16} />} title="Call Ended" meta={`${session.callEnded.durationSeconds}s`} />
               <div className="space-y-2 px-4 pb-4 text-sm">
                 <KeyValue name="summary" value={session.callEnded.summary} />
@@ -1172,7 +1172,7 @@ export function Inspector() {
           ) : null}
 
           {session?.logs?.length ? (
-            <section className="rounded-lg border border-slate-200 bg-white">
+            <section className="rounded-lg border border-slate-200 bg-panel">
               <PanelHeader icon={<Clock3 size={16} />} title="Run log" meta={String(session.logs.length)} />
               <ul className="space-y-2 px-4 pb-4 text-sm text-slate-600">
                 {session.logs.map((entry, index) => (
@@ -1203,7 +1203,7 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-ink"}`}
+      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-bright"}`}
     >
       {icon}
       {label}
@@ -1246,7 +1246,7 @@ function tokenizeJson(json: string): React.ReactNode[] {
 
 function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenarioResult"]> }) {
   return (
-    <section className="rounded-lg border border-line bg-white">
+    <section className="rounded-lg border border-line bg-panel">
       <PanelHeader
         icon={result.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
         title="Scenario"
@@ -1280,13 +1280,13 @@ function ComparisonCard({
   comparison: RunComparison | null;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-white">
+    <section className="rounded-lg border border-line bg-panel">
       <PanelHeader icon={<Scale size={16} />} title="Baseline" meta={comparison ? (comparison.passed ? "passed" : "regressed") : session.baseline?.name} />
       <div className="space-y-3 px-4 pb-4 text-sm">
         <select
           value={baselineId}
           onChange={(event) => onBaselineChange(event.target.value)}
-          className="h-9 w-full rounded-md border border-line bg-white px-2 text-xs text-ink outline-none focus:border-fern"
+          className="h-9 w-full rounded-md border border-line bg-panel px-2 text-xs text-bright outline-none focus:border-fern"
           aria-label="Comparison baseline"
         >
           <option value="">Select saved baseline</option>
@@ -1299,7 +1299,7 @@ function ComparisonCard({
         <button
           onClick={onCompare}
           disabled={!baselineId}
-          className="h-9 w-full rounded-md bg-ink text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+          className="h-9 w-full rounded-md bg-cta text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
         >
           Compare current run
         </button>
@@ -1336,7 +1336,7 @@ function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "t
       className={`grid ${size} shrink-0 place-items-center rounded-md border ${
         state === "recording"
           ? "border-danger bg-red-50 text-danger"
-          : "border-line bg-white text-slate-600 hover:border-slate-400"
+          : "border-line bg-panel text-slate-600 hover:border-slate-400"
       } disabled:opacity-60`}
       title={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing…" : "Dictate this turn (local transcription)"}
       aria-label={state === "recording" ? "Stop recording" : "Dictate caller turn"}
@@ -1350,7 +1350,7 @@ function KeyValue({ name, value }: { name: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md border border-line bg-mist px-3 py-2">
       <div className="text-[11px] uppercase text-slate-500">{name}</div>
-      <div className="mt-1 break-words text-sm text-ink">{value}</div>
+      <div className="mt-1 break-words text-sm text-bright">{value}</div>
     </div>
   );
 }

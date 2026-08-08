@@ -1,34 +1,54 @@
 import type { Config } from "tailwindcss";
 
-// Warm-neutral identity: paper surfaces and warm grays instead of Tailwind's
-// blue-tinted slate, one deep terminal-green accent (text-safe at 5.4:1), and
-// reserved status reds. The slate override re-inks every text-slate-* usage in
-// one place.
+// AgentPhone-native dark skin: near-black canvas, dark rounded cards with
+// hairline borders, green brand accents (light-green text, forest-green
+// buttons), purple for fork/lineage to match their webhook accent. The
+// palette-scale overrides (slate/emerald/red/indigo/amber) re-tint every
+// existing wash and text utility for dark surfaces without touching JSX.
 const config: Config = {
   content: ["./app/**/*.{ts,tsx}", "./components/**/*.{ts,tsx}", "./lib/**/*.{ts,tsx}"],
   theme: {
     extend: {
       colors: {
-        ink: "#0b0b0b",
-        mist: "#f4f3ef",
-        line: "#e1e0d9",
-        fern: "#077a10",
-        skyglass: "#eaf6e8",
-        caution: "#9a5b04",
-        danger: "#d03b3b",
+        ink: "#0d0d0c", // page + toolbar canvas
+        panel: "#1c1c1a", // card surface
+        bright: "#f0efe9", // primary text
+        mist: "#242422", // washes / hover fills
+        line: "#2d2d2a", // hairline borders
+        fern: "#5abc6e", // brand green text/marks (7.3:1 on panel)
+        cta: "#3d7c46", // forest-green primary buttons (white text)
+        skyglass: "#152a1a", // tinted green card (their Credits style)
+        caution: "#d9a13c",
+        danger: "#e05252",
         slate: {
-          300: "#d5d4cc",
-          400: "#a8a69e",
-          500: "#898781",
-          600: "#52514e",
-          700: "#3f3e3a"
+          300: "#4a4945",
+          400: "#8a8981",
+          500: "#9c9b93",
+          600: "#b6b5ac",
+          700: "#cfcec5"
         },
         emerald: {
-          50: "#edf7ea"
+          50: "#16301d",
+          300: "#7ed492"
+        },
+        red: {
+          50: "#331a1a"
+        },
+        indigo: {
+          50: "#221f33",
+          200: "#453e66",
+          400: "#a78bfa",
+          600: "#b3a1f7",
+          700: "#c4b6f9"
+        },
+        amber: {
+          50: "#2b2310",
+          200: "#5a4a1a",
+          300: "#e8c06a"
         }
       },
       boxShadow: {
-        soft: "0 10px 24px rgba(31, 28, 18, 0.06)"
+        soft: "0 14px 34px rgba(0, 0, 0, 0.45)"
       }
     }
   },
