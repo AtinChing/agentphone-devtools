@@ -26,6 +26,16 @@ export function Inspector() {
   const [voiceTarget, setVoiceTarget] = useState<"caller" | "fork" | null>(null);
   const [voiceError, setVoiceError] = useState<string | null>(null);
   const recorderRef = useRef<MediaRecorder | null>(null);
+  // Hold-space push-to-talk: held = speaking to the agent (auto-sends on
+  // release), released = speaking to humans. Intent routing by key, so
+  // narrating a demo never becomes a ghost turn — deliberately NOT open-mic
+  // VAD, which cannot tell narration from caller turns.
+  const voiceStateRef = useRef(voiceState);
+  voiceStateRef.current = voiceState;
+  const holdToTalkRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const stepStateRef = useRef<StepState | null>(null);
+  const channelRef = useRef<"sms" | "voice">("voice");
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -117,6 +127,43 @@ export function Inspector() {
   useEffect(() => {
     setText(nextQueuedCaller ?? "");
   }, [nextQueuedCaller]);
+
+  stepStateRef.current = stepState;
+  channelRef.current = channel;
+
+  // Hold-space push-to-talk. Registered once; handlers read refs only.
+  useEffect(() => {
+    if (!voiceAvailable) return;
+    const typingTarget = () => {
+      const element = document.activeElement;
+      return (
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement
+      );
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.repeat || typingTarget()) return;
+      if (viewingSessionIdRef.current !== null) return; // saved runs are read-only
+      event.preventDefault();
+      if (voiceStateRef.current !== "idle") return;
+      holdToTalkRef.current = true;
+      void beginRecording("caller", true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || !holdToTalkRef.current) return;
+      event.preventDefault();
+      holdToTalkRef.current = false;
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAvailable]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
@@ -223,14 +270,17 @@ export function Inspector() {
     await stepApi("/api/step/end");
   }
 
-  async function sendTurn() {
-    const trimmed = text.trim();
-    if (stepState?.active && viewingLive) {
-      if (stepState.sending) return;
-      if (stepState.queue.length === 0) {
+  /** Send caller text through the same path as typing. Refs-only so hold-space closures stay fresh. */
+  async function sendCallerText(raw: string) {
+    const trimmed = raw.trim();
+    const step = stepStateRef.current;
+    const live = viewingSessionIdRef.current === null;
+    if (step?.active && live) {
+      if (step.sending) return;
+      if (step.queue.length === 0) {
         if (!trimmed) return;
         if (!(await stepApi("/api/step/add", { caller: trimmed }))) return;
-      } else if (trimmed && trimmed !== stepState.queue[0].caller) {
+      } else if (trimmed && trimmed !== step.queue[0].caller) {
         if (!(await stepApi("/api/step/edit", { caller: trimmed }))) return;
       }
       await stepApi("/api/step/send");
@@ -241,8 +291,12 @@ export function Inspector() {
     await fetch(`${SERVER_URL}/api/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: trimmed, channel })
+      body: JSON.stringify({ text: trimmed, channel: channelRef.current })
     });
+  }
+
+  async function sendTurn() {
+    await sendCallerText(text);
   }
 
   async function submitFork() {
@@ -272,13 +326,14 @@ export function Inspector() {
     }
   }
 
-  /** Push-to-talk into a text input: click to record, click again to stop and transcribe. */
-  async function toggleDictation(target: "caller" | "fork") {
-    if (voiceState === "recording") {
-      recorderRef.current?.stop();
-      return;
-    }
-    if (voiceState !== "idle") return;
+  /**
+   * Start capturing the mic. Reads only refs and stable setters, so it works
+   * from once-registered key listeners without stale-closure bugs. With
+   * autoSend, the transcript is sent as the caller turn on stop (hold-space
+   * mode); without it, the transcript fills the target input for editing.
+   */
+  async function beginRecording(target: "caller" | "fork", autoSend: boolean) {
+    if (voiceStateRef.current !== "idle") return;
     setVoiceError(null);
     let stream: MediaStream;
     try {
@@ -287,6 +342,7 @@ export function Inspector() {
       setVoiceError("Microphone unavailable or permission denied.");
       return;
     }
+    autoSendRef.current = autoSend;
     const recorder = new MediaRecorder(stream);
     const chunks: BlobPart[] = [];
     recorder.ondataavailable = (event) => {
@@ -307,6 +363,8 @@ export function Inspector() {
         const heard = (payload.text ?? "").trim();
         if (!heard) {
           setVoiceError("Heard nothing — try again or type the turn.");
+        } else if (autoSendRef.current) {
+          await sendCallerText(heard);
         } else if (target === "fork") {
           setTreeForkText(heard);
         } else {
@@ -315,6 +373,7 @@ export function Inspector() {
       } catch (error) {
         setVoiceError(error instanceof Error ? error.message : String(error));
       } finally {
+        autoSendRef.current = false;
         setVoiceState("idle");
         setVoiceTarget(null);
       }
@@ -323,6 +382,17 @@ export function Inspector() {
     recorderRef.current = recorder;
     setVoiceTarget(target);
     setVoiceState("recording");
+    // Hold released before the mic finished opening: stop immediately.
+    if (autoSend && !holdToTalkRef.current) recorder.stop();
+  }
+
+  /** Mic-button flow: click to record, click again to stop and fill the input. */
+  async function toggleDictation(target: "caller" | "fork") {
+    if (voiceStateRef.current === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    await beginRecording(target, false);
   }
 
   async function labelTurn(callerOrdinal: number, verdict: "good" | "bad", runId?: string) {
@@ -1083,6 +1153,15 @@ export function Inspector() {
               </button>
             </div>
             {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
+            {voiceAvailable && viewingLive && !voiceError ? (
+              <div className={`micro mt-1.5 ${voiceState === "recording" ? "text-danger" : voiceState === "transcribing" ? "text-fern" : "text-slate-500"}`}>
+                {voiceState === "recording"
+                  ? "recording — release space (or click stop) to send"
+                  : voiceState === "transcribing"
+                    ? "transcribing…"
+                    : "hold space to talk · release to send"}
+              </div>
+            ) : null}
           </div>
         </section>
 

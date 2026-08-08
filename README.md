@@ -321,6 +321,11 @@ Then either:
 - **Inspector**: a microphone button appears beside the caller input and the
   tree's fork panel; click to record, click again to stop, and the
   transcript fills the input for editing.
+- **Inspector, hands-free**: hold the space bar to speak a caller turn and
+  release to send it — held means "for the agent," released means "for the
+  humans," so narrating a demo never becomes a ghost turn. (Deliberately
+  push-to-talk rather than open-mic silence detection: endpointing a live
+  mic is a real telephony problem, not something to fake with a timer.)
 
 If whisper, a model, or ffmpeg is missing — or the microphone is denied —
 the feature reports why and typed input works exactly as before. Overrides:
