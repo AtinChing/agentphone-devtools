@@ -1,4 +1,4 @@
-import type { ConversationState, Scenario } from "@agentphone-devtools/core";
+import { collectObservedActions, type ConversationState, type Scenario } from "@agentphone-devtools/core";
 import type { InspectorSession } from "./index.js";
 
 export interface ScenarioExportDefaults {
@@ -7,14 +7,44 @@ export interface ScenarioExportDefaults {
   conversationState?: ConversationState;
 }
 
-export function buildScenarioFromSession(session: InspectorSession, defaults: ScenarioExportDefaults): Scenario {
+export interface ScenarioExportOptions {
+  /**
+   * Scaffold per-turn assertions from what actually happened: the actions
+   * observed in each caller turn's handler response become that turn's
+   * expected actions. Approving the export turns the recorded behavior into
+   * a regression contract.
+   */
+  scaffoldAssertions?: boolean;
+}
+
+export function buildScenarioFromSession(
+  session: InspectorSession,
+  defaults: ScenarioExportDefaults,
+  options: ScenarioExportOptions = {}
+): Scenario {
+  // One agent.message delivery per caller turn, in order. Inherited prefix
+  // deliveries (from a fork's source run) count: they are the record of what
+  // the handler returned on those turns. Replays are ad-hoc and excluded.
+  const turnDeliveries = session.deliveries.filter(
+    (delivery) => delivery.event === "agent.message" && !delivery.replayOf
+  );
+
   const turns = session.transcript
     .filter((turn) => turn.role === "user")
-    .map((turn) => ({ caller: turn.content }));
+    .map((turn, index) => {
+      if (!options.scaffoldAssertions) return { caller: turn.content };
+      const delivery = turnDeliveries[index];
+      const actions = delivery ? collectObservedActions(delivery.response.parsed.chunks) : [];
+      return actions.length ? { caller: turn.content, expect: { actions } } : { caller: turn.content };
+    });
+
+  const lineage = session.forkedFrom
+    ? ` Forked from run ${session.forkedFrom.sessionId} after turn ${session.forkedFrom.turnIndex}.`
+    : "";
 
   return {
     name: `Recorded run ${session.id}`,
-    description: `Recorded from AgentPhone DevTools run ${session.id}.`,
+    description: `Recorded from AgentPhone DevTools run ${session.id}.${lineage}`,
     channel: session.channel,
     agentId: "agt_local",
     numberId: "num_local",

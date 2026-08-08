@@ -2,7 +2,7 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
-import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
+import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml, type ScenarioExportOptions } from "./scenario-export.js";
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
@@ -35,6 +35,13 @@ export { buildJsonReport, buildMarkdownReport } from "./report.js";
 export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 export { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 export { findAvailablePort, isAddressInUse, isPortAvailable, DEFAULT_PORT_SCAN_ATTEMPTS } from "./ports.js";
+export {
+  buildScenarioFromSession,
+  stringifyScenarioJson,
+  stringifyScenarioYaml,
+  type ScenarioExportDefaults,
+  type ScenarioExportOptions
+} from "./scenario-export.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -82,6 +89,33 @@ export interface InspectorDelivery {
     sessionId: string;
     deliveryId: string;
   };
+  /**
+   * Present on deliveries copied from a source run during a fork. The copy
+   * preserves what the handler actually saw and returned on the shared
+   * prefix; it was not re-sent by this session.
+   */
+  inheritedFrom?: {
+    sessionId: string;
+  };
+}
+
+/** A developer verdict on one caller turn's handler response. */
+export interface TurnLabel {
+  /** Zero-based caller-turn ordinal (first caller turn = 0). */
+  turnIndex: number;
+  verdict?: "good" | "bad";
+  note?: string;
+}
+
+/**
+ * The complete conversation state at a turn boundary. Because the webhook
+ * contract carries all state in each request (recentHistory +
+ * conversationState), this snapshot is sufficient to fork a conversation
+ * exactly — the handler itself is stateless per request.
+ */
+export interface ConversationCheckpoint {
+  recentHistory: Array<{ content: string; direction: "inbound" | "outbound"; channel: "sms" | "voice"; at: string }>;
+  conversationState: ConversationState;
 }
 
 export interface ReplayDeliveryInput {
@@ -124,6 +158,14 @@ export interface InspectorSession {
    * report artifacts written before this field existed still load.
    */
   logs?: string[];
+  /** Lineage when this session was forked from another run's checkpoint. */
+  forkedFrom?: {
+    sessionId: string;
+    /** Number of caller turns inherited from the source run. */
+    turnIndex: number;
+  };
+  /** Developer verdicts per caller turn; persisted with run history. */
+  turnLabels?: TurnLabel[];
 }
 
 export interface InspectorSessionSummary {
@@ -176,15 +218,19 @@ export class DevtoolsRuntime {
     return sessionId === this.session.id ? this.getState() : this.sessionStore.get(sessionId);
   }
 
-  getScenarioExport(sessionId: string): Scenario | undefined {
+  getScenarioExport(sessionId: string, options: ScenarioExportOptions = {}): Scenario | undefined {
     const session = this.getHistorySession(sessionId);
     if (!session) return undefined;
     const active = sessionId === this.session.id;
-    return buildScenarioFromSession(session, {
-      contextLimit: active ? this.config.contextLimit : 10,
-      timeoutSeconds: active ? this.config.timeoutSeconds : 30,
-      conversationState: active ? this.conversationState : null
-    });
+    return buildScenarioFromSession(
+      session,
+      {
+        contextLimit: active ? this.config.contextLimit : 10,
+        timeoutSeconds: active ? this.config.timeoutSeconds : 30,
+        conversationState: active ? this.conversationState : extractConversationState(session)
+      },
+      options
+    );
   }
 
   deleteHistorySession(sessionId: string): boolean {
@@ -376,6 +422,90 @@ export class DevtoolsRuntime {
     });
     this.publishState();
     return delivery;
+  }
+
+  /**
+   * The state the next webhook payload will carry: rolling history capped at
+   * the configured context limit, plus the session's conversation state.
+   */
+  conversationSnapshot(): ConversationCheckpoint {
+    return {
+      recentHistory: scenarioToRecentHistory(this.history, this.config.contextLimit),
+      conversationState: structuredClone(this.conversationState)
+    };
+  }
+
+  /** Attach or replace a developer verdict on one caller turn. */
+  setTurnLabel(sessionId: string, label: TurnLabel): InspectorSession | null {
+    const live = sessionId === this.session.id;
+    const session = live ? this.session : this.sessionStore.get(sessionId);
+    if (!session) return null;
+    const totalCallerTurns = session.transcript.filter((turn) => turn.role === "user").length;
+    if (!Number.isInteger(label.turnIndex) || label.turnIndex < 0 || label.turnIndex >= totalCallerTurns) {
+      throw new Error(`turnIndex must identify a completed caller turn (0..${totalCallerTurns - 1})`);
+    }
+    const labels = (session.turnLabels ?? []).filter((existing) => existing.turnIndex !== label.turnIndex);
+    labels.push({ ...label });
+    labels.sort((a, b) => a.turnIndex - b.turnIndex);
+    session.turnLabels = labels;
+    if (live) {
+      this.publishState();
+      return this.getState();
+    }
+    this.sessionStore.upsert(session);
+    this.emit("history", this.getHistory());
+    return session;
+  }
+
+  /**
+   * Start a new run from another run's turn boundary. The checkpoint is the
+   * source's (recentHistory, conversationState) after `callerTurns` completed
+   * caller turns. Because the webhook contract carries all conversation state
+   * in every request, that pair is a complete state capture: the fork is
+   * exact, not approximate. The prefix transcript and its deliveries are
+   * copied (marked inherited) so exports and reports cover the whole path;
+   * nothing is re-sent to the handler.
+   */
+  forkFromSession(sourceSessionId: string, callerTurns: number): InspectorSession {
+    const source = this.getHistorySession(sourceSessionId);
+    if (!source) throw new Error(`No run found with id ${sourceSessionId}`);
+    const totalCallerTurns = source.transcript.filter((turn) => turn.role === "user").length;
+    if (!Number.isInteger(callerTurns) || callerTurns < 1 || callerTurns > totalCallerTurns) {
+      throw new Error(`Fork point must be a completed caller turn between 1 and ${totalCallerTurns}`);
+    }
+
+    const forkingLive = sourceSessionId === this.session.id;
+    const conversationState = forkingLive
+      ? structuredClone(this.conversationState)
+      : extractConversationState(source, callerTurns);
+    if (forkingLive) this.persistSession();
+
+    // Prefix ends just before the caller turn after the fork point, so the
+    // agent reply to the fork-point turn is included.
+    let seenCallerTurns = 0;
+    let prefixLength = source.transcript.length;
+    for (let index = 0; index < source.transcript.length; index += 1) {
+      if (source.transcript[index].role === "user") {
+        seenCallerTurns += 1;
+        if (seenCallerTurns > callerTurns) {
+          prefixLength = index;
+          break;
+        }
+      }
+    }
+    const prefix = source.transcript.slice(0, prefixLength);
+
+    this.reset({ channel: source.channel, conversationState });
+    this.session.forkedFrom = { sessionId: source.id, turnIndex: callerTurns };
+    this.session.status = "running";
+    for (const turn of prefix) this.pushTranscript({ ...turn }, source.startedAt, source.channel);
+    this.session.deliveries = source.deliveries
+      .filter((delivery) => delivery.event === "agent.message" && !delivery.replayOf)
+      .slice(0, callerTurns)
+      .map((delivery) => ({ ...structuredClone(delivery), inheritedFrom: { sessionId: source.id } }));
+    this.pushLog(`Forked from run ${source.id} after turn ${callerTurns}`);
+    this.publishState();
+    return this.getState();
   }
 
   private async dispatchAndRecord(payload: AgentPhoneEnvelope, fault?: DeliveryFault): Promise<InspectorDelivery> {
@@ -749,6 +879,20 @@ function fallbackSmsText(delivery: InspectorDelivery): string | undefined {
     return raw;
   }
   return undefined;
+}
+
+/**
+ * Recover the conversation state a saved run was using, from the request
+ * bodies it actually sent. Pass `atCallerTurn` to read the state as of that
+ * turn (what a fork checkpoint needs); omit it for the run's initial state
+ * (what a scenario export needs). Identical today because handler responses
+ * do not yet update state mid-run, but the checkpoint contract should not
+ * depend on that staying true.
+ */
+function extractConversationState(session: InspectorSession, atCallerTurn?: number): ConversationState {
+  const deliveries = session.deliveries.filter((candidate) => candidate.event === "agent.message" && !candidate.replayOf);
+  const delivery = atCallerTurn !== undefined ? (deliveries[atCallerTurn - 1] ?? deliveries.at(-1)) : deliveries[0];
+  return structuredClone(delivery?.request.body.conversationState ?? null);
 }
 
 function maskSecret(secret: string): string {

@@ -33,7 +33,8 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
       [
         "Scenario assertions",
         session.scenarioResult ? `${session.scenarioResult.passedCount} passed, ${session.scenarioResult.failedCount} failed` : "n/a"
-      ]
+      ],
+      ["Forked from", session.forkedFrom ? `${session.forkedFrom.sessionId} after turn ${session.forkedFrom.turnIndex}` : "n/a"]
     ]),
     "",
     "## Transcript",
@@ -83,6 +84,15 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
   if (session.warnings.length) {
     lines.push("", "## Warnings", "");
     for (const warning of session.warnings) lines.push(`- ${singleLine(warning)}`);
+  }
+
+  const labels = session.turnLabels ?? [];
+  if (labels.length) {
+    lines.push("", "## Turn Labels", "");
+    for (const label of labels) {
+      const verdict = label.verdict ? label.verdict.toUpperCase() : "NOTE";
+      lines.push(`- Turn ${label.turnIndex + 1}: ${verdict}${label.note ? ` — ${singleLine(label.note)}` : ""}`);
+    }
   }
 
   const logs = session.logs ?? [];
