@@ -1,8 +1,8 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, Trash2 } from "lucide-react";
-import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison } from "@/lib/types";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -28,6 +28,14 @@ export function Inspector() {
   const [baselineSaving, setBaselineSaving] = useState(false);
   const [baselineError, setBaselineError] = useState<string | null>(null);
   const [comparison, setComparison] = useState<RunComparison | null>(null);
+  const [stepState, setStepState] = useState<StepState | null>(null);
+  const [stepStripOpen, setStepStripOpen] = useState(false);
+  const [stepScenarioPath, setStepScenarioPath] = useState("examples/scenarios/appointment-cancellation.yaml");
+  const [stepError, setStepError] = useState<string | null>(null);
+  const [forkTurn, setForkTurn] = useState<number | null>(null);
+  const [forkText, setForkText] = useState("");
+  const [forkBusy, setForkBusy] = useState(false);
+  const [forkError, setForkError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
 
@@ -71,9 +79,24 @@ export function Inspector() {
       setRuns(history);
       setBaselineId((current) => current || history.find((run) => run.baselineName)?.id || "");
     });
+    source.addEventListener("step", (event) => {
+      setStepState(JSON.parse((event as MessageEvent).data) as StepState);
+    });
+
+    fetch(`${SERVER_URL}/api/step`)
+      .then((response) => response.json())
+      .then((state: StepState) => setStepState(state))
+      .catch(() => undefined);
 
     return () => source.close();
   }, []);
+
+  // In step mode the caller input mirrors the next queued turn; editing it
+  // before sending is how a scripted turn gets rewritten.
+  const nextQueuedCaller = stepState?.active ? stepState.queue[0]?.caller ?? "" : null;
+  useEffect(() => {
+    setText(nextQueuedCaller ?? "");
+  }, [nextQueuedCaller]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
@@ -83,6 +106,15 @@ export function Inspector() {
     if (!session) return null;
     return session.deliveries.find((delivery) => delivery.id === selectedId) ?? session.deliveries.at(-1) ?? null;
   }, [selectedId, session]);
+
+  // Caller-turn ordinals (1-based) drive labels and fork points.
+  const transcriptRows = useMemo(() => {
+    let ordinal = 0;
+    return (session?.transcript ?? []).map((turn) => ({
+      turn,
+      ordinal: turn.role === "user" ? ++ordinal : null
+    }));
+  }, [session?.transcript]);
 
   useEffect(() => {
     setReplayBody(selected ? JSON.stringify(selected.request.body, null, 2) : "");
@@ -96,8 +128,62 @@ export function Inspector() {
     setComparison(null);
   }, [session?.id]);
 
+  async function stepApi(path: string, body?: unknown): Promise<boolean> {
+    setStepError(null);
+    const response = await fetch(`${SERVER_URL}${path}`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      // Fastify rejects an empty body when the JSON content-type is set.
+      body: JSON.stringify(body ?? {})
+    });
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      setStepError(payload.error ?? "Step request failed");
+      return false;
+    }
+    return true;
+  }
+
+  function showLive() {
+    viewingSessionIdRef.current = null;
+    setViewingSessionId(null);
+    setLeftView("timeline");
+    setSelectedId(null);
+  }
+
+  async function startStepScenario() {
+    const path = stepScenarioPath.trim();
+    if (!path) {
+      setStepError("Enter a scenario path (relative to where the CLI was started)");
+      return;
+    }
+    if (await stepApi("/api/step/start", { scenarioPath: path })) {
+      setStepStripOpen(false);
+      showLive();
+    }
+  }
+
+  async function startStepReplay(run: InspectorSessionSummary) {
+    if (await stepApi("/api/step/start", { sessionId: run.id })) showLive();
+  }
+
+  async function endStep() {
+    await stepApi("/api/step/end");
+  }
+
   async function sendTurn() {
     const trimmed = text.trim();
+    if (stepState?.active && viewingLive) {
+      if (stepState.sending) return;
+      if (stepState.queue.length === 0) {
+        if (!trimmed) return;
+        if (!(await stepApi("/api/step/add", { caller: trimmed }))) return;
+      } else if (trimmed && trimmed !== stepState.queue[0].caller) {
+        if (!(await stepApi("/api/step/edit", { caller: trimmed }))) return;
+      }
+      await stepApi("/api/step/send");
+      return;
+    }
     if (!trimmed) return;
     setText("");
     await fetch(`${SERVER_URL}/api/send`, {
@@ -105,6 +191,46 @@ export function Inspector() {
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ text: trimmed, channel })
     });
+  }
+
+  async function submitFork() {
+    if (!session || forkTurn === null) return;
+    const caller = forkText.trim();
+    if (!caller) {
+      setForkError("Enter the branch's next caller text");
+      return;
+    }
+    setForkBusy(true);
+    setForkError(null);
+    try {
+      const response = await fetch(`${SERVER_URL}/api/step/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: session.id, turnIndex: forkTurn, caller })
+      });
+      const payload = (await response.json()) as StepState | { error?: string };
+      if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Fork failed");
+      setForkTurn(null);
+      setForkText("");
+      showLive();
+    } catch (error) {
+      setForkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setForkBusy(false);
+    }
+  }
+
+  async function labelTurn(callerOrdinal: number, verdict: "good" | "bad") {
+    if (!session) return;
+    const response = await fetch(`${SERVER_URL}/api/history/${session.id}/labels`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ turnIndex: callerOrdinal - 1, verdict })
+    });
+    if (!response.ok) return;
+    const updated = (await response.json()) as InspectorSession;
+    setSession(updated);
+    if (updated.id === liveSession?.id) setLiveSession(updated);
   }
 
   async function endCall() {
@@ -165,7 +291,9 @@ export function Inspector() {
 
   function exportScenario() {
     if (!session || !session.transcript.some((turn) => turn.role === "user")) return;
-    window.open(`${SERVER_URL}/api/history/${session.id}/scenario.yaml`, "_blank", "noopener,noreferrer");
+    // Assertions are scaffolded from the actions each turn actually returned,
+    // so the export is a ready-to-approve regression scenario.
+    window.open(`${SERVER_URL}/api/history/${session.id}/scenario.yaml?assertions=1`, "_blank", "noopener,noreferrer");
   }
 
   async function replayDelivery() {
@@ -291,6 +419,17 @@ export function Inspector() {
               <option value="sms">sms</option>
             </select>
             <button
+              onClick={() => {
+                setStepError(null);
+                setStepStripOpen((open) => !open);
+              }}
+              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 ${stepState?.active ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              title={stepState?.active ? "Step session active" : "Step through a scenario"}
+              aria-label="Step through a scenario"
+            >
+              <StepForward size={16} />
+            </button>
+            <button
               onClick={() => exportRun("json")}
               disabled={!session}
               className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
@@ -346,6 +485,50 @@ export function Inspector() {
             </button>
           </div>
         </div>
+        {stepStripOpen ? (
+          <div className="border-t border-line bg-mist">
+            <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
+              <label className="min-w-[320px] flex-1">
+                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Scenario path (relative to the CLI&apos;s working directory)</span>
+                <input
+                  value={stepScenarioPath}
+                  onChange={(event) => setStepScenarioPath(event.target.value)}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter") void startStepScenario();
+                  }}
+                  className="config-input"
+                  aria-label="Scenario path"
+                  autoFocus
+                />
+              </label>
+              <button
+                onClick={() => void startStepScenario()}
+                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700"
+              >
+                Start stepping
+              </button>
+              {stepState?.active ? (
+                <button
+                  onClick={() => void endStep()}
+                  className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+                >
+                  End current step session
+                </button>
+              ) : null}
+              <button
+                onClick={() => setStepStripOpen(false)}
+                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+              >
+                Close
+              </button>
+              <div className="w-full text-xs text-slate-500">
+                Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
+                Tip: the Runs tab can step-replay any saved run.
+              </div>
+              {stepError ? <div className="w-full text-xs text-danger">{stepError}</div> : null}
+            </div>
+          </div>
+        ) : null}
         {baselineEditorOpen ? (
           <div className="border-t border-line bg-mist">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
@@ -400,7 +583,10 @@ export function Inspector() {
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-ink">{delivery.event}</span>
+                    <span className="block truncate text-sm font-medium text-ink">
+                      {delivery.event}
+                      {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
+                    </span>
                     <span className="mt-1 block truncate text-xs text-slate-500">
                       {delivery.channel} / {delivery.webhookId}
                     </span>
@@ -425,7 +611,23 @@ export function Inspector() {
                     </span>
                     <span className="mt-1 block truncate text-xs text-slate-500">{run.status}</span>
                     {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-fern">Baseline: {run.baselineName}</span> : null}
+                    {run.forkedFrom ? (
+                      <span className="mt-1 flex items-center gap-1 truncate text-xs font-medium text-indigo-600">
+                        <GitBranch size={11} className="shrink-0" />
+                        fork of {run.forkedFrom.sessionId.slice(0, 12)}… after turn {run.forkedFrom.turnIndex}
+                      </span>
+                    ) : null}
                   </button>
+                  {run.transcriptTurns > 0 ? (
+                    <button
+                      onClick={() => void startStepReplay(run)}
+                      className="grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-fern"
+                      title="Step-replay this run turn by turn"
+                      aria-label="Step-replay this run"
+                    >
+                      <StepForward size={15} />
+                    </button>
+                  ) : null}
                   {run.id !== liveSession?.id ? (
                     <button onClick={() => void deleteRun(run)} className="mr-2 grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-danger" title="Delete run" aria-label="Delete run">
                       <Trash2 size={15} />
@@ -442,25 +644,143 @@ export function Inspector() {
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
           <PanelHeader icon={<Play size={16} />} title="Transcript" meta={viewingLive ? session?.status ?? "idle" : "saved run"} />
           <div ref={transcriptRef} className="h-[calc(100vh-245px)] min-h-[360px] overflow-auto px-4 py-4">
+            {session?.forkedFrom ? (
+              <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+                <GitBranch size={13} className="shrink-0" />
+                <span className="truncate">
+                  Forked from run {session.forkedFrom.sessionId} after turn {session.forkedFrom.turnIndex}
+                </span>
+              </div>
+            ) : null}
             {session?.transcript.length ? (
               <div className="space-y-3">
-                {session.transcript.map((turn, index) => (
-                  <div key={`${turn.role}-${index}`} className={`flex ${turn.role === "agent" ? "justify-start" : "justify-end"}`}>
-                    <div
-                      className={`max-w-[78%] rounded-lg border px-4 py-3 text-sm leading-6 ${
-                        turn.role === "agent" ? "border-line bg-mist text-ink" : "border-fern bg-fern text-white"
-                      }`}
-                    >
-                      {turn.content}
+                {transcriptRows.map(({ turn, ordinal }, index) => {
+                  const label = ordinal !== null ? session.turnLabels?.find((item) => item.turnIndex === ordinal - 1) : undefined;
+                  return (
+                    <div key={`${turn.role}-${index}`}>
+                      <div className={`flex ${turn.role === "agent" ? "justify-start" : "justify-end"}`}>
+                        <div
+                          className={`max-w-[78%] rounded-lg border px-4 py-3 text-sm leading-6 ${
+                            turn.role === "agent" ? "border-line bg-mist text-ink" : "border-fern bg-fern text-white"
+                          }`}
+                        >
+                          {turn.content}
+                        </div>
+                      </div>
+                      {ordinal !== null ? (
+                        <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
+                          {label?.verdict ? (
+                            <span
+                              title={label.note}
+                              className={`rounded-full px-2 py-0.5 font-medium ${label.verdict === "good" ? "bg-emerald-50 text-fern" : "bg-red-50 text-danger"}`}
+                            >
+                              {label.verdict}
+                            </span>
+                          ) : null}
+                          <span className="mr-1">turn {ordinal}</span>
+                          <button
+                            onClick={() => void labelTurn(ordinal, "good")}
+                            className={`grid h-6 w-6 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${label?.verdict === "good" ? "text-fern" : ""}`}
+                            title="Label this turn good"
+                            aria-label={`Label turn ${ordinal} good`}
+                          >
+                            <ThumbsUp size={12} />
+                          </button>
+                          <button
+                            onClick={() => void labelTurn(ordinal, "bad")}
+                            className={`grid h-6 w-6 place-items-center rounded hover:bg-red-50 hover:text-danger ${label?.verdict === "bad" ? "text-danger" : ""}`}
+                            title="Label this turn bad"
+                            aria-label={`Label turn ${ordinal} bad`}
+                          >
+                            <ThumbsDown size={12} />
+                          </button>
+                          <button
+                            onClick={() => {
+                              setForkError(null);
+                              setForkText("");
+                              setForkTurn((current) => (current === ordinal ? null : ordinal));
+                            }}
+                            className={`grid h-6 w-6 place-items-center rounded hover:bg-indigo-50 hover:text-indigo-600 ${forkTurn === ordinal ? "text-indigo-600" : ""}`}
+                            title={`Fork the conversation from turn ${ordinal}`}
+                            aria-label={`Fork from turn ${ordinal}`}
+                          >
+                            <GitBranch size={12} />
+                          </button>
+                        </div>
+                      ) : null}
+                      {forkTurn === ordinal && ordinal !== null ? (
+                        <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3">
+                          <div className="mb-2 text-xs font-medium text-indigo-700">
+                            New branch from the checkpoint after turn {ordinal} — same history and state, different next line:
+                          </div>
+                          <div className="flex gap-2">
+                            <input
+                              value={forkText}
+                              onChange={(event) => setForkText(event.target.value)}
+                              onKeyDown={(event) => {
+                                if (event.key === "Enter") void submitFork();
+                              }}
+                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-white px-3 text-sm outline-none focus:border-indigo-400"
+                              placeholder="What does the caller say instead?"
+                              aria-label="Caller text for the new branch"
+                              autoFocus
+                            />
+                            <button
+                              onClick={() => void submitFork()}
+                              disabled={forkBusy}
+                              className="h-9 rounded-md bg-indigo-600 px-4 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                            >
+                              {forkBusy ? "Forking…" : "Fork"}
+                            </button>
+                          </div>
+                          {forkError ? <div className="mt-2 text-xs text-danger">{forkError}</div> : null}
+                        </div>
+                      ) : null}
                     </div>
-                  </div>
-                ))}
+                  );
+                })}
               </div>
             ) : (
               <EmptyLine label="Transcript will appear here" />
             )}
           </div>
 
+          {stepState?.active && viewingLive ? (
+            <div className="border-t border-line bg-skyglass px-3 py-2">
+              <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
+                <span className="flex items-center gap-1.5 font-medium text-fern">
+                  <StepForward size={13} />
+                  Stepping{stepState.scenarioName ? `: ${stepState.scenarioName}` : ""}
+                </span>
+                <span className="text-slate-500">
+                  turn {stepState.completedTurns + 1}
+                  {stepState.queue.length ? ` · ${stepState.queue.length} queued` : " · queue empty (type to add)"}
+                </span>
+                {stepState.checkpoint ? (
+                  <span className="text-slate-500">
+                    checkpoint: {stepState.checkpoint.recentHistoryTurns} history turn(s)
+                    {stepState.checkpoint.conversationState ? " + state" : ""}
+                  </span>
+                ) : null}
+                {stepState.lastResult?.expectResults.map((expectation) => (
+                  <span
+                    key={expectation.action}
+                    className={`rounded-full px-2 py-0.5 font-medium ${expectation.passed ? "bg-emerald-50 text-fern" : "bg-red-50 text-danger"}`}
+                    title={expectation.passed ? undefined : `observed: ${expectation.observed.join(", ") || "none"}`}
+                  >
+                    {expectation.passed ? "PASS" : "FAIL"} {expectation.action}
+                  </span>
+                ))}
+                <button
+                  onClick={() => void endStep()}
+                  className="ml-auto rounded-md border border-line bg-white px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
+                >
+                  End step
+                </button>
+              </div>
+              {stepError ? <div className="mt-1 text-xs text-danger">{stepError}</div> : null}
+            </div>
+          ) : null}
           <div className="border-t border-line p-3">
             <div className="flex gap-2">
               <input
@@ -471,17 +791,25 @@ export function Inspector() {
                   if (event.key === "Enter") void sendTurn();
                 }}
                 className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
-                placeholder={viewingLive ? "Type caller turn" : "Saved run is read-only"}
+                placeholder={
+                  !viewingLive
+                    ? "Saved run is read-only"
+                    : stepState?.active
+                      ? stepState.queue.length
+                        ? "Next scripted turn — edit before sending"
+                        : "Type the next caller turn for this branch"
+                      : "Type caller turn"
+                }
                 aria-label="Caller turn"
               />
               <button
                 onClick={sendTurn}
-                disabled={!viewingLive}
+                disabled={!viewingLive || (stepState?.active && stepState.sending)}
                 className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
-                title="Send turn"
-                aria-label="Send turn"
+                title={stepState?.active ? "Send next step" : "Send turn"}
+                aria-label={stepState?.active ? "Send next step" : "Send turn"}
               >
-                <Send size={16} />
+                {stepState?.active ? <StepForward size={16} /> : <Send size={16} />}
               </button>
             </div>
           </div>

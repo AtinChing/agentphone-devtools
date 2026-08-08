@@ -46,6 +46,39 @@ export interface InspectorDelivery {
     sessionId: string;
     deliveryId: string;
   };
+  inheritedFrom?: {
+    sessionId: string;
+  };
+}
+
+export interface TurnLabel {
+  turnIndex: number;
+  verdict?: "good" | "bad";
+  note?: string;
+}
+
+export interface StepQueueTurn {
+  caller: string;
+  expect?: { actions?: string[] };
+  edited?: boolean;
+}
+
+export interface StepState {
+  active: boolean;
+  scenarioName: string | null;
+  channel: "sms" | "voice";
+  sessionId: string | null;
+  completedTurns: number;
+  queue: StepQueueTurn[];
+  sending: boolean;
+  lastResult?: {
+    turnNumber: number;
+    expectResults: Array<{ action: string; passed: boolean; observed: string[] }>;
+  };
+  checkpoint: {
+    recentHistoryTurns: number;
+    conversationState: Record<string, unknown> | null;
+  } | null;
 }
 
 export interface TranscriptTurn {
@@ -95,6 +128,11 @@ export interface InspectorSession {
     createdAt: string;
   };
   warnings: string[];
+  forkedFrom?: {
+    sessionId: string;
+    turnIndex: number;
+  };
+  turnLabels?: TurnLabel[];
 }
 
 export interface InspectorSessionSummary {
@@ -107,6 +145,10 @@ export interface InspectorSessionSummary {
   transcriptTurns: number;
   deliveries: number;
   baselineName?: string;
+  forkedFrom?: {
+    sessionId: string;
+    turnIndex: number;
+  };
 }
 
 export interface RunComparison {
