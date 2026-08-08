@@ -149,6 +149,7 @@ export interface InspectorSessionSummary {
     sessionId: string;
     turnIndex: number;
   };
+  scenarioPassed?: boolean;
 }
 
 export interface RunComparison {

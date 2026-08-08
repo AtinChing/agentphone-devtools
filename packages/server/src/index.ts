@@ -186,6 +186,8 @@ export interface InspectorSessionSummary {
   deliveries: number;
   baselineName?: string;
   forkedFrom?: InspectorSession["forkedFrom"];
+  /** Scenario outcome, when the run executed one. */
+  scenarioPassed?: boolean;
 }
 
 type SseClient = {
@@ -1021,7 +1023,8 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     transcriptTurns: session.transcript.length,
     deliveries: session.deliveries.length,
     baselineName: session.baseline?.name,
-    ...(session.forkedFrom ? { forkedFrom: session.forkedFrom } : {})
+    ...(session.forkedFrom ? { forkedFrom: session.forkedFrom } : {}),
+    ...(session.scenarioResult ? { scenarioPassed: session.scenarioResult.passed } : {})
   };
 }
 

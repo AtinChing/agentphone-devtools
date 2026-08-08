@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
+import { ForkTree } from "@/components/ForkTree";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -10,7 +11,7 @@ export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
   const [liveSession, setLiveSession] = useState<InspectorSession | null>(null);
   const [runs, setRuns] = useState<InspectorSessionSummary[]>([]);
-  const [leftView, setLeftView] = useState<"timeline" | "runs">("timeline");
+  const [leftView, setLeftView] = useState<"timeline" | "runs" | "tree">("timeline");
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -400,7 +401,7 @@ export function Inspector() {
             </div>
             <div className="min-w-0">
               <h1 className="truncate text-base font-semibold tracking-normal text-ink">AgentPhone DevTools</h1>
-              <div className="mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
+              <div className="data mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
                 <span className="truncate">{session?.targetUrl ?? "waiting for simulator"}</span>
                 <span>{session?.secretPreview ?? ""}</span>
                 <span className={connected ? "text-fern" : "text-caution"}>{connected ? "live" : "offline"}</span>
@@ -567,10 +568,15 @@ export function Inspector() {
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />} title={leftView === "timeline" ? "Timeline" : "Runs"} meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`} />
-          <div className="grid grid-cols-2 border-b border-line p-2">
+          <PanelHeader
+            icon={leftView === "timeline" ? <Clock3 size={16} /> : leftView === "runs" ? <History size={16} /> : <GitBranch size={16} />}
+            title={leftView === "timeline" ? "Timeline" : leftView === "runs" ? "Runs" : "Lineage"}
+            meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`}
+          />
+          <div className="grid grid-cols-3 border-b border-line p-2">
             <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
             <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
+            <ViewTab active={leftView === "tree"} onClick={() => setLeftView("tree")} icon={<GitBranch size={14} />} label="Tree" />
           </div>
           <div className="max-h-[calc(100vh-220px)] overflow-auto px-3 py-3">
             {leftView === "timeline" && session?.deliveries.length ? (
@@ -587,17 +593,24 @@ export function Inspector() {
                       {delivery.event}
                       {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
                     </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">
+                    <span className="data mt-1 block truncate text-xs text-slate-500">
                       {delivery.channel} / {delivery.webhookId}
                     </span>
                   </span>
-                  <span className={`self-center text-xs font-medium ${delivery.timedOut || !delivery.ok ? "text-danger" : "text-fern"}`}>
+                  <span className={`data self-center text-xs font-medium ${delivery.timedOut || !delivery.ok ? "text-danger" : "text-fern"}`}>
                     {delivery.latencyMs}ms
                   </span>
                 </button>
               ))
             ) : leftView === "timeline" ? (
               <EmptyLine label="No deliveries yet" />
+            ) : leftView === "tree" ? (
+              <ForkTree
+                runs={runs}
+                liveSessionId={liveSession?.id ?? null}
+                viewingSessionId={viewingSessionId}
+                onOpen={(run) => void openRun(run)}
+              />
             ) : runs.length ? (
               runs.map((run) => (
                 <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"}`}>
@@ -606,7 +619,7 @@ export function Inspector() {
                       {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
                       <span className="truncate">{formatRunDate(run.startedAt)}</span>
                     </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">
+                    <span className="data mt-1 block truncate text-xs text-slate-500">
                       {run.channel} / {run.transcriptTurns} turns / {run.deliveries} deliveries
                     </span>
                     <span className="mt-1 block truncate text-xs text-slate-500">{run.status}</span>
