@@ -9,6 +9,7 @@ import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig } fro
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
 import { loadBaselineArtifact } from "./baseline.js";
+import { runStepDebugger } from "./step.js";
 
 interface CliOptions {
   targetUrl: string;
@@ -24,6 +25,7 @@ interface CliOptions {
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
   interactive: boolean;
+  step: boolean;
   historyPath: string;
   historyLimit: number;
   ci: boolean;
@@ -40,6 +42,12 @@ const nextBin = join(repoRoot, "node_modules/next/dist/bin/next");
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const serverConfig = buildServerConfig(options);
+
+  if (options.step) {
+    const scenarioPath = resolve(process.cwd(), options.scenarios[0]);
+    process.exitCode = await runStepDebugger(serverConfig, scenarioPath);
+    return;
+  }
 
   if (options.ci) {
     const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
@@ -187,6 +195,7 @@ function parseArgs(args: string[]): CliOptions {
     exitAfterScenario: false,
     retryOnNon200: false,
     interactive: true,
+    step: false,
     historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
@@ -268,6 +277,11 @@ function parseArgs(args: string[]): CliOptions {
       case "--interactive":
         options.interactive = true;
         break;
+      case "--step":
+        options.step = true;
+        options.noOpen = true;
+        options.interactive = false;
+        break;
       default:
         if (arg.startsWith("--target=")) options.targetUrl = arg.slice("--target=".length);
         else if (arg.startsWith("--secret=")) options.secret = arg.slice("--secret=".length);
@@ -295,6 +309,9 @@ function parseArgs(args: string[]): CliOptions {
   if (options.ci && options.scenarios.length === 0 && options.scenarioDirectories.length === 0) {
     throw new Error("--ci requires --scenario or --scenario-dir");
   }
+  if (options.step && options.ci) throw new Error("--step and --ci are mutually exclusive");
+  if (options.step && options.scenarios.length !== 1) throw new Error("--step requires exactly one --scenario");
+  if (options.step && options.scenarioDirectories.length > 0) throw new Error("--step takes --scenario, not --scenario-dir");
   if (!options.ci && options.scenarioDirectories.length > 0) throw new Error("--scenario-dir requires --ci");
   if (!options.ci && options.scenarios.length > 1) throw new Error("Repeated --scenario requires --ci");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
@@ -341,6 +358,8 @@ Options:
   --channel <sms|voice>      Interactive channel, default voice
   --scenario <path>          Scenario to replay; repeat in CI mode to build a suite
   --scenario-dir <path>      Recursively run all YAML/JSON scenarios in CI mode
+  --step                     Step through one --scenario turn by turn: pause,
+                             inspect state, edit turns, label, fork, export
   --timeout <seconds>        Voice webhook timeout, default 30
   --context-limit <0-50>     recentHistory limit, default 10
   --server-port <port>       Simulator API port, default 4318

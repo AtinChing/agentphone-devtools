@@ -1,6 +1,13 @@
 import crypto from "node:crypto";
 import express from "express";
 
+interface RecentHistoryItem {
+  content: string;
+  direction: "inbound" | "outbound";
+  channel: string;
+  at: string;
+}
+
 const app = express();
 const port = Number(process.env.PORT ?? 3000);
 const secret = process.env.AGENTPHONE_WEBHOOK_SECRET ?? "whsec_demo";
@@ -23,6 +30,7 @@ app.post("/webhook", express.raw({ type: "application/json" }), (request, respon
     event: "agent.message" | "agent.call_ended";
     channel: "sms" | "voice";
     data: Record<string, unknown>;
+    recentHistory?: RecentHistoryItem[];
   };
 
   if (payload.event === "agent.call_ended") {
@@ -31,7 +39,8 @@ app.post("/webhook", express.raw({ type: "application/json" }), (request, respon
   }
 
   const callerText = String(payload.channel === "voice" ? payload.data.transcript ?? "" : payload.data.message ?? "");
-  const reply = answer(callerText);
+  const recentHistory = Array.isArray(payload.recentHistory) ? payload.recentHistory : [];
+  const reply = answer(callerText, recentHistory);
 
   if (payload.channel === "voice") {
     response.json(reply);
@@ -45,14 +54,37 @@ app.listen(port, () => {
   console.log(`Webhook secret: ${secret}`);
 });
 
-function answer(text: string) {
+function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
   const normalized = text.toLowerCase();
   if (/\b(thank|thanks|done|working|perfect)\b/.test(normalized)) {
     return {
-      text: "You're all set. The charging session is confirmed active now.",
+      text: hasAppointmentContext(normalized, recentHistory)
+        ? "Happy to help. Your appointment is cancelled and you're all set. Goodbye!"
+        : "You're all set. The charging session is confirmed active now.",
       hangup: true,
       action: "hangup"
     };
+  }
+  if (/\bcancel/.test(normalized) && /\bappointment/.test(normalized)) {
+    return {
+      text: "I can cancel that appointment for you. What is the four-digit confirmation code on your booking?",
+      action: "request_confirmation_code"
+    };
+  }
+  if (hasAppointmentContext(normalized, recentHistory)) {
+    const code = normalized.match(/(?<![\w-])\d{4}(?![\w-])/)?.[0];
+    if (code === "4821") {
+      return {
+        text: "Thank you, that code matches. Your appointment is cancelled and a confirmation is on its way.",
+        action: "cancel_appointment"
+      };
+    }
+    if (code) {
+      return {
+        text: "That confirmation code does not match our booking. Please read me the four-digit code again.",
+        action: "request_confirmation_code"
+      };
+    }
   }
   if (/\b(ev-?2204|station 12|stall 12|connector 12)\b/.test(normalized)) {
     return {
@@ -67,6 +99,11 @@ function answer(text: string) {
   return {
     text: "I can help with AgentPhone's local demo handler. Share the charging station or session ID and I will check it."
   };
+}
+
+function hasAppointmentContext(normalized: string, recentHistory: RecentHistoryItem[]) {
+  if (/\b(appointment|cancel)/.test(normalized)) return true;
+  return recentHistory.some((item) => /\b(appointment|cancel)/.test(String(item?.content ?? "").toLowerCase()));
 }
 
 function verifyWebhook(rawBody: string, signature: string, timestamp: string, webhookSecret: string) {

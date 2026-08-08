@@ -1,0 +1,23 @@
+name: Appointment cancellation
+description: Local voice scenario for cancelling an appointment with a confirmation code.
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I need to cancel my appointment."
+    expect:
+      actions:
+        - request_confirmation_code
+  - caller: "My confirmation code is 4821."
+    expect:
+      actions:
+        - cancel_appointment
+  - caller: "Thanks, that was easy."
+    expect:
+      actions:
+        - hangup
