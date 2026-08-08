@@ -85,6 +85,12 @@ export function buildMarkdownReport(session: InspectorSession, generatedAt = new
     for (const warning of session.warnings) lines.push(`- ${singleLine(warning)}`);
   }
 
+  const logs = session.logs ?? [];
+  if (logs.length) {
+    lines.push("", "## Run Log", "");
+    for (const entry of logs) lines.push(`- ${singleLine(entry)}`);
+  }
+
   return `${lines.join("\n").trimEnd()}\n`;
 }
 

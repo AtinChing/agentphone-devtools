@@ -1,0 +1,17 @@
+name: Reject a forged signature
+description: Verifies that the handler rejects a request whose HMAC signature is wrong.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "This delivery carries a forged signature and must be rejected."
+    fault:
+      invalidSignature: true
+    expect:
+      status: 401
+      retries: 0

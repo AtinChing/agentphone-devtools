@@ -1,0 +1,17 @@
+name: Reject a replayed request
+description: Verifies that the handler rejects a request signed with a timestamp outside the freshness window.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "This delivery is a replay from ten minutes ago and must be rejected."
+    fault:
+      staleTimestampSeconds: 600
+    expect:
+      status: 401
+      retries: 0

@@ -5,6 +5,7 @@ import { buildJsonReport, buildMarkdownReport } from "./report.js";
 import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
+import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -33,6 +34,7 @@ import {
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
 export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 export { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
+export { findAvailablePort, isAddressInUse, isPortAvailable, DEFAULT_PORT_SCAN_ATTEMPTS } from "./ports.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -110,7 +112,18 @@ export interface InspectorSession {
     name: string;
     createdAt: string;
   };
+  /**
+   * Diagnostic warnings about handler behavior. Baseline comparison treats a
+   * newly added warning as a regression, so only genuine handler-contract
+   * problems belong here. Informational breadcrumbs go in `logs`.
+   */
   warnings: string[];
+  /**
+   * Informational run breadcrumbs (scenario started, assertion outcomes).
+   * Never used as a regression signal. Optional so history files and baseline
+   * report artifacts written before this field existed still load.
+   */
+  logs?: string[];
 }
 
 export interface InspectorSessionSummary {
@@ -312,7 +325,7 @@ export class DevtoolsRuntime {
       conversationState: scenario.conversationState
     });
 
-    this.session.warnings.push(`Running scenario: ${scenario.name}`);
+    this.pushLog(`Running scenario: ${scenario.name}`);
     this.publishState();
 
     const turnDeliveries: InspectorDelivery[] = [];
@@ -326,8 +339,11 @@ export class DevtoolsRuntime {
       turns: turnDeliveries.map(toScenarioTurnObservation),
       ...(callEndedDelivery ? { callEnded: toScenarioTurnObservation(callEndedDelivery) } : {})
     });
+    // Assertion outcomes are already first-class in `scenarioResult`. Logging
+    // them here keeps them visible without double-counting a failed assertion
+    // as a baseline warning regression.
     for (const assertion of this.session.scenarioResult.assertions) {
-      if (!assertion.passed) this.session.warnings.push(assertion.message);
+      if (!assertion.passed) this.pushLog(assertion.message);
     }
     this.publishState();
     return this.getState();
@@ -464,6 +480,11 @@ export class DevtoolsRuntime {
     this.history.push({ ...turn, at, channel });
   }
 
+  /** Record an informational breadcrumb. Never a baseline regression signal. */
+  private pushLog(message: string): void {
+    (this.session.logs ??= []).push(message);
+  }
+
   private newSession(): InspectorSession {
     const startedAt = isoNow();
     return {
@@ -477,7 +498,8 @@ export class DevtoolsRuntime {
       callId: id("call"),
       transcript: [],
       deliveries: [],
-      warnings: []
+      warnings: [],
+      logs: []
     };
   }
 
@@ -669,17 +691,50 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   return { app, runtime };
 }
 
-export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; close: () => Promise<void> }> {
+export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; port: number; close: () => Promise<void> }> {
   const { app, runtime } = await createDevtoolsServer(config);
   const host = config.host ?? "127.0.0.1";
-  await app.listen({ port: config.port, host });
-  const url = `http://${host}:${config.port}`;
+  const port = await listenWithPortFallback(app, config.port, host);
+  const url = `http://${host}:${port}`;
   return {
     app,
     runtime,
     url,
+    port,
     close: () => app.close()
   };
+}
+
+/**
+ * Bind the first free port at or above `desiredPort`. A busy default should
+ * move the dev server, not crash it with a raw EADDRINUSE stack.
+ */
+async function listenWithPortFallback(
+  app: FastifyInstance,
+  desiredPort: number,
+  host: string,
+  attempts = DEFAULT_PORT_SCAN_ATTEMPTS
+): Promise<number> {
+  let candidate = await findAvailablePort(desiredPort, host, attempts);
+  for (let attempt = 0; attempt < attempts; attempt += 1) {
+    try {
+      await app.listen({ port: candidate, host });
+      if (candidate !== desiredPort) {
+        console.warn(`Port ${desiredPort} is already in use. AgentPhone DevTools server started on port ${candidate} instead.`);
+      }
+      return boundPort(app) ?? candidate;
+    } catch (error) {
+      // Lost a race between probing and binding; step past it and try again.
+      if (desiredPort === 0 || !isAddressInUse(error)) throw error;
+      candidate = await findAvailablePort(candidate + 1, host, attempts);
+    }
+  }
+  throw new Error(`Could not bind an AgentPhone DevTools server port at or above ${desiredPort} on ${host}.`);
+}
+
+function boundPort(app: FastifyInstance): number | undefined {
+  const address = app.server.address();
+  return address && typeof address !== "string" ? address.port : undefined;
 }
 
 function fallbackSmsText(delivery: InspectorDelivery): string | undefined {

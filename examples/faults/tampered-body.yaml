@@ -1,0 +1,17 @@
+name: Reject a tampered body
+description: Verifies that the handler rejects a request whose body was altered after signing.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "This delivery was modified in transit and must be rejected."
+    fault:
+      tamperBody: true
+    expect:
+      status: 401
+      retries: 0

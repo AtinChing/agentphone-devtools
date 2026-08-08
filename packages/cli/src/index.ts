@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
-import { startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
+import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
 import { loadBaselineArtifact } from "./baseline.js";
@@ -66,8 +66,14 @@ async function main() {
   }
 
   const server = await startDevtoolsServer(serverConfig);
-  const ui = startUi(options.uiPort, server.url);
-  const uiUrl = `http://127.0.0.1:${options.uiPort}`;
+  // Resolve the inspector port before spawning Next so the URL we print and
+  // open matches the port it actually binds.
+  const uiPort = await findAvailablePort(options.uiPort, "127.0.0.1");
+  if (uiPort !== options.uiPort) {
+    console.warn(`Port ${options.uiPort} is already in use. AgentPhone DevTools inspector will use port ${uiPort} instead.`);
+  }
+  const ui = startUi(uiPort, server.url);
+  const uiUrl = `http://127.0.0.1:${uiPort}`;
 
   await waitForHttp(uiUrl, 30_000);
   console.log(`AgentPhone DevTools server: ${server.url}`);

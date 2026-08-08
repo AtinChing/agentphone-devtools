@@ -73,6 +73,7 @@ export interface InspectorSession {
   id: string;
   targetUrl: string;
   secretPreview: string;
+  logs?: string[];
   channel: "sms" | "voice";
   status: "idle" | "running" | "ended";
   startedAt: string;

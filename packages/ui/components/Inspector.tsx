@@ -571,6 +571,17 @@ export function Inspector() {
               </ul>
             </section>
           ) : null}
+
+          {session?.logs?.length ? (
+            <section className="rounded-lg border border-slate-200 bg-white">
+              <PanelHeader icon={<Clock3 size={16} />} title="Run log" meta={String(session.logs.length)} />
+              <ul className="space-y-2 px-4 pb-4 text-sm text-slate-600">
+                {session.logs.map((entry, index) => (
+                  <li key={`${entry}-${index}`}>{entry}</li>
+                ))}
+              </ul>
+            </section>
+          ) : null}
         </aside>
       </div>
     </main>
