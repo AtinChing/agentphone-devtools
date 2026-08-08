@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, Loader2, Mic, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
 import { buildTurnForest, ConversationTree, flattenForest, TreeLegend, type TurnNode } from "@/components/ConversationTree";
 
@@ -18,6 +18,14 @@ export function Inspector() {
   const [treeForkText, setTreeForkText] = useState("");
   const [treeForkBusy, setTreeForkBusy] = useState(false);
   const [treeForkError, setTreeForkError] = useState<string | null>(null);
+  // Voice dictation: a developer convenience for filling the caller input,
+  // NOT a simulation of AgentPhone's STT. Transcription runs on the local
+  // devtools server (whisper.cpp); hidden entirely when unavailable.
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [voiceTarget, setVoiceTarget] = useState<"caller" | "fork" | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -94,6 +102,11 @@ export function Inspector() {
       .then((response) => response.json())
       .then((state: StepState) => setStepState(state))
       .catch(() => undefined);
+
+    fetch(`${SERVER_URL}/api/voice`)
+      .then((response) => response.json())
+      .then((support: { available?: boolean }) => setVoiceAvailable(support.available === true))
+      .catch(() => setVoiceAvailable(false));
 
     return () => source.close();
   }, []);
@@ -259,6 +272,59 @@ export function Inspector() {
     }
   }
 
+  /** Push-to-talk into a text input: click to record, click again to stop and transcribe. */
+  async function toggleDictation(target: "caller" | "fork") {
+    if (voiceState === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    if (voiceState !== "idle") return;
+    setVoiceError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceError("Microphone unavailable or permission denied.");
+      return;
+    }
+    const recorder = new MediaRecorder(stream);
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      setVoiceState("transcribing");
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const response = await fetch(`${SERVER_URL}/api/voice/transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": blob.type.split(";")[0] || "audio/webm" },
+          body: blob
+        });
+        const payload = (await response.json()) as { text?: string; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Transcription failed");
+        const heard = (payload.text ?? "").trim();
+        if (!heard) {
+          setVoiceError("Heard nothing — try again or type the turn.");
+        } else if (target === "fork") {
+          setTreeForkText(heard);
+        } else {
+          setText(heard);
+        }
+      } catch (error) {
+        setVoiceError(error instanceof Error ? error.message : String(error));
+      } finally {
+        setVoiceState("idle");
+        setVoiceTarget(null);
+      }
+    };
+    recorder.start();
+    recorderRef.current = recorder;
+    setVoiceTarget(target);
+    setVoiceState("recording");
+  }
+
   async function labelTurn(callerOrdinal: number, verdict: "good" | "bad", runId?: string) {
     const targetId = runId ?? session?.id;
     if (!targetId) return;
@@ -290,6 +356,18 @@ export function Inspector() {
       });
       const payload = (await response.json()) as StepState | { error?: string };
       if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Fork failed");
+      // Send the branch turn right away so the new branch appears on the
+      // canvas immediately — a fork that queues silently looks like nothing
+      // happened. The step session stays active for follow-up turns.
+      const sendResponse = await fetch(`${SERVER_URL}/api/step/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      if (!sendResponse.ok) {
+        const sendPayload = (await sendResponse.json().catch(() => ({}))) as { error?: string };
+        throw new Error(sendPayload.error ?? "Fork created, but sending the branch turn failed");
+      }
       setTreeForkText("");
       setSelectedNodeKey(null);
       viewingSessionIdRef.current = null;
@@ -796,6 +874,13 @@ export function Inspector() {
                       placeholder="Fork from this state — what does the caller say instead?"
                       aria-label="Caller text for the new branch"
                     />
+                    {voiceAvailable ? (
+                      <MicToggle
+                        small
+                        state={voiceTarget === "fork" ? voiceState : "idle"}
+                        onClick={() => void toggleDictation("fork")}
+                      />
+                    ) : null}
                     <button
                       onClick={() => void forkFromNode(selectedNode)}
                       disabled={treeForkBusy}
@@ -805,6 +890,7 @@ export function Inspector() {
                     </button>
                   </div>
                   {treeForkError ? <div className="mt-1 text-xs text-danger">{treeForkError}</div> : null}
+                  {voiceError && voiceTarget === "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
                 </div>
               ) : (
                 <div className="border-t border-line px-4 py-2.5 text-xs text-slate-400">
@@ -972,6 +1058,12 @@ export function Inspector() {
                 }
                 aria-label="Caller turn"
               />
+              {voiceAvailable && viewingLive ? (
+                <MicToggle
+                  state={voiceTarget === "caller" ? voiceState : "idle"}
+                  onClick={() => void toggleDictation("caller")}
+                />
+              ) : null}
               <button
                 onClick={sendTurn}
                 disabled={!viewingLive || (stepState?.active && stepState.sending)}
@@ -982,6 +1074,7 @@ export function Inspector() {
                 {stepState?.active ? <StepForward size={16} /> : <Send size={16} />}
               </button>
             </div>
+            {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
           </div>
         </section>
 
@@ -1197,6 +1290,26 @@ function ComparisonCard({
         ) : null}
       </div>
     </section>
+  );
+}
+
+/** Push-to-talk toggle: mic → red stop while recording → spinner while transcribing. */
+function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "transcribing"; onClick: () => void; small?: boolean }) {
+  const size = small ? "h-9 w-9" : "h-10 w-10";
+  return (
+    <button
+      onClick={onClick}
+      disabled={state === "transcribing"}
+      className={`grid ${size} shrink-0 place-items-center rounded-md border ${
+        state === "recording"
+          ? "border-danger bg-red-50 text-danger"
+          : "border-line bg-white text-slate-600 hover:border-slate-400"
+      } disabled:opacity-60`}
+      title={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing…" : "Dictate this turn (local transcription)"}
+      aria-label={state === "recording" ? "Stop recording" : "Dictate caller turn"}
+    >
+      {state === "recording" ? <Square size={14} fill="currentColor" /> : state === "transcribing" ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+    </button>
   );
 }
 

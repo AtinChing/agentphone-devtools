@@ -3,9 +3,12 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface, type Interface } from "node:readline";
 import { collectObservedActions, loadScenarioFile } from "@agentphone-devtools/core";
 import {
+  detectVoiceSupport,
   DevtoolsRuntime,
+  startPushToTalk,
   StepController,
   stringifyScenarioYaml,
+  transcribeWav,
   type DevtoolsServerConfig,
   type InspectorDelivery,
   type StepState
@@ -32,9 +35,17 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
   let state = step.startFromScenario(scenario);
   const exported: string[] = [];
 
+  // Voice input is a developer convenience for dictating turns, not an
+  // AgentPhone STT simulation. Missing tooling degrades to typed input.
+  const voice = detectVoiceSupport();
+
   console.log(bold(`Step debugger: ${scenario.name}`));
   console.log(dim(`${scenario.channel} -> ${config.targetUrl} | ${state.queue.length} scripted turn(s)`));
-  console.log(dim("Commands: c send | e edit next | t <text> add turn | g/b [note] label last | fork <n> | x [path] export | state | q quit | help"));
+  console.log(
+    dim(
+      `Commands: c send | e edit next | t <text> add turn |${voice.available ? " v speak next turn |" : ""} g/b [note] label last | fork <n> | x [path] export | state | q quit | help`
+    )
+  );
 
   const rl = new LineReader();
   let ended = false;
@@ -135,6 +146,40 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
             writeFileSync(path, stringifyScenarioYaml(exportScenario), "utf8");
             exported.push(path);
             console.log(green(`Exported ${exportScenario.turns.length} turn(s) with scaffolded assertions -> ${path}`));
+            break;
+          }
+          case "v":
+          case "voice": {
+            if (!voice.available) {
+              console.log(red(voice.reason ?? "Voice input is not available; keep typing turns as usual."));
+              break;
+            }
+            // AGENTPHONE_DEVTOOLS_VOICE_WAV bypasses the microphone with a
+            // prerecorded file — the scripted-demo and test hook.
+            const prerecorded = process.env.AGENTPHONE_DEVTOOLS_VOICE_WAV;
+            let wavPath: string;
+            if (prerecorded) {
+              wavPath = prerecorded;
+              console.log(dim(`transcribing prerecorded audio: ${prerecorded}`));
+            } else {
+              const recording = startPushToTalk(voice);
+              await rl.question(cyan("recording — press Enter to stop "));
+              try {
+                wavPath = await recording.stop();
+              } catch (error) {
+                console.log(red(error instanceof Error ? error.message : String(error)));
+                break;
+              }
+              console.log(dim("transcribing..."));
+            }
+            const transcriptText = await transcribeWav(wavPath, voice);
+            if (!transcriptText) {
+              console.log(red("Heard nothing. Try again, or type the turn instead."));
+              break;
+            }
+            if (step.state().queue.length > 0) step.editNext(transcriptText);
+            else step.addTurn(transcriptText);
+            console.log(`${green("heard:")} ${transcriptText} ${dim("(now the next turn — edit with `e`, send with `c`)")}`);
             break;
           }
           case "state": {

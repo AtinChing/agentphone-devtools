@@ -7,6 +7,14 @@ import { compareRuns, type RunComparison, type RunComparisonOptions } from "./co
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
 import { StepController } from "./step-controller.js";
+import { detectVoiceSupport, transcribeAudioBuffer, type VoiceSupport } from "./voice.js";
+
+// Voice tooling doesn't change while the server runs; detect once on demand.
+let cachedVoiceSupport: VoiceSupport | undefined;
+function detectVoiceSupportCached(): VoiceSupport {
+  cachedVoiceSupport ??= detectVoiceSupport();
+  return cachedVoiceSupport;
+}
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -49,6 +57,14 @@ export {
   type StepQueueTurn,
   type StepState
 } from "./step-controller.js";
+export {
+  detectVoiceSupport,
+  startPushToTalk,
+  transcribeAudioBuffer,
+  transcribeWav,
+  type PushToTalkRecording,
+  type VoiceSupport
+} from "./voice.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
@@ -810,6 +826,33 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
       }
     }
   );
+
+  // Voice input is a developer convenience for dictating caller turns —
+  // NOT a simulation of AgentPhone's STT pipeline. Transcription runs
+  // entirely locally (whisper.cpp); when unavailable, typed input is
+  // unaffected.
+  app.addContentTypeParser(["audio/webm", "audio/ogg", "audio/wav", "audio/mp4", "application/octet-stream"], { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
+  });
+
+  app.get("/api/voice", async () => {
+    const support = detectVoiceSupportCached();
+    return { available: support.available, ...(support.reason ? { reason: support.reason } : {}) };
+  });
+
+  app.post("/api/voice/transcribe", async (request, reply) => {
+    const support = detectVoiceSupportCached();
+    if (!support.available) return reply.code(503).send({ error: support.reason ?? "Voice input is not available" });
+    if (!Buffer.isBuffer(request.body) || request.body.length < 128) {
+      return reply.code(400).send({ error: "Send raw audio bytes (audio/webm, audio/wav, …) as the request body" });
+    }
+    try {
+      const text = await transcribeAudioBuffer(request.body, support);
+      return { text };
+    } catch (error) {
+      return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
 
   app.get("/api/step", async () => step.state());
 

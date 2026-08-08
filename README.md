@@ -297,6 +297,37 @@ AGENTPHONE_DEVTOOLS_HISTORY_LIMIT=100
 
 These defaults keep the simulator fully local. They do not place calls, send texts, or require paid services.
 
+## Voice Input (developer convenience)
+
+Step mode can take dictated caller turns. This is **not** a simulation of
+AgentPhone's speech-to-text pipeline — it is a faster way for a developer to
+type. The transcript lands in the normal, editable caller-text input and is
+sent through exactly the same path as typed text; nothing about telephony
+audio, streaming, timing, or confidence is modeled.
+
+Transcription is fully local (whisper.cpp; no network calls). macOS setup:
+
+```bash
+brew install whisper-cpp ffmpeg
+mkdir -p .agentphone-devtools/models
+curl -L -o .agentphone-devtools/models/ggml-tiny.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+```
+
+Then either:
+
+- **CLI step mode**: the `v` command records push-to-talk (Enter stops),
+  transcribes, and fills the next caller turn — edit with `e`, send with `c`.
+- **Inspector**: a microphone button appears beside the caller input and the
+  tree's fork panel; click to record, click again to stop, and the
+  transcript fills the input for editing.
+
+If whisper, a model, or ffmpeg is missing — or the microphone is denied —
+the feature reports why and typed input works exactly as before. Overrides:
+`AGENTPHONE_DEVTOOLS_WHISPER_BIN`, `AGENTPHONE_DEVTOOLS_WHISPER_MODEL`, and
+`AGENTPHONE_DEVTOOLS_VOICE_WAV` (CLI: transcribe a prerecorded file instead
+of recording — the scripted-demo hook).
+
 ## License
 
 MIT.
