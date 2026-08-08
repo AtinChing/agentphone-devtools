@@ -8,6 +8,13 @@
   }
 }
 
+/* Design-tool dot grid for the conversation tree canvas. */
+.tree-canvas {
+  background-color: #fbfbf9;
+  background-image: radial-gradient(#dedcd3 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
 :root {
   color-scheme: light;
 }

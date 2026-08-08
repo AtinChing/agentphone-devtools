@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
-import { ForkTree } from "@/components/ForkTree";
+import { buildTurnForest, ConversationTree, flattenForest, TreeLegend, type TurnNode } from "@/components/ConversationTree";
 
 const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
 
@@ -11,7 +11,13 @@ export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
   const [liveSession, setLiveSession] = useState<InspectorSession | null>(null);
   const [runs, setRuns] = useState<InspectorSessionSummary[]>([]);
-  const [leftView, setLeftView] = useState<"timeline" | "runs" | "tree">("timeline");
+  const [leftView, setLeftView] = useState<"timeline" | "runs">("timeline");
+  const [centerView, setCenterView] = useState<"transcript" | "tree">("transcript");
+  const [familySessions, setFamilySessions] = useState<InspectorSession[]>([]);
+  const [selectedNodeKey, setSelectedNodeKey] = useState<string | null>(null);
+  const [treeForkText, setTreeForkText] = useState("");
+  const [treeForkBusy, setTreeForkBusy] = useState(false);
+  const [treeForkError, setTreeForkError] = useState<string | null>(null);
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -117,6 +123,38 @@ export function Inspector() {
     }));
   }, [session?.transcript]);
 
+  // Tree mode works on the viewed run's whole fork family: every run reachable
+  // through forkedFrom links, fetched in full so prefixes can merge into one
+  // tree of turns.
+  useEffect(() => {
+    if (centerView !== "tree" || !session) {
+      return;
+    }
+    const ids = collectFamilyIds(session.id, runs);
+    let cancelled = false;
+    void (async () => {
+      const family: InspectorSession[] = [];
+      for (const id of ids) {
+        if (id === session.id) family.push(session);
+        else if (id === liveSession?.id) family.push(liveSession);
+        else {
+          const response = await fetch(`${SERVER_URL}/api/history/${id}`).catch(() => null);
+          if (response?.ok) family.push((await response.json()) as InspectorSession);
+        }
+      }
+      if (!cancelled) setFamilySessions(family);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [centerView, session, liveSession, runs]);
+
+  const forest = useMemo(() => buildTurnForest(familySessions), [familySessions]);
+  const selectedNode = useMemo(
+    () => flattenForest(forest).find((node) => node.key === selectedNodeKey) ?? null,
+    [forest, selectedNodeKey]
+  );
+
   useEffect(() => {
     setReplayBody(selected ? JSON.stringify(selected.request.body, null, 2) : "");
     setReplayError(null);
@@ -221,17 +259,46 @@ export function Inspector() {
     }
   }
 
-  async function labelTurn(callerOrdinal: number, verdict: "good" | "bad") {
-    if (!session) return;
-    const response = await fetch(`${SERVER_URL}/api/history/${session.id}/labels`, {
+  async function labelTurn(callerOrdinal: number, verdict: "good" | "bad", runId?: string) {
+    const targetId = runId ?? session?.id;
+    if (!targetId) return;
+    const response = await fetch(`${SERVER_URL}/api/history/${targetId}/labels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ turnIndex: callerOrdinal - 1, verdict })
     });
     if (!response.ok) return;
     const updated = (await response.json()) as InspectorSession;
-    setSession(updated);
+    if (updated.id === session?.id) setSession(updated);
     if (updated.id === liveSession?.id) setLiveSession(updated);
+    setFamilySessions((current) => current.map((member) => (member.id === updated.id ? updated : member)));
+  }
+
+  async function forkFromNode(node: TurnNode) {
+    const caller = treeForkText.trim();
+    if (!caller) {
+      setTreeForkError("Enter the branch's next caller text");
+      return;
+    }
+    setTreeForkBusy(true);
+    setTreeForkError(null);
+    try {
+      const response = await fetch(`${SERVER_URL}/api/step/fork`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ sessionId: node.runId, turnIndex: node.turnNumber, caller })
+      });
+      const payload = (await response.json()) as StepState | { error?: string };
+      if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Fork failed");
+      setTreeForkText("");
+      setSelectedNodeKey(null);
+      viewingSessionIdRef.current = null;
+      setViewingSessionId(null);
+    } catch (error) {
+      setTreeForkError(error instanceof Error ? error.message : String(error));
+    } finally {
+      setTreeForkBusy(false);
+    }
   }
 
   async function endCall() {
@@ -569,14 +636,13 @@ export function Inspector() {
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
           <PanelHeader
-            icon={leftView === "timeline" ? <Clock3 size={16} /> : leftView === "runs" ? <History size={16} /> : <GitBranch size={16} />}
-            title={leftView === "timeline" ? "Timeline" : leftView === "runs" ? "Runs" : "Lineage"}
+            icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
+            title={leftView === "timeline" ? "Timeline" : "Runs"}
             meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`}
           />
-          <div className="grid grid-cols-3 border-b border-line p-2">
+          <div className="grid grid-cols-2 border-b border-line p-2">
             <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
             <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
-            <ViewTab active={leftView === "tree"} onClick={() => setLeftView("tree")} icon={<GitBranch size={14} />} label="Tree" />
           </div>
           <div className="max-h-[calc(100vh-220px)] overflow-auto px-3 py-3">
             {leftView === "timeline" && session?.deliveries.length ? (
@@ -604,13 +670,6 @@ export function Inspector() {
               ))
             ) : leftView === "timeline" ? (
               <EmptyLine label="No deliveries yet" />
-            ) : leftView === "tree" ? (
-              <ForkTree
-                runs={runs}
-                liveSessionId={liveSession?.id ?? null}
-                viewingSessionId={viewingSessionId}
-                onOpen={(run) => void openRun(run)}
-              />
             ) : runs.length ? (
               runs.map((run) => (
                 <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"}`}>
@@ -655,8 +714,106 @@ export function Inspector() {
         </section>
 
         <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
-          <PanelHeader icon={<Play size={16} />} title="Transcript" meta={viewingLive ? session?.status ?? "idle" : "saved run"} />
-          <div ref={transcriptRef} className="h-[calc(100vh-245px)] min-h-[360px] overflow-auto px-4 py-4">
+          <PanelHeader
+            icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
+            title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
+            meta={viewingLive ? session?.status ?? "idle" : "saved run"}
+          />
+          <div className="grid grid-cols-2 border-b border-line p-2">
+            <ViewTab active={centerView === "transcript"} onClick={() => setCenterView("transcript")} icon={<Play size={14} />} label="Transcript" />
+            <ViewTab active={centerView === "tree"} onClick={() => setCenterView("tree")} icon={<GitBranch size={14} />} label="Tree" />
+          </div>
+          {centerView === "tree" ? (
+            <>
+              <div className="flex items-center justify-between border-b border-line px-4 py-2">
+                <TreeLegend />
+                <span className="data text-[11px] text-slate-500">
+                  {familySessions.length} run(s) · every node is a frozen checkpoint
+                </span>
+              </div>
+              <div className={`${selectedNode ? "h-[calc(100vh-490px)]" : "h-[calc(100vh-330px)]"} min-h-[260px]`}>
+                <ConversationTree
+                  roots={forest}
+                  liveSessionId={liveSession?.id ?? null}
+                  selectedKey={selectedNodeKey}
+                  onSelect={(node) => {
+                    setTreeForkError(null);
+                    setSelectedNodeKey((current) => (current === node.key ? null : node.key));
+                  }}
+                />
+              </div>
+              {selectedNode ? (
+                <div className="border-t border-line bg-mist/60 px-4 py-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="data text-[11px] text-slate-500">
+                        checkpoint · turn {selectedNode.turnNumber}
+                        {selectedNode.latencyMs !== undefined ? ` · ${selectedNode.latencyMs}ms` : ""}
+                        {` · state: ${selectedNode.turnNumber * 2} history turn(s)`}
+                        {selectedNode.actions.length ? ` · ${selectedNode.actions.join(", ")}` : ""}
+                      </div>
+                      <div className="mt-1 truncate text-sm font-medium text-ink">{selectedNode.caller}</div>
+                      <div className="mt-0.5 truncate text-sm text-slate-600">{selectedNode.agentReply ?? "(no reply)"}</div>
+                    </div>
+                    <div className="flex shrink-0 items-center gap-1">
+                      <button
+                        onClick={() => void labelTurn(selectedNode.turnNumber, "good", selectedNode.runId)}
+                        className={`grid h-7 w-7 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${selectedNode.label?.verdict === "good" ? "text-fern" : "text-slate-400"}`}
+                        title="Label good"
+                        aria-label="Label this checkpoint good"
+                      >
+                        <ThumbsUp size={13} />
+                      </button>
+                      <button
+                        onClick={() => void labelTurn(selectedNode.turnNumber, "bad", selectedNode.runId)}
+                        className={`grid h-7 w-7 place-items-center rounded hover:bg-red-50 hover:text-danger ${selectedNode.label?.verdict === "bad" ? "text-danger" : "text-slate-400"}`}
+                        title="Label bad"
+                        aria-label="Label this checkpoint bad"
+                      >
+                        <ThumbsDown size={13} />
+                      </button>
+                      {runs.some((run) => run.id === selectedNode.runId) && selectedNode.runId !== session?.id ? (
+                        <button
+                          onClick={() => {
+                            const run = runs.find((item) => item.id === selectedNode.runId);
+                            if (run) void openRun(run);
+                          }}
+                          className="ml-1 h-7 rounded border border-line bg-white px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
+                        >
+                          open run
+                        </button>
+                      ) : null}
+                    </div>
+                  </div>
+                  <div className="mt-2 flex gap-2">
+                    <input
+                      value={treeForkText}
+                      onChange={(event) => setTreeForkText(event.target.value)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter") void forkFromNode(selectedNode);
+                      }}
+                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern"
+                      placeholder="Fork from this state — what does the caller say instead?"
+                      aria-label="Caller text for the new branch"
+                    />
+                    <button
+                      onClick={() => void forkFromNode(selectedNode)}
+                      disabled={treeForkBusy}
+                      className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                    >
+                      {treeForkBusy ? "Forking…" : "Fork from here"}
+                    </button>
+                  </div>
+                  {treeForkError ? <div className="mt-1 text-xs text-danger">{treeForkError}</div> : null}
+                </div>
+              ) : (
+                <div className="border-t border-line px-4 py-2.5 text-xs text-slate-400">
+                  Click a checkpoint to inspect its state, label it, or fork the conversation from that exact point.
+                </div>
+              )}
+            </>
+          ) : null}
+          <div ref={transcriptRef} className={`${centerView === "tree" ? "hidden" : ""} h-[calc(100vh-290px)] min-h-[360px] overflow-auto px-4 py-4`}>
             {session?.forkedFrom ? (
               <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 <GitBranch size={13} className="shrink-0" />
@@ -758,7 +915,7 @@ export function Inspector() {
             )}
           </div>
 
-          {stepState?.active && viewingLive ? (
+          {stepState?.active && viewingLive && centerView === "transcript" ? (
             <div className="border-t border-line bg-skyglass px-3 py-2">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-fern">
@@ -794,7 +951,7 @@ export function Inspector() {
               {stepError ? <div className="mt-1 text-xs text-danger">{stepError}</div> : null}
             </div>
           ) : null}
-          <div className="border-t border-line p-3">
+          <div className={`${centerView === "tree" ? "hidden" : ""} border-t border-line p-3`}>
             <div className="flex gap-2">
               <input
                 value={text}
@@ -1063,6 +1220,29 @@ function formatRunDate(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(timestamp));
+}
+
+/** All run ids connected to `anchorId` through forkedFrom links, in either direction. */
+function collectFamilyIds(anchorId: string, runs: InspectorSessionSummary[]): string[] {
+  const adjacency = new Map<string, string[]>();
+  const link = (a: string, b: string) => {
+    adjacency.set(a, [...(adjacency.get(a) ?? []), b]);
+    adjacency.set(b, [...(adjacency.get(b) ?? []), a]);
+  };
+  for (const run of runs) {
+    if (run.forkedFrom?.sessionId) link(run.forkedFrom.sessionId, run.id);
+  }
+  const seen = new Set<string>([anchorId]);
+  const queue = [anchorId];
+  while (queue.length) {
+    for (const next of adjacency.get(queue.shift()!) ?? []) {
+      if (!seen.has(next)) {
+        seen.add(next);
+        queue.push(next);
+      }
+    }
+  }
+  return [...seen];
 }
 
 function summarizeLive(session: InspectorSession): InspectorSessionSummary {
