@@ -56,10 +56,33 @@ app.listen(port, () => {
 
 function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
   const normalized = text.toLowerCase();
+
+  // Deposit gate pending: the previous agent turn asked "should I go ahead?".
+  // Checked before everything else so yes/no (including "no thanks") is
+  // interpreted as the answer to that question, not as a generic closing.
+  if (depositGatePending(recentHistory)) {
+    if (/\b(yes|yeah|yep|sure|proceed|confirm|do it|go ahead)\b/.test(normalized)) {
+      return {
+        text: "Done — your appointment is cancelled and the deposit release is on its way to billing.",
+        action: "cancel_appointment"
+      };
+    }
+    if (/\b(no|keep|wait|stop|hold|don't|dont|nevermind|never mind|actually)\b/.test(normalized)) {
+      return {
+        text: "No problem — I have left your appointment exactly as it was. Anything else?",
+        action: "keep_appointment"
+      };
+    }
+    return {
+      text: "Just to be sure: cancelling forfeits the $25 deposit. Should I go ahead — yes or no?",
+      action: "confirm_cancellation"
+    };
+  }
+
   if (/\b(thank|thanks|done|working|perfect)\b/.test(normalized)) {
     return {
       text: hasAppointmentContext(normalized, recentHistory)
-        ? "Happy to help. Your appointment is cancelled and you're all set. Goodbye!"
+        ? "Happy to help. You're all set. Goodbye!"
         : "You're all set. The charging session is confirmed active now.",
       hangup: true,
       action: "hangup"
@@ -75,11 +98,27 @@ function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
     const code = normalized.match(/(?<![\w-])\d{4}(?![\w-])/)?.[0];
     if (code === "4821") {
       return {
-        text: "Thank you, that code matches. Your appointment is cancelled and a confirmation is on its way.",
-        action: "cancel_appointment"
+        text: "That code matches. One thing before I cancel: this booking forfeits its $25 deposit. Should I go ahead?",
+        action: "confirm_cancellation"
       };
     }
     if (code) {
+      // Escalate after repeated failures. The count is derived entirely from
+      // recentHistory, so a forked branch escalates only when *its* path
+      // really contains the earlier failed attempts.
+      const failedAttempts = countFailedCodeAttempts(recentHistory);
+      if (failedAttempts >= 2) {
+        return {
+          text: "I still can't verify that code, so I'm connecting you to the front desk now.",
+          transferNumber: "+15550100199"
+        };
+      }
+      if (failedAttempts === 1) {
+        return {
+          text: "That code doesn't match either. One more try, or I'll connect you to the front desk.",
+          action: "request_confirmation_code"
+        };
+      }
       return {
         text: "That confirmation code does not match our booking. Please read me the four-digit code again.",
         action: "request_confirmation_code"
@@ -104,6 +143,19 @@ function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
 function hasAppointmentContext(normalized: string, recentHistory: RecentHistoryItem[]) {
   if (/\b(appointment|cancel)/.test(normalized)) return true;
   return recentHistory.some((item) => /\b(appointment|cancel)/.test(String(item?.content ?? "").toLowerCase()));
+}
+
+/** True when the agent's most recent reply was the deposit confirmation question. */
+function depositGatePending(recentHistory: RecentHistoryItem[]) {
+  const lastAgent = [...recentHistory].reverse().find((item) => item?.direction === "outbound");
+  return /forfeits (its|the) \$25 deposit/.test(String(lastAgent?.content ?? ""));
+}
+
+/** How many wrong-code replies the agent has already given in this conversation. */
+function countFailedCodeAttempts(recentHistory: RecentHistoryItem[]) {
+  return recentHistory.filter(
+    (item) => item?.direction === "outbound" && /(does not match our booking|doesn't match either)/.test(String(item?.content ?? ""))
+  ).length;
 }
 
 function verifyWebhook(rawBody: string, signature: string, timestamp: string, webhookSecret: string) {

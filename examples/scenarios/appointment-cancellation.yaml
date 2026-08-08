@@ -16,6 +16,10 @@ turns:
   - caller: "My confirmation code is 4821."
     expect:
       actions:
+        - confirm_cancellation
+  - caller: "Yes, go ahead."
+    expect:
+      actions:
         - cancel_appointment
   - caller: "Thanks, that was easy."
     expect:

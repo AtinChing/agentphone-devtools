@@ -1,0 +1,19 @@
+name: Appointment escalation
+description: Three wrong confirmation codes escalate to a human transfer.
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I need to cancel my appointment."
+    expect: { actions: [request_confirmation_code] }
+  - caller: "My confirmation code is 4812."
+    expect: { actions: [request_confirmation_code] }
+  - caller: "Maybe it is 9999."
+    expect: { actions: [request_confirmation_code] }
+  - caller: "Could it be 1234?"
+    expect: { actions: [transfer] }
