@@ -1,0 +1,17 @@
+name: Appointment deposit decline
+description: Caller declines at the deposit confirmation gate; booking is kept.
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I need to cancel my appointment."
+    expect: { actions: [request_confirmation_code] }
+  - caller: "My confirmation code is 4821."
+    expect: { actions: [confirm_cancellation] }
+  - caller: "Actually no, keep it please."
+    expect: { actions: [keep_appointment] }

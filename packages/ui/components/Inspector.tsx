@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, Loader2, Mic, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
 import { buildTurnForest, ConversationTree, flattenForest, TreeLegend, type TurnNode } from "@/components/ConversationTree";
 
@@ -18,6 +18,24 @@ export function Inspector() {
   const [treeForkText, setTreeForkText] = useState("");
   const [treeForkBusy, setTreeForkBusy] = useState(false);
   const [treeForkError, setTreeForkError] = useState<string | null>(null);
+  // Voice dictation: a developer convenience for filling the caller input,
+  // NOT a simulation of AgentPhone's STT. Transcription runs on the local
+  // devtools server (whisper.cpp); hidden entirely when unavailable.
+  const [voiceAvailable, setVoiceAvailable] = useState(false);
+  const [voiceState, setVoiceState] = useState<"idle" | "recording" | "transcribing">("idle");
+  const [voiceTarget, setVoiceTarget] = useState<"caller" | "fork" | null>(null);
+  const [voiceError, setVoiceError] = useState<string | null>(null);
+  const recorderRef = useRef<MediaRecorder | null>(null);
+  // Hold-space push-to-talk: held = speaking to the agent (auto-sends on
+  // release), released = speaking to humans. Intent routing by key, so
+  // narrating a demo never becomes a ghost turn — deliberately NOT open-mic
+  // VAD, which cannot tell narration from caller turns.
+  const voiceStateRef = useRef(voiceState);
+  voiceStateRef.current = voiceState;
+  const holdToTalkRef = useRef(false);
+  const autoSendRef = useRef(false);
+  const stepStateRef = useRef<StepState | null>(null);
+  const channelRef = useRef<"sms" | "voice">("voice");
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
@@ -95,6 +113,11 @@ export function Inspector() {
       .then((state: StepState) => setStepState(state))
       .catch(() => undefined);
 
+    fetch(`${SERVER_URL}/api/voice`)
+      .then((response) => response.json())
+      .then((support: { available?: boolean }) => setVoiceAvailable(support.available === true))
+      .catch(() => setVoiceAvailable(false));
+
     return () => source.close();
   }, []);
 
@@ -104,6 +127,43 @@ export function Inspector() {
   useEffect(() => {
     setText(nextQueuedCaller ?? "");
   }, [nextQueuedCaller]);
+
+  stepStateRef.current = stepState;
+  channelRef.current = channel;
+
+  // Hold-space push-to-talk. Registered once; handlers read refs only.
+  useEffect(() => {
+    if (!voiceAvailable) return;
+    const typingTarget = () => {
+      const element = document.activeElement;
+      return (
+        element instanceof HTMLInputElement ||
+        element instanceof HTMLTextAreaElement ||
+        element instanceof HTMLSelectElement
+      );
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || event.repeat || typingTarget()) return;
+      if (viewingSessionIdRef.current !== null) return; // saved runs are read-only
+      event.preventDefault();
+      if (voiceStateRef.current !== "idle") return;
+      holdToTalkRef.current = true;
+      void beginRecording("caller", true);
+    };
+    const onKeyUp = (event: KeyboardEvent) => {
+      if (event.code !== "Space" || !holdToTalkRef.current) return;
+      event.preventDefault();
+      holdToTalkRef.current = false;
+      if (recorderRef.current?.state === "recording") recorderRef.current.stop();
+    };
+    window.addEventListener("keydown", onKeyDown);
+    window.addEventListener("keyup", onKeyUp);
+    return () => {
+      window.removeEventListener("keydown", onKeyDown);
+      window.removeEventListener("keyup", onKeyUp);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [voiceAvailable]);
 
   useEffect(() => {
     transcriptRef.current?.scrollTo({ top: transcriptRef.current.scrollHeight, behavior: "smooth" });
@@ -210,14 +270,17 @@ export function Inspector() {
     await stepApi("/api/step/end");
   }
 
-  async function sendTurn() {
-    const trimmed = text.trim();
-    if (stepState?.active && viewingLive) {
-      if (stepState.sending) return;
-      if (stepState.queue.length === 0) {
+  /** Send caller text through the same path as typing. Refs-only so hold-space closures stay fresh. */
+  async function sendCallerText(raw: string) {
+    const trimmed = raw.trim();
+    const step = stepStateRef.current;
+    const live = viewingSessionIdRef.current === null;
+    if (step?.active && live) {
+      if (step.sending) return;
+      if (step.queue.length === 0) {
         if (!trimmed) return;
         if (!(await stepApi("/api/step/add", { caller: trimmed }))) return;
-      } else if (trimmed && trimmed !== stepState.queue[0].caller) {
+      } else if (trimmed && trimmed !== step.queue[0].caller) {
         if (!(await stepApi("/api/step/edit", { caller: trimmed }))) return;
       }
       await stepApi("/api/step/send");
@@ -228,8 +291,12 @@ export function Inspector() {
     await fetch(`${SERVER_URL}/api/send`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ text: trimmed, channel })
+      body: JSON.stringify({ text: trimmed, channel: channelRef.current })
     });
+  }
+
+  async function sendTurn() {
+    await sendCallerText(text);
   }
 
   async function submitFork() {
@@ -257,6 +324,75 @@ export function Inspector() {
     } finally {
       setForkBusy(false);
     }
+  }
+
+  /**
+   * Start capturing the mic. Reads only refs and stable setters, so it works
+   * from once-registered key listeners without stale-closure bugs. With
+   * autoSend, the transcript is sent as the caller turn on stop (hold-space
+   * mode); without it, the transcript fills the target input for editing.
+   */
+  async function beginRecording(target: "caller" | "fork", autoSend: boolean) {
+    if (voiceStateRef.current !== "idle") return;
+    setVoiceError(null);
+    let stream: MediaStream;
+    try {
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    } catch {
+      setVoiceError("Microphone unavailable or permission denied.");
+      return;
+    }
+    autoSendRef.current = autoSend;
+    const recorder = new MediaRecorder(stream);
+    const chunks: BlobPart[] = [];
+    recorder.ondataavailable = (event) => {
+      if (event.data.size) chunks.push(event.data);
+    };
+    recorder.onstop = async () => {
+      stream.getTracks().forEach((track) => track.stop());
+      setVoiceState("transcribing");
+      try {
+        const blob = new Blob(chunks, { type: recorder.mimeType || "audio/webm" });
+        const response = await fetch(`${SERVER_URL}/api/voice/transcribe`, {
+          method: "POST",
+          headers: { "Content-Type": blob.type.split(";")[0] || "audio/webm" },
+          body: blob
+        });
+        const payload = (await response.json()) as { text?: string; error?: string };
+        if (!response.ok) throw new Error(payload.error ?? "Transcription failed");
+        const heard = (payload.text ?? "").trim();
+        if (!heard) {
+          setVoiceError("Heard nothing — try again or type the turn.");
+        } else if (autoSendRef.current) {
+          await sendCallerText(heard);
+        } else if (target === "fork") {
+          setTreeForkText(heard);
+        } else {
+          setText(heard);
+        }
+      } catch (error) {
+        setVoiceError(error instanceof Error ? error.message : String(error));
+      } finally {
+        autoSendRef.current = false;
+        setVoiceState("idle");
+        setVoiceTarget(null);
+      }
+    };
+    recorder.start();
+    recorderRef.current = recorder;
+    setVoiceTarget(target);
+    setVoiceState("recording");
+    // Hold released before the mic finished opening: stop immediately.
+    if (autoSend && !holdToTalkRef.current) recorder.stop();
+  }
+
+  /** Mic-button flow: click to record, click again to stop and fill the input. */
+  async function toggleDictation(target: "caller" | "fork") {
+    if (voiceStateRef.current === "recording") {
+      recorderRef.current?.stop();
+      return;
+    }
+    await beginRecording(target, false);
   }
 
   async function labelTurn(callerOrdinal: number, verdict: "good" | "bad", runId?: string) {
@@ -290,6 +426,18 @@ export function Inspector() {
       });
       const payload = (await response.json()) as StepState | { error?: string };
       if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Fork failed");
+      // Send the branch turn right away so the new branch appears on the
+      // canvas immediately — a fork that queues silently looks like nothing
+      // happened. The step session stays active for follow-up turns.
+      const sendResponse = await fetch(`${SERVER_URL}/api/step/send`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({})
+      });
+      if (!sendResponse.ok) {
+        const sendPayload = (await sendResponse.json().catch(() => ({}))) as { error?: string };
+        throw new Error(sendPayload.error ?? "Fork created, but sending the branch turn failed");
+      }
       setTreeForkText("");
       setSelectedNodeKey(null);
       viewingSessionIdRef.current = null;
@@ -460,38 +608,45 @@ export function Inspector() {
 
   return (
     <main className="min-h-screen">
-      <header className="border-b border-line bg-white">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-4">
+      <header className="border-b border-line bg-[#111110] text-white">
+        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-9 w-9 place-items-center rounded-md border border-line bg-skyglass text-fern">
-              <Activity size={18} aria-hidden="true" />
+            <div className="grid h-8 w-8 place-items-center rounded bg-fern text-white">
+              <Activity size={16} aria-hidden="true" />
             </div>
             <div className="min-w-0">
-              <h1 className="truncate text-base font-semibold tracking-normal text-ink">AgentPhone DevTools</h1>
-              <div className="data mt-1 flex min-w-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-slate-500">
-                <span className="truncate">{session?.targetUrl ?? "waiting for simulator"}</span>
-                <span>{session?.secretPreview ?? ""}</span>
-                <span className={connected ? "text-fern" : "text-caution"}>{connected ? "live" : "offline"}</span>
+              <h1 className="flex items-baseline gap-2 truncate text-sm font-semibold text-white">
+                AgentPhone
+                <span className="micro font-normal text-emerald-300">devtools</span>
+              </h1>
+              <div className="data mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-300">
+                <span className="truncate rounded bg-panel/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
+                <span className="rounded bg-panel/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
+                <span className={`flex items-center gap-1 ${connected ? "text-emerald-300" : "text-amber-300"}`}>
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
+                  {connected ? "live" : "offline"}
+                </span>
               </div>
             </div>
           </div>
 
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <select
               value={channel}
               onChange={(event) => setChannel(event.target.value as "sms" | "voice")}
-              className="h-9 rounded-md border border-line bg-white px-3 text-sm text-ink outline-none focus:border-fern"
+              className="data h-8 rounded border border-white/20 bg-transparent px-2 text-xs text-white outline-none focus:border-emerald-300 [&>option]:text-bright"
               aria-label="Channel"
             >
               <option value="voice">voice</option>
               <option value="sms">sms</option>
             </select>
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={() => {
                 setStepError(null);
                 setStepStripOpen((open) => !open);
               }}
-              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 ${stepState?.active ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white ${stepState?.active ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
               title={stepState?.active ? "Step session active" : "Step through a scenario"}
               aria-label="Step through a scenario"
             >
@@ -500,7 +655,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("json")}
               disabled={!session}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export JSON report"
               aria-label="Export JSON report"
             >
@@ -509,7 +664,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("md")}
               disabled={!session}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export Markdown report"
               aria-label="Export Markdown report"
             >
@@ -518,25 +673,27 @@ export function Inspector() {
             <button
               onClick={exportScenario}
               disabled={!session || !session.transcript.some((turn) => turn.role === "user")}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Export scenario YAML"
               aria-label="Export scenario YAML"
             >
               <FileCode2 size={16} />
             </button>
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={() => void toggleBaseline()}
               disabled={!session}
-              className={`grid h-9 w-9 place-items-center rounded-md border bg-white hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-fern text-fern" : "border-line text-slate-600"}`}
+              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
               title={session?.baseline ? "Remove baseline" : "Save as baseline"}
               aria-label={session?.baseline ? "Remove baseline" : "Save as baseline"}
             >
               <Bookmark size={16} fill={session?.baseline ? "currentColor" : "none"} />
             </button>
+            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={reset}
               disabled={!viewingLive}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="Reset session"
               aria-label="Reset session"
             >
@@ -545,7 +702,7 @@ export function Inspector() {
             <button
               onClick={endCall}
               disabled={!viewingLive}
-              className="grid h-9 w-9 place-items-center rounded-md border border-line bg-white text-slate-600 hover:border-slate-400 disabled:cursor-not-allowed disabled:opacity-40"
+              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
               title="End call"
               aria-label="End call"
             >
@@ -554,10 +711,10 @@ export function Inspector() {
           </div>
         </div>
         {stepStripOpen ? (
-          <div className="border-t border-line bg-mist">
+          <div className="border-t border-white/10 bg-[#161614]">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
               <label className="min-w-[320px] flex-1">
-                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Scenario path (relative to the CLI&apos;s working directory)</span>
+                <span className="micro mb-1 block text-slate-400">Scenario path (relative to the CLI&apos;s working directory)</span>
                 <input
                   value={stepScenarioPath}
                   onChange={(event) => setStepScenarioPath(event.target.value)}
@@ -571,25 +728,25 @@ export function Inspector() {
               </label>
               <button
                 onClick={() => void startStepScenario()}
-                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700"
+                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110"
               >
                 Start stepping
               </button>
               {stepState?.active ? (
                 <button
                   onClick={() => void endStep()}
-                  className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+                  className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
                 >
                   End current step session
                 </button>
               ) : null}
               <button
                 onClick={() => setStepStripOpen(false)}
-                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400"
+                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
               >
                 Close
               </button>
-              <div className="w-full text-xs text-slate-500">
+              <div className="w-full text-xs text-slate-400">
                 Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
                 Tip: the Runs tab can step-replay any saved run.
               </div>
@@ -598,10 +755,10 @@ export function Inspector() {
           </div>
         ) : null}
         {baselineEditorOpen ? (
-          <div className="border-t border-line bg-mist">
+          <div className="border-t border-white/10 bg-[#161614]">
             <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
               <label className="min-w-[260px] flex-1">
-                <span className="mb-1 block text-[11px] font-medium uppercase text-slate-500">Baseline name</span>
+                <span className="micro mb-1 block text-slate-400">Baseline name</span>
                 <input
                   value={baselineName}
                   onChange={(event) => setBaselineName(event.target.value)}
@@ -616,14 +773,14 @@ export function Inspector() {
               <button
                 onClick={() => void saveBaseline()}
                 disabled={baselineSaving}
-                className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
               >
                 {baselineSaving ? "Saving…" : "Save baseline"}
               </button>
               <button
                 onClick={() => setBaselineEditorOpen(false)}
                 disabled={baselineSaving}
-                className="h-9 rounded-md border border-line bg-white px-4 text-xs font-medium text-slate-600 hover:border-slate-400 disabled:opacity-50"
+                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white disabled:opacity-50"
               >
                 Cancel
               </button>
@@ -634,7 +791,7 @@ export function Inspector() {
       </header>
 
       <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
-        <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
+        <section className="min-h-[520px] rounded-lg border border-line bg-panel">
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
             title={leftView === "timeline" ? "Timeline" : "Runs"}
@@ -651,11 +808,11 @@ export function Inspector() {
                   key={delivery.id}
                   onClick={() => setSelectedId(delivery.id)}
                   className={`mb-2 grid w-full grid-cols-[1fr_auto] gap-2 rounded-md border px-3 py-2 text-left transition ${
-                    selected?.id === delivery.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"
+                    selected?.id === delivery.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-ink">
+                    <span className="block truncate text-sm font-medium text-bright">
                       {delivery.event}
                       {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
                     </span>
@@ -672,9 +829,9 @@ export function Inspector() {
               <EmptyLine label="No deliveries yet" />
             ) : runs.length ? (
               runs.map((run) => (
-                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-white hover:border-slate-400"}`}>
+                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"}`}>
                   <button onClick={() => void openRun(run)} className="min-w-0 flex-1 px-3 py-2 text-left">
-                    <span className="flex items-center gap-2 text-sm font-medium text-ink">
+                    <span className="flex items-center gap-2 text-sm font-medium text-bright">
                       {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
                       <span className="truncate">{formatRunDate(run.startedAt)}</span>
                     </span>
@@ -713,7 +870,7 @@ export function Inspector() {
           </div>
         </section>
 
-        <section className="min-h-[520px] rounded-lg border border-line bg-white shadow-soft">
+        <section className="min-h-[520px] overflow-hidden rounded-lg border border-line bg-panel shadow-soft">
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
             title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
@@ -752,7 +909,7 @@ export function Inspector() {
                         {` · state: ${selectedNode.turnNumber * 2} history turn(s)`}
                         {selectedNode.actions.length ? ` · ${selectedNode.actions.join(", ")}` : ""}
                       </div>
-                      <div className="mt-1 truncate text-sm font-medium text-ink">{selectedNode.caller}</div>
+                      <div className="mt-1 truncate text-sm font-medium text-bright">{selectedNode.caller}</div>
                       <div className="mt-0.5 truncate text-sm text-slate-600">{selectedNode.agentReply ?? "(no reply)"}</div>
                     </div>
                     <div className="flex shrink-0 items-center gap-1">
@@ -778,7 +935,7 @@ export function Inspector() {
                             const run = runs.find((item) => item.id === selectedNode.runId);
                             if (run) void openRun(run);
                           }}
-                          className="ml-1 h-7 rounded border border-line bg-white px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
+                          className="ml-1 h-7 rounded border border-line bg-panel px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
                         >
                           open run
                         </button>
@@ -792,19 +949,27 @@ export function Inspector() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void forkFromNode(selectedNode);
                       }}
-                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern"
+                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern"
                       placeholder="Fork from this state — what does the caller say instead?"
                       aria-label="Caller text for the new branch"
                     />
+                    {voiceAvailable ? (
+                      <MicToggle
+                        small
+                        state={voiceTarget === "fork" ? voiceState : "idle"}
+                        onClick={() => void toggleDictation("fork")}
+                      />
+                    ) : null}
                     <button
                       onClick={() => void forkFromNode(selectedNode)}
                       disabled={treeForkBusy}
-                      className="h-9 rounded-md bg-ink px-4 text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                      className="h-9 rounded-md bg-cta px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
                     >
                       {treeForkBusy ? "Forking…" : "Fork from here"}
                     </button>
                   </div>
                   {treeForkError ? <div className="mt-1 text-xs text-danger">{treeForkError}</div> : null}
+                  {voiceError && voiceTarget === "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
                 </div>
               ) : (
                 <div className="border-t border-line px-4 py-2.5 text-xs text-slate-400">
@@ -823,22 +988,21 @@ export function Inspector() {
               </div>
             ) : null}
             {session?.transcript.length ? (
-              <div className="space-y-3">
+              <div>
                 {transcriptRows.map(({ turn, ordinal }, index) => {
                   const label = ordinal !== null ? session.turnLabels?.find((item) => item.turnIndex === ordinal - 1) : undefined;
                   return (
-                    <div key={`${turn.role}-${index}`}>
-                      <div className={`flex ${turn.role === "agent" ? "justify-start" : "justify-end"}`}>
-                        <div
-                          className={`max-w-[78%] rounded-lg border px-4 py-3 text-sm leading-6 ${
-                            turn.role === "agent" ? "border-line bg-mist text-ink" : "border-fern bg-fern text-white"
-                          }`}
-                        >
+                    <div key={`${turn.role}-${index}`} className="group border-b border-line/60">
+                      <div className="flex items-start gap-3 py-2.5">
+                        <span className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}>
+                          {turn.role === "agent" ? "agent" : "caller"}
+                        </span>
+                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-bright"}`}>
                           {turn.content}
                         </div>
                       </div>
                       {ordinal !== null ? (
-                        <div className="mt-1 flex items-center justify-end gap-1 text-[11px] text-slate-400">
+                        <div className="flex items-center gap-1 pb-1.5 pl-[60px] text-[11px] text-slate-400 opacity-60 transition group-hover:opacity-100">
                           {label?.verdict ? (
                             <span
                               title={label.note}
@@ -847,7 +1011,7 @@ export function Inspector() {
                               {label.verdict}
                             </span>
                           ) : null}
-                          <span className="mr-1">turn {ordinal}</span>
+                          <span className="data mr-1">t{ordinal}</span>
                           <button
                             onClick={() => void labelTurn(ordinal, "good")}
                             className={`grid h-6 w-6 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${label?.verdict === "good" ? "text-fern" : ""}`}
@@ -879,7 +1043,7 @@ export function Inspector() {
                         </div>
                       ) : null}
                       {forkTurn === ordinal && ordinal !== null ? (
-                        <div className="mt-2 rounded-md border border-indigo-200 bg-indigo-50 p-3">
+                        <div className="mb-2 ml-[60px] rounded-md border border-indigo-200 bg-indigo-50 p-3">
                           <div className="mb-2 text-xs font-medium text-indigo-700">
                             New branch from the checkpoint after turn {ordinal} — same history and state, different next line:
                           </div>
@@ -890,7 +1054,7 @@ export function Inspector() {
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") void submitFork();
                               }}
-                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-white px-3 text-sm outline-none focus:border-indigo-400"
+                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-panel px-3 text-sm outline-none focus:border-indigo-400"
                               placeholder="What does the caller say instead?"
                               aria-label="Caller text for the new branch"
                               autoFocus
@@ -943,7 +1107,7 @@ export function Inspector() {
                 ))}
                 <button
                   onClick={() => void endStep()}
-                  className="ml-auto rounded-md border border-line bg-white px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
+                  className="ml-auto rounded-md border border-line bg-panel px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
                 >
                   End step
                 </button>
@@ -960,7 +1124,7 @@ export function Inspector() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void sendTurn();
                 }}
-                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-white px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
+                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
                 placeholder={
                   !viewingLive
                     ? "Saved run is read-only"
@@ -972,28 +1136,44 @@ export function Inspector() {
                 }
                 aria-label="Caller turn"
               />
+              {voiceAvailable && viewingLive ? (
+                <MicToggle
+                  state={voiceTarget === "caller" ? voiceState : "idle"}
+                  onClick={() => void toggleDictation("caller")}
+                />
+              ) : null}
               <button
                 onClick={sendTurn}
                 disabled={!viewingLive || (stepState?.active && stepState.sending)}
-                className="grid h-10 w-10 place-items-center rounded-md bg-ink text-white hover:bg-slate-700 disabled:cursor-not-allowed disabled:opacity-40"
+                className="grid h-10 w-10 place-items-center rounded-md bg-cta text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
                 title={stepState?.active ? "Send next step" : "Send turn"}
                 aria-label={stepState?.active ? "Send next step" : "Send turn"}
               >
                 {stepState?.active ? <StepForward size={16} /> : <Send size={16} />}
               </button>
             </div>
+            {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
+            {voiceAvailable && viewingLive && !voiceError ? (
+              <div className={`micro mt-1.5 ${voiceState === "recording" ? "text-danger" : voiceState === "transcribing" ? "text-fern" : "text-slate-500"}`}>
+                {voiceState === "recording"
+                  ? "recording — release space (or click stop) to send"
+                  : voiceState === "transcribing"
+                    ? "transcribing…"
+                    : "hold space to talk · release to send"}
+              </div>
+            ) : null}
           </div>
         </section>
 
         <aside className="space-y-4">
-          <section className="rounded-lg border border-line bg-white shadow-soft">
+          <section className="overflow-hidden rounded-lg border border-line bg-panel">
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
             {selected ? (
               <div className="border-t border-line p-3">
                 <button
                   onClick={() => setReplayOpen((open) => !open)}
-                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-white text-sm font-medium text-slate-700 hover:border-slate-400"
+                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-panel text-sm font-medium text-slate-700 hover:border-slate-400"
                 >
                   <RefreshCw size={15} />
                   Edit and replay
@@ -1019,7 +1199,7 @@ export function Inspector() {
                     <button
                       onClick={() => void replayDelivery()}
                       disabled={replayBusy}
-                      className="h-9 w-full rounded-md bg-ink text-sm font-medium text-white hover:bg-slate-700 disabled:opacity-50"
+                      className="h-9 w-full rounded-md bg-cta text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
                     >
                       {replayBusy ? "Replaying…" : "Send replay"}
                     </button>
@@ -1029,13 +1209,13 @@ export function Inspector() {
             ) : null}
           </section>
 
-          <section className="rounded-lg border border-line bg-white shadow-soft">
+          <section className="overflow-hidden rounded-lg border border-line bg-panel">
             <PanelHeader icon={<CheckCircle2 size={16} />} title="Response" meta={selected ? String(selected.response.status) : ""} />
             <PayloadBlock value={selected ? { status: selected.response.status, headers: selected.response.headers, parsed: selected.response.parsed, rawBody: selected.response.rawBody } : null} />
           </section>
 
           {session?.callEnded ? (
-            <section className="rounded-lg border border-line bg-white shadow-soft">
+            <section className="rounded-lg border border-line bg-panel">
               <PanelHeader icon={<PhoneOff size={16} />} title="Call Ended" meta={`${session.callEnded.durationSeconds}s`} />
               <div className="space-y-2 px-4 pb-4 text-sm">
                 <KeyValue name="summary" value={session.callEnded.summary} />
@@ -1071,7 +1251,7 @@ export function Inspector() {
           ) : null}
 
           {session?.logs?.length ? (
-            <section className="rounded-lg border border-slate-200 bg-white">
+            <section className="rounded-lg border border-slate-200 bg-panel">
               <PanelHeader icon={<Clock3 size={16} />} title="Run log" meta={String(session.logs.length)} />
               <ul className="space-y-2 px-4 pb-4 text-sm text-slate-600">
                 {session.logs.map((entry, index) => (
@@ -1088,12 +1268,12 @@ export function Inspector() {
 
 function PanelHeader({ icon, title, meta }: { icon: React.ReactNode; title: string; meta?: string }) {
   return (
-    <div className="flex h-12 items-center justify-between border-b border-line px-4">
-      <div className="flex items-center gap-2 text-sm font-semibold text-ink">
-        <span className="text-slate-500">{icon}</span>
+    <div className="flex h-9 items-center justify-between border-b border-line px-3">
+      <div className="micro flex items-center gap-1.5 text-slate-500">
+        <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
         {title}
       </div>
-      {meta ? <span className="max-w-[170px] truncate text-xs text-slate-500">{meta}</span> : null}
+      {meta ? <span className="data max-w-[180px] truncate text-[10px] text-slate-400">{meta}</span> : null}
     </div>
   );
 }
@@ -1102,7 +1282,7 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-ink"}`}
+      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-bright"}`}
     >
       {icon}
       {label}
@@ -1112,15 +1292,40 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
 
 function PayloadBlock({ value }: { value: unknown | null }) {
   return (
-    <pre className="max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5 text-slate-700">
-      {value ? JSON.stringify(value, null, 2) : "null"}
+    <pre className="console-pane max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5">
+      {tokenizeJson(value ? JSON.stringify(value, null, 2) : "null")}
     </pre>
   );
 }
 
+// Minimal JSON tinting via React spans (no innerHTML): keys green, strings
+// light, numbers/keywords amber, punctuation dim.
+const JSON_TOKEN = /("(?:[^"\\]|\\.)*")(\s*:)|("(?:[^"\\]|\\.)*")|\b(true|false|null)\b|(-?\d+\.?\d*(?:[eE][+-]?\d+)?)/g;
+
+function tokenizeJson(json: string): React.ReactNode[] {
+  const nodes: React.ReactNode[] = [];
+  let cursor = 0;
+  let index = 0;
+  for (const match of json.matchAll(JSON_TOKEN)) {
+    const start = match.index ?? 0;
+    if (start > cursor) nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{json.slice(cursor, start)}</span>);
+    if (match[1] !== undefined) {
+      nodes.push(<span key={index++} style={{ color: "#8fd694" }}>{match[1]}</span>);
+      nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{match[2]}</span>);
+    } else if (match[3] !== undefined) {
+      nodes.push(<span key={index++}>{match[3]}</span>);
+    } else {
+      nodes.push(<span key={index++} style={{ color: "#e0b16b" }}>{match[0]}</span>);
+    }
+    cursor = start + match[0].length;
+  }
+  if (cursor < json.length) nodes.push(<span key={index++} style={{ color: "#8b897f" }}>{json.slice(cursor)}</span>);
+  return nodes;
+}
+
 function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenarioResult"]> }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-soft">
+    <section className="rounded-lg border border-line bg-panel">
       <PanelHeader
         icon={result.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
         title="Scenario"
@@ -1154,13 +1359,13 @@ function ComparisonCard({
   comparison: RunComparison | null;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-white shadow-soft">
+    <section className="rounded-lg border border-line bg-panel">
       <PanelHeader icon={<Scale size={16} />} title="Baseline" meta={comparison ? (comparison.passed ? "passed" : "regressed") : session.baseline?.name} />
       <div className="space-y-3 px-4 pb-4 text-sm">
         <select
           value={baselineId}
           onChange={(event) => onBaselineChange(event.target.value)}
-          className="h-9 w-full rounded-md border border-line bg-white px-2 text-xs text-ink outline-none focus:border-fern"
+          className="h-9 w-full rounded-md border border-line bg-panel px-2 text-xs text-bright outline-none focus:border-fern"
           aria-label="Comparison baseline"
         >
           <option value="">Select saved baseline</option>
@@ -1173,7 +1378,7 @@ function ComparisonCard({
         <button
           onClick={onCompare}
           disabled={!baselineId}
-          className="h-9 w-full rounded-md bg-ink text-xs font-medium text-white hover:bg-slate-700 disabled:opacity-40"
+          className="h-9 w-full rounded-md bg-cta text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
         >
           Compare current run
         </button>
@@ -1200,11 +1405,31 @@ function ComparisonCard({
   );
 }
 
+/** Push-to-talk toggle: mic → red stop while recording → spinner while transcribing. */
+function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "transcribing"; onClick: () => void; small?: boolean }) {
+  const size = small ? "h-9 w-9" : "h-10 w-10";
+  return (
+    <button
+      onClick={onClick}
+      disabled={state === "transcribing"}
+      className={`grid ${size} shrink-0 place-items-center rounded-md border ${
+        state === "recording"
+          ? "border-danger bg-red-50 text-danger"
+          : "border-line bg-panel text-slate-600 hover:border-slate-400"
+      } disabled:opacity-60`}
+      title={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing…" : "Dictate this turn (local transcription)"}
+      aria-label={state === "recording" ? "Stop recording" : "Dictate caller turn"}
+    >
+      {state === "recording" ? <Square size={14} fill="currentColor" /> : state === "transcribing" ? <Loader2 size={15} className="animate-spin" /> : <Mic size={15} />}
+    </button>
+  );
+}
+
 function KeyValue({ name, value }: { name: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md border border-line bg-mist px-3 py-2">
       <div className="text-[11px] uppercase text-slate-500">{name}</div>
-      <div className="mt-1 break-words text-sm text-ink">{value}</div>
+      <div className="mt-1 break-words text-sm text-bright">{value}</div>
     </div>
   );
 }

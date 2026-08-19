@@ -3,12 +3,15 @@
 # AgentPhone DevTools step-debugger demo: explore, fork, then lock it in.
 #
 #   1. Step through the appointment-cancellation scenario turn by turn,
-#      editing turn 2's caller text mid-run.
+#      editing turn 2's caller text mid-run (code -> deposit gate -> yes ->
+#      cancelled -> hangup).
 #   2. Label the closing turn good.
-#   3. Fork from the turn-1 checkpoint into the wrong-code recovery path
-#      (checkpoint = recentHistory + conversationState, carried exactly).
+#   3. Fork from the turn-1 checkpoint into the wrong-code path and keep
+#      giving bad codes until the agent escalates to a human transfer —
+#      the attempt count is derived from the checkpoint's recentHistory,
+#      so the escalation proves the state carry is exact.
 #   4. Save the forked path as a scenario with assertions scaffolded from
-#      the actions the handler actually returned.
+#      the actions the handler actually returned (including the transfer).
 #   5. Replay that exported scenario in the normal CI suite — it passes.
 #
 # The step session is driven by piped input so the run is deterministic.
@@ -113,14 +116,15 @@ printf '%s\n' \
   'e The code should be 4821.' \
   'c' \
   'c' \
+  'c' \
   'g clean close' \
   'fork 1' \
   'My confirmation code is 4812.' \
   'c' \
   'b agent must not cancel on a wrong code' \
-  't Sorry about that, it is 4821.' \
+  't Maybe it is 9999.' \
   'c' \
-  't Thanks, that was easy.' \
+  't Could it be 1234?' \
   'c' \
   "x ${EXPORT_PATH}" \
   'q' \
@@ -148,8 +152,9 @@ echo
 if (( CI_EXIT == 0 )); then
   green "exit ${CI_EXIT} — the forked path is now a passing regression scenario."
   echo
-  green "Done: stepped 3 turns (one edited), labeled turns, forked from the"
-  green "turn-1 checkpoint, saved the branch, and replayed it green in CI."
+  green "Done: stepped the happy path (deposit gate included), forked from the"
+  green "turn-1 checkpoint, escalated to a human transfer after three wrong"
+  green "codes, saved the branch, and replayed it green in CI."
 else
   red "Expected the exported scenario to pass (exit was ${CI_EXIT})."
   exit 1

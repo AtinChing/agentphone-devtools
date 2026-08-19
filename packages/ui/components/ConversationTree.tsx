@@ -44,13 +44,13 @@ const COL_GAP = 56;
 const ROW_GAP = 18;
 const PAD = 28;
 
-const INK = "#0b0b0b";
-const MUTED = "#898781";
-const EDGE = "#c3c2b7";
+const INK = "#f0efe9";
+const MUTED = "#8a8981";
+const EDGE = "#4a4945";
 const GOOD = "#0ca30c";
 const BAD = "#d03b3b";
-const LIVE = "#077a10";
-const FORK = "#4a3aa7";
+const LIVE = "#5abc6e";
+const FORK = "#a78bfa";
 
 export function buildTurnForest(sessions: InspectorSession[]): TurnNode[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -236,8 +236,8 @@ export function ConversationTree({
                 width={NODE_W}
                 height={NODE_H}
                 rx={10}
-                fill="#ffffff"
-                stroke={selected ? INK : node.failed ? BAD : "#e1e0d9"}
+                fill="#202020"
+                stroke={selected ? INK : node.failed ? BAD : "#383834"}
                 strokeWidth={selected ? 2 : 1.2}
               />
               {leafOfLive ? (
@@ -257,11 +257,11 @@ export function ConversationTree({
               <text x={12} y={33} fontSize={11.5} fill={INK} fontWeight={500}>
                 {truncate(node.caller, 30)}
               </text>
-              <text x={12} y={49} fontSize={10.5} fill="#52514e">
+              <text x={12} y={49} fontSize={10.5} fill="#9c9b93">
                 {node.agentReply ? truncate(node.agentReply, 32) : "…"}
               </text>
               {node.actions.length ? (
-                <text x={12} y={64} fontSize={9.5} fill={node.actions.includes("hangup") ? "#046b0d" : FORK} className="data">
+                <text x={12} y={64} fontSize={9.5} fill={node.actions.includes("hangup") ? "#5abc6e" : FORK} className="data">
                   {truncate(node.actions.join(", "), 32)}
                 </text>
               ) : null}
@@ -286,13 +286,13 @@ export function TreeLegend() {
   return (
     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3 w-5 rounded border border-line bg-white" /> checkpoint
+        <span className="inline-block h-3 w-5 rounded border border-line bg-panel" /> checkpoint
       </span>
-      <span className="flex items-center gap-1.5 text-[#4a3aa7]">
+      <span className="flex items-center gap-1.5 text-indigo-400">
         <GitBranch size={11} /> fork
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-0 w-5 border-t-2 border-dashed" style={{ borderColor: "#077a10" }} /> live path
+        <span className="inline-block h-0 w-5 border-t-2 border-dashed" style={{ borderColor: "#5abc6e" }} /> live path
       </span>
     </div>
   );
