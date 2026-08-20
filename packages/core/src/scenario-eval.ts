@@ -77,6 +77,21 @@ export function evaluateScenario(scenario: Scenario, observation: ScenarioObserv
       });
     }
 
+    if (turn.expect?.replyMatches !== undefined) {
+      const replyText = replyTextOf(observed?.responses ?? []);
+      const passed = new RegExp(turn.expect.replyMatches, "i").test(replyText);
+      assertions.push({
+        kind: "reply",
+        passed,
+        expected: `reply matching /${turn.expect.replyMatches}/i`,
+        observed: replyText || "no reply text",
+        turnIndex: index,
+        message: passed
+          ? `Turn ${index + 1} reply matched /${turn.expect.replyMatches}/i`
+          : `Turn ${index + 1} reply did not match /${turn.expect.replyMatches}/i (got: ${replyText || "no reply text"})`
+      });
+    }
+
     const expectedActions = turn.expect?.actions ?? [];
     const observedActions = collectObservedActions(observed?.responses ?? []);
     for (const expectedAction of expectedActions) {
@@ -133,4 +148,9 @@ export function collectObservedActions(responses: AgentResponseChunk[]): string[
 function deliveryObservation(observation: ScenarioTurnObservation): string {
   if (observation.timedOut) return "timeout";
   return observation.status > 0 ? `HTTP ${observation.status}` : "dispatch error";
+}
+
+/** The agent's spoken/sent reply text for one turn: the first non-interim text chunk. */
+function replyTextOf(responses: AgentResponseChunk[]): string {
+  return responses.find((chunk) => typeof chunk.text === "string" && chunk.text.length > 0 && chunk.interim !== true)?.text ?? "";
 }

@@ -59,7 +59,7 @@ export interface TurnLabel {
 
 export interface StepQueueTurn {
   caller: string;
-  expect?: { actions?: string[] };
+  expect?: { actions?: string[]; replyMatches?: string };
   edited?: boolean;
 }
 
@@ -87,7 +87,7 @@ export interface TranscriptTurn {
 }
 
 export interface ScenarioAssertion {
-  kind: "delivery" | "action";
+  kind: "delivery" | "action" | "reply";
   passed: boolean;
   expected: string;
   observed: string;

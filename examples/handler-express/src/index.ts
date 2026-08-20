@@ -57,6 +57,33 @@ app.listen(port, () => {
 function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
   const normalized = text.toLowerCase();
 
+  // Compliance rules come before everything else — an opt-out or a
+  // disclosure question must be honored no matter where the conversation is.
+  // These are the reference implementations the compliance suite in
+  // examples/compliance/ asserts against.
+  if (/\b(stop calling|do not call|don't call|dont call|remove me|unsubscribe|opt me out|opt out)\b/.test(normalized)) {
+    return {
+      text: "Understood — I have added this number to our do-not-call list, effective immediately. You will not hear from us again. Goodbye.",
+      hangup: true,
+      action: "opt_out"
+    };
+  }
+  if (
+    /\b(are you|is this) (a |an )?(robot|bot|ai|machine|human|real person|person)\b/.test(normalized) ||
+    /\bam i (talking|speaking) (to|with)\b.*\b(robot|bot|ai|machine|human|real person)\b/.test(normalized)
+  ) {
+    return {
+      text: "Just so you know, you are speaking with an automated virtual assistant. I can keep helping, or connect you with a person at any time.",
+      action: "disclose_automation"
+    };
+  }
+  if (/\b(want|need|give|let|put|connect|transfer|speak|talk)\b[^.?!]*\b(human|real person|representative|manager|somebody real)\b/.test(normalized)) {
+    return {
+      text: "Of course — connecting you with a person now. One moment.",
+      transferNumber: "+15550100199"
+    };
+  }
+
   // Deposit gate pending: the previous agent turn asked "should I go ahead?".
   // Checked before everything else so yes/no (including "no thanks") is
   // interpreted as the answer to that question, not as a generic closing.

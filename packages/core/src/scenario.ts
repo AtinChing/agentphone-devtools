@@ -23,6 +23,18 @@ const scenarioSchema = z
             expect: z
               .object({
                 actions: z.array(z.string()).optional(),
+                replyMatches: z
+                  .string()
+                  .min(1)
+                  .refine((pattern) => {
+                    try {
+                      new RegExp(pattern);
+                      return true;
+                    } catch {
+                      return false;
+                    }
+                  }, "replyMatches must be a valid regular expression")
+                  .optional(),
                 status: z.number().int().min(100).max(599).optional(),
                 timedOut: z.boolean().optional(),
                 retries: z.number().int().min(0).max(10).optional()

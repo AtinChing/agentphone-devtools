@@ -333,6 +333,52 @@ the feature reports why and typed input works exactly as before. Overrides:
 `AGENTPHONE_DEVTOOLS_VOICE_WAV` (CLI: transcribe a prerecorded file instead
 of recording — the scripted-demo hook).
 
+## Compliance Suite
+
+Compliance for a voice agent is runtime behavior, not a policy document — and
+behavior that is not regression-tested will regress. `examples/compliance/`
+turns three universal obligations into executable scenarios that run in the
+same CI gate as everything else:
+
+- **Opt-out honoring** — "stop calling me" must end the interaction with an
+  opt-out confirmation, even mid-flow.
+- **AI disclosure** — "am I talking to a robot?" must produce the mandated
+  automated-assistant disclosure.
+- **Human escalation** — asking for a person must transfer, not deflect.
+
+```bash
+npx agentphone-devtools --ci \
+  --target http://localhost:3000/webhook --secret whsec_demo \
+  --scenario-dir examples/compliance \
+  --report-junit .agentphone-devtools/ci/compliance.xml
+```
+
+Unlike business-logic scenarios (which only the handler's owner can write),
+compliance rules are the same for every agent, so the suite ships in the box.
+The JSON/JUnit artifacts double as an audit trail: proof, on every release,
+that the agent still meets its obligations. `./compliance-demo.sh` shows the
+gate catching a broken opt-out rule as a red build.
+
+These checks use `expect.replyMatches`: a case-insensitive regular expression
+the agent's reply text must match. It exists for mandated fixed phrases where
+exact wording is required. It is deliberately not a general transcript
+assertion — model wording varies, so ordinary scenarios should keep gating on
+actions, not words.
+
+```yaml
+turns:
+  - caller: "Actually, stop calling me."
+    expect:
+      actions:
+        - opt_out
+        - hangup
+      replyMatches: "do-not-call list"
+```
+
+The reference Express handler implements each rule (opt-out before everything
+else, disclosure on question forms, transfer on request) as documentation of
+what a compliant handler looks like.
+
 ## License
 
 MIT.

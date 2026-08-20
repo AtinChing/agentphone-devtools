@@ -1,0 +1,16 @@
+name: Human escalation on request
+description: A caller asking for a person must be transferred, not deflected.
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "I want to talk to a real person, please."
+    expect:
+      actions:
+        - transfer
+      replyMatches: "connecting you"

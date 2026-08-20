@@ -135,6 +135,13 @@ export interface ScenarioTurn {
     status?: number;
     timedOut?: boolean;
     retries?: number;
+    /**
+     * Case-insensitive regex the agent's reply text must match. Meant for
+     * mandated fixed phrases (compliance disclosures, opt-out confirmations)
+     * where exact wording is required — not for general semantic checks,
+     * which stay out of the gate because model wording varies.
+     */
+    replyMatches?: string;
   };
   fault?: DeliveryFault;
   waitMs?: number;
@@ -165,7 +172,7 @@ export interface Scenario {
 }
 
 export interface ScenarioAssertion {
-  kind: "delivery" | "action";
+  kind: "delivery" | "action" | "reply";
   passed: boolean;
   expected: string;
   observed: string;

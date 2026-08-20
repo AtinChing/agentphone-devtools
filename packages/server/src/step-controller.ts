@@ -195,10 +195,25 @@ export class StepController {
 }
 
 function evaluateExpectations(turn: StepQueueTurn, delivery: InspectorDelivery): StepExpectResult[] {
-  const expected = turn.expect?.actions;
-  if (!expected?.length) return [];
-  const observed = collectObservedActions(delivery.response.parsed.chunks);
-  return expected.map((action) => ({ action, passed: observed.includes(action), observed }));
+  const results: StepExpectResult[] = [];
+  const expectedActions = turn.expect?.actions ?? [];
+  if (expectedActions.length) {
+    const observed = collectObservedActions(delivery.response.parsed.chunks);
+    results.push(...expectedActions.map((action) => ({ action, passed: observed.includes(action), observed })));
+  }
+  const replyMatches = turn.expect?.replyMatches;
+  if (replyMatches !== undefined) {
+    const replyText =
+      delivery.response.parsed.chunks.find(
+        (chunk) => typeof chunk.text === "string" && chunk.text.length > 0 && chunk.interim !== true
+      )?.text ?? "";
+    results.push({
+      action: `reply~/${replyMatches}/i`,
+      passed: new RegExp(replyMatches, "i").test(replyText),
+      observed: [replyText || "no reply text"]
+    });
+  }
+  return results;
 }
 
 function countCallerTurns(transcript: Array<{ role: string }>): number {

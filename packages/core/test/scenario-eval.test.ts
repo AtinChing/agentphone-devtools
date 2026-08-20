@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { evaluateScenario, type Scenario } from "../src/index.js";
+import { evaluateScenario, parseScenario, type Scenario } from "../src/index.js";
 
 const scenario: Scenario = {
   name: "Escalate billing issue",
@@ -43,5 +43,50 @@ describe("scenario assertions", () => {
     );
 
     expect(result.assertions.filter((assertion) => assertion.kind === "action").every((assertion) => assertion.passed)).toBe(true);
+  });
+});
+
+describe("reply assertions", () => {
+  const withReply = (replyMatches: string): Scenario => ({
+    ...scenario,
+    turns: [{ caller: "Am I talking to a robot?", expect: { replyMatches } }]
+  });
+  const observation = (text: string) => ({
+    turns: [{ ok: true, status: 200, responses: [{ text }] }]
+  });
+
+  it("passes when the reply matches the pattern, case-insensitively", () => {
+    const result = evaluateScenario(withReply("automated VIRTUAL assistant"), observation("You are speaking with an automated virtual assistant."));
+    const reply = result.assertions.find((assertion) => assertion.kind === "reply");
+    expect(reply).toMatchObject({ passed: true, turnIndex: 0 });
+    expect(result.passed).toBe(true);
+  });
+
+  it("fails with the observed reply text when the pattern does not match", () => {
+    const result = evaluateScenario(withReply("automated virtual assistant"), observation("Great, what is your account number?"));
+    const reply = result.assertions.find((assertion) => assertion.kind === "reply");
+    expect(reply).toMatchObject({ passed: false, observed: "Great, what is your account number?" });
+    expect(result.passed).toBe(false);
+  });
+
+  it("ignores interim chunks and reports missing reply text", () => {
+    const result = evaluateScenario(withReply("assistant"), {
+      turns: [{ ok: true, status: 200, responses: [{ text: "assistant here", interim: true }] }]
+    });
+    const reply = result.assertions.find((assertion) => assertion.kind === "reply");
+    expect(reply).toMatchObject({ passed: false, observed: "no reply text" });
+  });
+
+  it("schema accepts replyMatches and rejects invalid regexes", () => {
+    const yaml = (pattern: string) => `
+name: schema check
+channel: voice
+turns:
+  - caller: "hello"
+    expect:
+      replyMatches: "${pattern}"
+`;
+    expect(parseScenario(yaml("do-not-call list"), "s.yaml").turns[0].expect?.replyMatches).toBe("do-not-call list");
+    expect(() => parseScenario(yaml("(unclosed"), "s.yaml")).toThrow(/valid regular expression/);
   });
 });
