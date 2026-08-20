@@ -125,3 +125,21 @@ async function webhookTarget(responseBody: Record<string, unknown>): Promise<str
   if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
   return `http://127.0.0.1:${address.port}/webhook`;
 }
+
+describe("stored-run export settings fidelity", () => {
+  it("exports a saved run with the settings it actually ran with", async () => {
+    const config = { ...testConfig(temporaryDirectory(), await webhookTarget({ text: "ok" })), contextLimit: 25, timeoutSeconds: 45 };
+    const runtime = new DevtoolsRuntime(config);
+
+    await runtime.sendCallerTurn("Hello there", "sms");
+    await runtime.endCall();
+    const savedId = runtime.getState().id;
+    // Move the live config so the export can only be right by reading the run.
+    runtime.reset({ contextLimit: 7, timeoutSeconds: 60 });
+
+    const exported = runtime.getScenarioExport(savedId);
+
+    expect(exported?.contextLimit).toBe(25);
+    expect(exported?.timeoutSeconds).toBe(45);
+  });
+});

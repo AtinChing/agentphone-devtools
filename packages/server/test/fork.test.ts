@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { mkdtempSync, rmSync } from "node:fs";
+import { mkdtempSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -165,3 +165,79 @@ async function webhookTarget(responseBody: Record<string, unknown>): Promise<str
   if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
   return `http://127.0.0.1:${address.port}/webhook`;
 }
+
+describe("fork prefix timing fidelity", () => {
+  it("keeps per-turn timestamps from the source deliveries on the inherited prefix", async () => {
+    const directory = temporaryDirectory();
+    const target = await webhookTarget({ text: "ok" });
+    const config = { ...testConfig(directory, target), channel: "voice" as const };
+
+    const t1 = "2026-01-01T00:00:10Z";
+    const t2 = "2026-01-01T00:05:42Z";
+    const delivery = (timestamp: string, caller: string, reply: string) => ({
+      id: `del_${timestamp}`,
+      event: "agent.message",
+      channel: "voice",
+      direction: "inbound",
+      timestamp,
+      webhookId: `wh_${timestamp}`,
+      request: {
+        headers: {},
+        rawBody: "{}",
+        body: {
+          event: "agent.message",
+          channel: "voice",
+          data: { transcript: caller },
+          conversationState: { tier: "gold" },
+          recentHistory: []
+        }
+      },
+      response: {
+        status: 200,
+        statusText: "OK",
+        headers: {},
+        rawBody: "{}",
+        parsed: { mode: "json", chunks: [{ text: reply }], warnings: [] }
+      },
+      latencyMs: 5,
+      timedOut: false,
+      ok: true,
+      warnings: [],
+      retries: 0
+    });
+    writeFileSync(
+      config.historyPath,
+      JSON.stringify({
+        version: 1,
+        sessions: [
+          {
+            id: "sess_crafted",
+            targetUrl: target,
+            secretPreview: "***",
+            channel: "voice",
+            status: "ended",
+            startedAt: "2026-01-01T00:00:00Z",
+            conversationId: "conv_crafted",
+            callId: "call_crafted",
+            transcript: [
+              { role: "user", content: "First question" },
+              { role: "agent", content: "First reply" },
+              { role: "user", content: "Second question" },
+              { role: "agent", content: "Second reply" }
+            ],
+            deliveries: [delivery(t1, "First question", "First reply"), delivery(t2, "Second question", "Second reply")],
+            warnings: []
+          }
+        ]
+      })
+    );
+
+    const runtime = new DevtoolsRuntime(config);
+    runtime.forkFromSession("sess_crafted", 2);
+    const sent = await runtime.sendCallerTurn("A new branch turn", "voice");
+
+    const recentHistory = (sent.request.body as { recentHistory: Array<{ at: string; content: string }> }).recentHistory;
+    expect(recentHistory.map((entry) => entry.at)).toEqual([t1, t1, t2, t2]);
+    expect(recentHistory.every((entry) => entry.at !== "2026-01-01T00:00:00Z")).toBe(true);
+  });
+});

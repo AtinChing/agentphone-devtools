@@ -181,6 +181,15 @@ export interface InspectorSession {
    * report artifacts written before this field existed still load.
    */
   logs?: string[];
+  /**
+   * The runtime settings this session actually ran with, so exporting a
+   * saved run reproduces its real context window and timeout instead of
+   * defaults. Optional so history written before this field existed loads.
+   */
+  runSettings?: {
+    contextLimit: number;
+    timeoutSeconds: number;
+  };
   /** Lineage when this session was forked from another run's checkpoint. */
   forkedFrom?: {
     sessionId: string;
@@ -251,8 +260,8 @@ export class DevtoolsRuntime {
     return buildScenarioFromSession(
       session,
       {
-        contextLimit: active ? this.config.contextLimit : 10,
-        timeoutSeconds: active ? this.config.timeoutSeconds : 30,
+        contextLimit: active ? this.config.contextLimit : session.runSettings?.contextLimit ?? 10,
+        timeoutSeconds: active ? this.config.timeoutSeconds : session.runSettings?.timeoutSeconds ?? 30,
         conversationState: active ? this.conversationState : extractConversationState(session)
       },
       options
@@ -520,13 +529,23 @@ export class DevtoolsRuntime {
       }
     }
     const prefix = source.transcript.slice(0, prefixLength);
+    const sourceTurnDeliveries = source.deliveries.filter(
+      (delivery) => delivery.event === "agent.message" && !delivery.replayOf
+    );
 
     this.reset({ channel: source.channel, conversationState });
     this.session.forkedFrom = { sessionId: source.id, turnIndex: callerTurns };
     this.session.status = "running";
-    for (const turn of prefix) this.pushTranscript({ ...turn }, source.startedAt, source.channel);
-    this.session.deliveries = source.deliveries
-      .filter((delivery) => delivery.event === "agent.message" && !delivery.replayOf)
+    // Each inherited turn keeps its own delivery's timestamp, so the forked
+    // run's recentHistory reflects the source's real timing rather than
+    // collapsing every prefix turn onto the run's start time.
+    let prefixCallerIndex = -1;
+    for (const turn of prefix) {
+      if (turn.role === "user") prefixCallerIndex += 1;
+      const at = sourceTurnDeliveries[prefixCallerIndex]?.timestamp ?? source.startedAt;
+      this.pushTranscript({ ...turn }, at, source.channel);
+    }
+    this.session.deliveries = sourceTurnDeliveries
       .slice(0, callerTurns)
       .map((delivery) => ({ ...structuredClone(delivery), inheritedFrom: { sessionId: source.id } }));
     this.pushLog(`Forked from run ${source.id} after turn ${callerTurns}`);
@@ -615,7 +634,7 @@ export class DevtoolsRuntime {
       if (!this.config.retryOnNon200 || result.ok) return { result, retries };
       if (attempt < delays.length - 1) {
         retries += 1;
-        this.session.warnings.push(`Retry ${retries} scheduled for ${signed.webhookId} after HTTP ${result.status}`);
+        this.session.warnings.push(`Retry ${retries} scheduled after HTTP ${result.status}`);
         this.publishState();
       }
     }
@@ -655,7 +674,11 @@ export class DevtoolsRuntime {
       transcript: [],
       deliveries: [],
       warnings: [],
-      logs: []
+      logs: [],
+      runSettings: {
+        contextLimit: this.config.contextLimit,
+        timeoutSeconds: this.config.timeoutSeconds
+      }
     };
   }
 
