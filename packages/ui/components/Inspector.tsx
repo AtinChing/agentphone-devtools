@@ -1,11 +1,32 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FileCode2, FileJson, FileText, GitBranch, History, Loader2, Mic, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
-import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, RunComparison, StepState } from "@/lib/types";
+import { Activity, AlertTriangle, Bookmark, CheckCircle2, Clock3, FastForward, FileCode2, FileJson, FileText, GitBranch, History, Loader2, Megaphone, MessageSquareX, Mic, PhoneOff, Play, Radio, RefreshCw, RotateCcw, Scale, Send, Square, StepForward, StickyNote, ThumbsDown, ThumbsUp, Trash2 } from "lucide-react";
+import type {
+  InspectorDelivery,
+  InspectorSession,
+  InspectorSessionSummary,
+  RunComparison,
+  ScenarioListing,
+  SessionChannel,
+  StepExpect,
+  StepQueueTurn,
+  StepState,
+  TurnLabel
+} from "@/lib/types";
+import { api, errorMessage, SERVER_URL } from "@/lib/api";
+import { formatPhone } from "@/components/dashboard/ui";
 import { buildTurnForest, ConversationTree, flattenForest, TreeLegend, type TurnNode } from "@/components/ConversationTree";
 
-const SERVER_URL = process.env.NEXT_PUBLIC_AGENTPHONE_DEVTOOLS_SERVER_URL ?? "http://127.0.0.1:4318";
+// The three message channels all deliver agent.message webhooks; voice is a call.
+const CHANNEL_OPTIONS: Array<{ value: SessionChannel; label: string }> = [
+  { value: "sms", label: "SMS" },
+  { value: "imessage", label: "iMessage" },
+  { value: "whatsapp", label: "WhatsApp" },
+  { value: "voice", label: "Voice" }
+];
+
+const DEFAULT_SCENARIO = "examples/scenarios/appointment-cancellation.yaml";
 
 export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
@@ -35,11 +56,11 @@ export function Inspector() {
   const holdToTalkRef = useRef(false);
   const autoSendRef = useRef(false);
   const stepStateRef = useRef<StepState | null>(null);
-  const channelRef = useRef<"sms" | "voice">("voice");
+  const channelRef = useRef<SessionChannel>("voice");
   const [viewingSessionId, setViewingSessionId] = useState<string | null>(null);
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [text, setText] = useState("");
-  const [channel, setChannel] = useState<"sms" | "voice">("voice");
+  const [channel, setChannel] = useState<SessionChannel>("voice");
   const [connected, setConnected] = useState(false);
   const [replayOpen, setReplayOpen] = useState(false);
   const [replayBody, setReplayBody] = useState("");
@@ -55,13 +76,29 @@ export function Inspector() {
   const [comparison, setComparison] = useState<RunComparison | null>(null);
   const [stepState, setStepState] = useState<StepState | null>(null);
   const [stepStripOpen, setStepStripOpen] = useState(false);
-  const [stepScenarioPath, setStepScenarioPath] = useState("examples/scenarios/appointment-cancellation.yaml");
+  const [stepScenarioPath, setStepScenarioPath] = useState(DEFAULT_SCENARIO);
+  // Advanced mode types any path (absolute ones included) instead of picking.
+  const [stepScenarioAdvanced, setStepScenarioAdvanced] = useState(false);
+  const [stepScenarioCustomPath, setStepScenarioCustomPath] = useState("");
+  const [scenarios, setScenarios] = useState<ScenarioListing[] | null>(null);
+  const [scenariosError, setScenariosError] = useState<string | null>(null);
   const [stepError, setStepError] = useState<string | null>(null);
+  const [queueExpanded, setQueueExpanded] = useState(false);
+  const [warpInput, setWarpInput] = useState("");
+  const [outboundText, setOutboundText] = useState("");
+  const [outboundAfter, setOutboundAfter] = useState("");
+  // An outbound head turn shows read-only until the user asks to edit it.
+  const [agentHeadEditable, setAgentHeadEditable] = useState(false);
+  // One note editor at a time; the key names the transcript row or tree node.
+  const [noteEditorKey, setNoteEditorKey] = useState<string | null>(null);
+  const [noteBusy, setNoteBusy] = useState(false);
+  const [noteError, setNoteError] = useState<string | null>(null);
   const [forkTurn, setForkTurn] = useState<number | null>(null);
   const [forkText, setForkText] = useState("");
   const [forkBusy, setForkBusy] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
   const transcriptRef = useRef<HTMLDivElement | null>(null);
+  const callerInputRef = useRef<HTMLInputElement | null>(null);
   const viewingSessionIdRef = useRef<string | null>(null);
 
   useEffect(() => {
@@ -72,6 +109,10 @@ export function Inspector() {
         setSession(state);
         setChannel(state.channel);
         setSelectedId(state.deliveries.at(-1)?.id ?? null);
+        // Deep link (/devtools?session=ID) from the dashboard. Resolved after
+        // the live state so a link to the live run stays live, not a snapshot.
+        const linked = new URLSearchParams(window.location.search).get("session");
+        if (linked && linked !== state.id) void openRun({ id: linked });
       })
       .catch(() => setConnected(false));
 
@@ -119,14 +160,45 @@ export function Inspector() {
       .catch(() => setVoiceAvailable(false));
 
     return () => source.close();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // In step mode the caller input mirrors the next queued turn; editing it
-  // before sending is how a scripted turn gets rewritten.
-  const nextQueuedCaller = stepState?.active ? stepState.queue[0]?.caller ?? "" : null;
+  // before sending is how a scripted turn gets rewritten. An outbound head
+  // (campaign opener) mirrors too, but stays read-only unless unlocked.
+  const queueHead = stepState?.active ? stepState.queue[0] : undefined;
+  const nextQueuedText = stepState?.active ? queueHead?.caller ?? queueHead?.agent ?? "" : null;
   useEffect(() => {
-    setText(nextQueuedCaller ?? "");
-  }, [nextQueuedCaller]);
+    setText(nextQueuedText ?? "");
+    setAgentHeadEditable(false);
+  }, [nextQueuedText]);
+
+  // The picker re-reads the scenario folders each time the strip opens, so
+  // new exports show up without a reload.
+  useEffect(() => {
+    if (!stepStripOpen) return;
+    let cancelled = false;
+    api
+      .get<ScenarioListing[]>("/api/scenarios")
+      .then((listings) => {
+        if (cancelled) return;
+        setScenarios(listings);
+        setScenariosError(null);
+        setStepScenarioPath((current) =>
+          listings.some((listing) => listing.path === current && !listing.error)
+            ? current
+            : listings.find((listing) => listing.path === DEFAULT_SCENARIO && !listing.error)?.path ??
+              listings.find((listing) => !listing.error)?.path ??
+              current
+        );
+      })
+      .catch((error) => {
+        if (!cancelled) setScenariosError(errorMessage(error));
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [stepStripOpen]);
 
   stepStateRef.current = stepState;
   channelRef.current = channel;
@@ -225,6 +297,7 @@ export function Inspector() {
 
   useEffect(() => {
     setComparison(null);
+    setNoteEditorKey(null);
   }, [session?.id]);
 
   async function stepApi(path: string, body?: unknown): Promise<boolean> {
@@ -251,9 +324,16 @@ export function Inspector() {
   }
 
   async function startStepScenario() {
-    const path = stepScenarioPath.trim();
+    // Until the list loads, the default path is still a valid pick.
+    const picked = scenarios === null ? stepScenarioPath : selectedListing?.path ?? "";
+    const path = (stepScenarioAdvanced ? stepScenarioCustomPath : picked).trim();
     if (!path) {
-      setStepError("Enter a scenario path (relative to where the CLI was started)");
+      setStepError(stepScenarioAdvanced ? "Enter a scenario path (relative to where the CLI was started)" : "Pick a scenario");
+      return;
+    }
+    const listing = stepScenarioAdvanced ? undefined : scenarios?.find((item) => item.path === path);
+    if (listing?.error) {
+      setStepError(`${listing.name} is invalid: ${listing.error}`);
       return;
     }
     if (await stepApi("/api/step/start", { scenarioPath: path })) {
@@ -270,6 +350,31 @@ export function Inspector() {
     await stepApi("/api/step/end");
   }
 
+  /** Remove the queue head without sending it (the CLI's `drop`). */
+  async function dropQueueHead() {
+    await stepApi("/api/step/drop");
+  }
+
+  async function warpClock() {
+    const duration = warpInput.trim();
+    if (!duration) {
+      setStepError("Enter a duration to warp by, e.g. 2d, 3h or 1h30m");
+      return;
+    }
+    if (await stepApi("/api/step/warp", { duration })) setWarpInput("");
+  }
+
+  /** Queue an outbound business message; it is seeded, never delivered. */
+  async function queueOutbound() {
+    const outbound = outboundText.trim();
+    if (!outbound) return;
+    const after = outboundAfter.trim();
+    if (await stepApi("/api/step/agent", { text: outbound, ...(after ? { after } : {}) })) {
+      setOutboundText("");
+      setOutboundAfter("");
+    }
+  }
+
   /** Send caller text through the same path as typing. Refs-only so hold-space closures stay fresh. */
   async function sendCallerText(raw: string) {
     const trimmed = raw.trim();
@@ -277,12 +382,16 @@ export function Inspector() {
     const live = viewingSessionIdRef.current === null;
     if (step?.active && live) {
       if (step.sending) return;
-      if (step.queue.length === 0) {
+      const head = step.queue[0];
+      if (!head) {
         if (!trimmed) return;
         if (!(await stepApi("/api/step/add", { caller: trimmed }))) return;
-      } else if (trimmed && trimmed !== step.queue[0].caller) {
+      } else if (trimmed && trimmed !== (head.caller ?? head.agent)) {
+        // step/edit rewrites the head whatever its kind, outbound included.
         if (!(await stepApi("/api/step/edit", { caller: trimmed }))) return;
       }
+      // An outbound head is seeded without a delivery, so there is no
+      // lastResult to show afterwards — the transcript is the feedback.
       await stepApi("/api/step/send");
       return;
     }
@@ -335,6 +444,13 @@ export function Inspector() {
   async function beginRecording(target: "caller" | "fork", autoSend: boolean) {
     if (voiceStateRef.current !== "idle") return;
     setVoiceError(null);
+    // Speech is always a caller turn; it must not overwrite a queued outbound message.
+    const step = stepStateRef.current;
+    if (target === "caller" && step?.active && viewingSessionIdRef.current === null && step.queue[0]?.agent !== undefined) {
+      setVoiceTarget("caller");
+      setVoiceError("The next queued turn is an outbound message — send or drop it before speaking.");
+      return;
+    }
     let stream: MediaStream;
     try {
       stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -395,19 +511,52 @@ export function Inspector() {
     await beginRecording(target, false);
   }
 
-  async function labelTurn(callerOrdinal: number, verdict: "good" | "bad", runId?: string) {
+  /**
+   * The server replaces a turn's label wholesale, so every write carries
+   * both fields: a thumbs click keeps the note, a note save keeps the
+   * verdict. Returns an error message, or null on success.
+   */
+  async function labelTurn(
+    callerOrdinal: number,
+    patch: { verdict?: TurnLabel["verdict"]; note?: string },
+    existing: Pick<TurnLabel, "verdict" | "note"> | undefined,
+    runId?: string
+  ): Promise<string | null> {
     const targetId = runId ?? session?.id;
-    if (!targetId) return;
+    if (!targetId) return "No run to label";
+    const verdict = "verdict" in patch ? patch.verdict : existing?.verdict;
+    const note = ("note" in patch ? patch.note : existing?.note)?.trim();
     const response = await fetch(`${SERVER_URL}/api/history/${targetId}/labels`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ turnIndex: callerOrdinal - 1, verdict })
+      body: JSON.stringify({ turnIndex: callerOrdinal - 1, ...(verdict ? { verdict } : {}), ...(note ? { note } : {}) })
     });
-    if (!response.ok) return;
+    if (!response.ok) {
+      const payload = (await response.json().catch(() => ({}))) as { error?: string };
+      return payload.error ?? "Could not save the label";
+    }
     const updated = (await response.json()) as InspectorSession;
     if (updated.id === session?.id) setSession(updated);
     if (updated.id === liveSession?.id) setLiveSession(updated);
     setFamilySessions((current) => current.map((member) => (member.id === updated.id ? updated : member)));
+    return null;
+  }
+
+  function toggleNoteEditor(key: string) {
+    setNoteError(null);
+    setNoteEditorKey((current) => (current === key ? null : key));
+  }
+
+  async function saveNote(callerOrdinal: number, draft: string, existing: Pick<TurnLabel, "verdict" | "note"> | undefined, runId?: string) {
+    setNoteBusy(true);
+    setNoteError(null);
+    try {
+      const error = await labelTurn(callerOrdinal, { note: draft }, existing, runId);
+      if (error) setNoteError(error);
+      else setNoteEditorKey(null);
+    } finally {
+      setNoteBusy(false);
+    }
   }
 
   async function forkFromNode(node: TurnNode) {
@@ -471,7 +620,7 @@ export function Inspector() {
     setSelectedId(null);
   }
 
-  async function openRun(run: InspectorSessionSummary) {
+  async function openRun(run: Pick<InspectorSessionSummary, "id">) {
     if (run.id === liveSession?.id) {
       viewingSessionIdRef.current = null;
       setViewingSessionId(null);
@@ -481,8 +630,8 @@ export function Inspector() {
       return;
     }
 
-    const response = await fetch(`${SERVER_URL}/api/history/${run.id}`);
-    if (!response.ok) return;
+    const response = await fetch(`${SERVER_URL}/api/history/${encodeURIComponent(run.id)}`).catch(() => null);
+    if (!response?.ok) return;
     const saved = (await response.json()) as InspectorSession;
     viewingSessionIdRef.current = saved.id;
     setViewingSessionId(saved.id);
@@ -605,23 +754,35 @@ export function Inspector() {
   }
 
   const viewingLive = viewingSessionId === null;
+  // Hangup follows the session's real channel, not the toolbar's pending pick.
+  const isVoice = (session?.channel ?? channel) === "voice";
+  const headIsAgent = Boolean(viewingLive && queueHead && queueHead.agent !== undefined);
+  const selectedListing = scenarios?.find((listing) => listing.path === stepScenarioPath);
+  const scenarioGroups = groupScenarios(scenarios ?? []);
 
+  // Fills the dashboard frame: toolbar on top, three panels below that each
+  // scroll internally (stacked, with one outer scroll, below xl).
   return (
-    <main className="min-h-screen">
-      <header className="border-b border-line bg-[#111110] text-white">
-        <div className="mx-auto flex max-w-[1440px] items-center justify-between gap-4 px-5 py-3">
+    <div className="flex h-full min-h-0 flex-col">
+      <header className="shrink-0 border-b border-line bg-[#111110] text-white">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3">
           <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-8 w-8 place-items-center rounded bg-fern text-white">
+            <div className="grid h-8 w-8 shrink-0 place-items-center rounded bg-fern text-white">
               <Activity size={16} aria-hidden="true" />
             </div>
             <div className="min-w-0">
               <h1 className="flex items-baseline gap-2 truncate text-sm font-semibold text-white">
-                AgentPhone
-                <span className="micro font-normal text-emerald-300">devtools</span>
+                Inspector
+                <span className="micro font-normal text-emerald-300">step debugger</span>
               </h1>
               <div className="data mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-300">
                 <span className="truncate rounded bg-panel/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
                 <span className="rounded bg-panel/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
+                {session?.contact ? (
+                  <span className="truncate rounded bg-panel/10 px-1.5 py-px text-slate-600" title={session.contact.number}>
+                    Contact: {session.contact.name} · {formatPhone(session.contact.number)}
+                  </span>
+                ) : null}
                 <span className={`flex items-center gap-1 ${connected ? "text-emerald-300" : "text-amber-300"}`}>
                   <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
                   {connected ? "live" : "offline"}
@@ -630,16 +791,23 @@ export function Inspector() {
             </div>
           </div>
 
-          <div className="flex items-center gap-1.5">
-            <select
-              value={channel}
-              onChange={(event) => setChannel(event.target.value as "sms" | "voice")}
-              className="data h-8 rounded border border-white/20 bg-transparent px-2 text-xs text-white outline-none focus:border-emerald-300 [&>option]:text-bright"
-              aria-label="Channel"
-            >
-              <option value="voice">voice</option>
-              <option value="sms">sms</option>
-            </select>
+          <div className="flex flex-wrap items-center justify-end gap-1.5">
+            <div className="flex h-8 items-center rounded border border-white/20 p-0.5" role="radiogroup" aria-label="Channel">
+              {CHANNEL_OPTIONS.map((option) => (
+                <button
+                  key={option.value}
+                  role="radio"
+                  aria-checked={channel === option.value}
+                  onClick={() => setChannel(option.value)}
+                  className={`h-full rounded-sm px-2 text-[11px] font-medium ${
+                    channel === option.value ? "bg-fern/20 text-emerald-300" : "text-slate-600 hover:text-white"
+                  }`}
+                  title={option.value === "voice" ? "Voice call" : `${option.label} thread — agent.message deliveries`}
+                >
+                  {option.label}
+                </button>
+              ))}
+            </div>
             <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
             <button
               onClick={() => {
@@ -699,33 +867,73 @@ export function Inspector() {
             >
               <RotateCcw size={16} />
             </button>
+            {/* Hanging up is voice-only; a message thread just closes (no webhook). */}
             <button
               onClick={endCall}
               disabled={!viewingLive}
               className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
-              title="End call"
-              aria-label="End call"
+              title={isVoice ? "End call" : "End conversation"}
+              aria-label={isVoice ? "End call" : "End conversation"}
             >
-              <PhoneOff size={16} />
+              {isVoice ? <PhoneOff size={16} /> : <MessageSquareX size={16} />}
             </button>
           </div>
         </div>
         {stepStripOpen ? (
           <div className="border-t border-white/10 bg-[#161614]">
-            <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
-              <label className="min-w-[320px] flex-1">
-                <span className="micro mb-1 block text-slate-400">Scenario path (relative to the CLI&apos;s working directory)</span>
-                <input
-                  value={stepScenarioPath}
-                  onChange={(event) => setStepScenarioPath(event.target.value)}
-                  onKeyDown={(event) => {
-                    if (event.key === "Enter") void startStepScenario();
-                  }}
-                  className="config-input"
-                  aria-label="Scenario path"
-                  autoFocus
-                />
-              </label>
+            <div className="flex flex-wrap items-end gap-3 px-5 pb-2 pt-3">
+              <div className="min-w-[280px] flex-1">
+                <div className="mb-1 flex items-center justify-between gap-2">
+                  <span className="micro text-slate-400">
+                    {stepScenarioAdvanced ? "Scenario path (relative to the CLI's working directory, or absolute)" : "Scenario"}
+                  </span>
+                  <button
+                    onClick={() => {
+                      setStepError(null);
+                      if (!stepScenarioAdvanced && !stepScenarioCustomPath) setStepScenarioCustomPath(stepScenarioPath);
+                      setStepScenarioAdvanced((advanced) => !advanced);
+                    }}
+                    className="micro text-slate-400 hover:text-white"
+                  >
+                    {stepScenarioAdvanced ? "pick from list" : "advanced: path"}
+                  </button>
+                </div>
+                {stepScenarioAdvanced ? (
+                  <input
+                    value={stepScenarioCustomPath}
+                    onChange={(event) => setStepScenarioCustomPath(event.target.value)}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter") void startStepScenario();
+                    }}
+                    className="config-input"
+                    placeholder="examples/scenarios/appointment-cancellation.yaml"
+                    aria-label="Scenario path"
+                    autoFocus
+                  />
+                ) : (
+                  <select
+                    value={selectedListing ? selectedListing.path : ""}
+                    onChange={(event) => {
+                      setStepError(null);
+                      setStepScenarioPath(event.target.value);
+                    }}
+                    className="config-input"
+                    aria-label="Scenario"
+                  >
+                    {!selectedListing ? <option value="">{scenarios === null && !scenariosError ? "Loading scenarios…" : "Select a scenario"}</option> : null}
+                    {scenarioGroups.map(([group, listings]) => (
+                      <optgroup key={group} label={groupLabel(group)}>
+                        {listings.map((listing) => (
+                          <option key={listing.path} value={listing.path} disabled={Boolean(listing.error)} title={listing.error ?? listing.path}>
+                            {listing.name} · {channelLabel(listing.channel)}
+                            {listing.error ? " — invalid" : ""}
+                          </option>
+                        ))}
+                      </optgroup>
+                    ))}
+                  </select>
+                )}
+              </div>
               <button
                 onClick={() => void startStepScenario()}
                 className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110"
@@ -746,17 +954,105 @@ export function Inspector() {
               >
                 Close
               </button>
-              <div className="w-full text-xs text-slate-400">
-                Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
-                Tip: the Runs tab can step-replay any saved run.
-              </div>
-              {stepError ? <div className="w-full text-xs text-danger">{stepError}</div> : null}
+              {!stepScenarioAdvanced && selectedListing ? (
+                <div className="w-full truncate text-xs text-slate-400" title={selectedListing.description}>
+                  {selectedListing.description ? `${selectedListing.description} · ` : ""}
+                  <span className="data text-[11px]">
+                    {selectedListing.turns} turn{selectedListing.turns === 1 ? "" : "s"}
+                    {selectedListing.callerTurns < selectedListing.turns ? ` (${selectedListing.turns - selectedListing.callerTurns} outbound)` : ""}
+                    {selectedListing.hasAssertions ? " · assertions" : ""}
+                  </span>
+                </div>
+              ) : null}
+              {scenariosError && !stepScenarioAdvanced ? (
+                <div className="w-full text-xs text-amber-300">Could not list scenarios ({scenariosError}) — use advanced: path.</div>
+              ) : null}
+            </div>
+            {/* Simulated clock + outbound queue: one compact row. */}
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/5 px-5 py-2.5">
+              <span
+                className="flex items-center gap-1.5 text-xs text-slate-600"
+                title="Simulated clock — stamps payload timestamps and recentHistory, never the signing header"
+              >
+                <Clock3 size={13} className="text-slate-400" />
+                <span className="data">{stepState ? formatClock(stepState.virtualNow) : "—"}</span>
+                <span
+                  className={`data rounded px-1.5 py-px text-[10px] ${stepState?.clockOffsetMs ? "bg-amber-50 text-amber-300" : "bg-panel/10 text-slate-400"}`}
+                >
+                  {formatOffset(stepState?.clockOffsetMs ?? 0)}
+                </span>
+              </span>
+              <form
+                className="flex items-center gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void warpClock();
+                }}
+              >
+                <input
+                  value={warpInput}
+                  onChange={(event) => setWarpInput(event.target.value)}
+                  className="config-input h-8 w-16"
+                  placeholder="2d"
+                  aria-label="Warp the simulated clock by"
+                  title="Duration: 90s, 45m, 3h, 2d, 1h30m"
+                />
+                <button
+                  type="submit"
+                  disabled={stepState?.sending}
+                  className="flex h-8 items-center gap-1 rounded-md border border-white/20 px-2.5 text-xs font-medium text-slate-600 hover:border-white/50 hover:text-white disabled:opacity-40"
+                  title="Advance the simulated clock without sending anything"
+                >
+                  <FastForward size={13} />
+                  Warp
+                </button>
+              </form>
+              <span className="h-5 w-px bg-panel/15" aria-hidden="true" />
+              <form
+                className="flex min-w-[260px] flex-1 items-center gap-1.5"
+                onSubmit={(event) => {
+                  event.preventDefault();
+                  void queueOutbound();
+                }}
+              >
+                <Megaphone size={13} className="shrink-0 text-amber-300" aria-hidden="true" />
+                <input
+                  value={outboundText}
+                  onChange={(event) => setOutboundText(event.target.value)}
+                  disabled={!stepState?.active}
+                  className="config-input h-8 min-w-0 flex-1 disabled:opacity-50"
+                  placeholder={stepState?.active ? "Outbound business message to queue" : "Start stepping to queue outbound messages"}
+                  aria-label="Outbound message"
+                />
+                <input
+                  value={outboundAfter}
+                  onChange={(event) => setOutboundAfter(event.target.value)}
+                  disabled={!stepState?.active}
+                  className="config-input h-8 w-16 disabled:opacity-50"
+                  placeholder="after"
+                  aria-label="Delay before the outbound message"
+                  title="Optional: advance the clock this much before it is sent, e.g. 2h"
+                />
+                <button
+                  type="submit"
+                  disabled={!stepState?.active || !outboundText.trim()}
+                  className="h-8 rounded-md border border-white/20 px-2.5 text-xs font-medium text-slate-600 hover:border-white/50 hover:text-white disabled:opacity-40"
+                  title="Queue a business message — seeded into history, no webhook delivery"
+                >
+                  Queue
+                </button>
+              </form>
+            </div>
+            <div className="px-5 pb-3 text-xs text-slate-400">
+              Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
+              Tip: the Runs tab can step-replay any saved run.
+              {stepError ? <div className="mt-1 text-danger">{stepError}</div> : null}
             </div>
           </div>
         ) : null}
         {baselineEditorOpen ? (
           <div className="border-t border-white/10 bg-[#161614]">
-            <div className="mx-auto flex max-w-[1440px] flex-wrap items-end gap-3 px-5 py-4">
+            <div className="flex flex-wrap items-end gap-3 px-5 py-4">
               <label className="min-w-[260px] flex-1">
                 <span className="micro mb-1 block text-slate-400">Baseline name</span>
                 <input
@@ -790,8 +1086,8 @@ export function Inspector() {
         ) : null}
       </header>
 
-      <div className="mx-auto grid max-w-[1440px] grid-cols-1 gap-4 px-5 py-5 xl:grid-cols-[320px_minmax(0,1fr)_420px]">
-        <section className="min-h-[520px] rounded-lg border border-line bg-panel">
+      <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-auto p-4 xl:grid-cols-[272px_minmax(0,1fr)_360px] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden 2xl:grid-cols-[320px_minmax(0,1fr)_420px]">
+        <section className="flex h-[440px] min-h-0 flex-col rounded-lg border border-line bg-panel xl:h-auto">
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
             title={leftView === "timeline" ? "Timeline" : "Runs"}
@@ -801,7 +1097,7 @@ export function Inspector() {
             <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
             <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
           </div>
-          <div className="max-h-[calc(100vh-220px)] overflow-auto px-3 py-3">
+          <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
             {leftView === "timeline" && session?.deliveries.length ? (
               session.deliveries.map((delivery) => (
                 <button
@@ -817,7 +1113,7 @@ export function Inspector() {
                       {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
                     </span>
                     <span className="data mt-1 block truncate text-xs text-slate-500">
-                      {delivery.channel} / {delivery.webhookId}
+                      {channelLabel(delivery.channel)} / {delivery.webhookId}
                     </span>
                   </span>
                   <span className={`data self-center text-xs font-medium ${delivery.timedOut || !delivery.ok ? "text-danger" : "text-fern"}`}>
@@ -833,10 +1129,11 @@ export function Inspector() {
                   <button onClick={() => void openRun(run)} className="min-w-0 flex-1 px-3 py-2 text-left">
                     <span className="flex items-center gap-2 text-sm font-medium text-bright">
                       {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
-                      <span className="truncate">{formatRunDate(run.startedAt)}</span>
+                      {run.contact ? <span className="truncate" title={run.contact.number}>{run.contact.name}</span> : null}
+                      <span className={`truncate ${run.contact ? "shrink-0 text-xs font-normal text-slate-500" : ""}`}>{formatRunDate(run.startedAt)}</span>
                     </span>
                     <span className="data mt-1 block truncate text-xs text-slate-500">
-                      {run.channel} / {run.transcriptTurns} turns / {run.deliveries} deliveries
+                      {channelLabel(run.channel)} / {run.transcriptTurns} turns / {run.deliveries} deliveries
                     </span>
                     <span className="mt-1 block truncate text-xs text-slate-500">{run.status}</span>
                     {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-fern">Baseline: {run.baselineName}</span> : null}
@@ -870,7 +1167,7 @@ export function Inspector() {
           </div>
         </section>
 
-        <section className="min-h-[520px] overflow-hidden rounded-lg border border-line bg-panel shadow-soft">
+        <section className="flex h-[78vh] min-h-[560px] flex-col overflow-hidden rounded-lg border border-line bg-panel shadow-soft xl:h-auto xl:min-h-0">
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
             title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
@@ -882,13 +1179,13 @@ export function Inspector() {
           </div>
           {centerView === "tree" ? (
             <>
-              <div className="flex items-center justify-between border-b border-line px-4 py-2">
+              <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-2">
                 <TreeLegend />
                 <span className="data text-[11px] text-slate-500">
                   {familySessions.length} run(s) · every node is a frozen checkpoint
                 </span>
               </div>
-              <div className={`${selectedNode ? "h-[calc(100vh-490px)]" : "h-[calc(100vh-330px)]"} min-h-[260px]`}>
+              <div className="min-h-[220px] flex-1">
                 <ConversationTree
                   roots={forest}
                   liveSessionId={liveSession?.id ?? null}
@@ -900,7 +1197,7 @@ export function Inspector() {
                 />
               </div>
               {selectedNode ? (
-                <div className="border-t border-line bg-mist/60 px-4 py-3">
+                <div className="shrink-0 border-t border-line bg-mist/60 px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
                       <div className="data text-[11px] text-slate-500">
@@ -911,10 +1208,16 @@ export function Inspector() {
                       </div>
                       <div className="mt-1 truncate text-sm font-medium text-bright">{selectedNode.caller}</div>
                       <div className="mt-0.5 truncate text-sm text-slate-600">{selectedNode.agentReply ?? "(no reply)"}</div>
+                      {selectedNode.label?.note ? (
+                        <div className="mt-1.5 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-300">
+                          <StickyNote size={12} className="mt-1 shrink-0" aria-hidden="true" />
+                          <span className="max-h-24 overflow-auto whitespace-pre-wrap break-words">{selectedNode.label.note}</span>
+                        </div>
+                      ) : null}
                     </div>
-                    <div className="flex shrink-0 items-center gap-1">
+                    <div className="relative flex shrink-0 items-center gap-1">
                       <button
-                        onClick={() => void labelTurn(selectedNode.turnNumber, "good", selectedNode.runId)}
+                        onClick={() => void labelTurn(selectedNode.turnNumber, { verdict: "good" }, selectedNode.label, selectedNode.runId)}
                         className={`grid h-7 w-7 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${selectedNode.label?.verdict === "good" ? "text-fern" : "text-slate-400"}`}
                         title="Label good"
                         aria-label="Label this checkpoint good"
@@ -922,13 +1225,32 @@ export function Inspector() {
                         <ThumbsUp size={13} />
                       </button>
                       <button
-                        onClick={() => void labelTurn(selectedNode.turnNumber, "bad", selectedNode.runId)}
+                        onClick={() => void labelTurn(selectedNode.turnNumber, { verdict: "bad" }, selectedNode.label, selectedNode.runId)}
                         className={`grid h-7 w-7 place-items-center rounded hover:bg-red-50 hover:text-danger ${selectedNode.label?.verdict === "bad" ? "text-danger" : "text-slate-400"}`}
                         title="Label bad"
                         aria-label="Label this checkpoint bad"
                       >
                         <ThumbsDown size={13} />
                       </button>
+                      <button
+                        onClick={() => toggleNoteEditor(`tree:${selectedNode.key}`)}
+                        className={`grid h-7 w-7 place-items-center rounded hover:bg-amber-50 hover:text-amber-300 ${selectedNode.label?.note ? "text-amber-300" : "text-slate-400"}`}
+                        title={selectedNode.label?.note ? `Note: ${selectedNode.label.note}` : "Add a note"}
+                        aria-label="Edit this checkpoint's note"
+                      >
+                        <StickyNote size={13} />
+                      </button>
+                      {noteEditorKey === `tree:${selectedNode.key}` ? (
+                        <NotePopover
+                          key={`tree:${selectedNode.key}`}
+                          initial={selectedNode.label?.note ?? ""}
+                          busy={noteBusy}
+                          error={noteError}
+                          className="bottom-full right-0 mb-2"
+                          onCancel={() => setNoteEditorKey(null)}
+                          onSave={(draft) => void saveNote(selectedNode.turnNumber, draft, selectedNode.label, selectedNode.runId)}
+                        />
+                      ) : null}
                       {runs.some((run) => run.id === selectedNode.runId) && selectedNode.runId !== session?.id ? (
                         <button
                           onClick={() => {
@@ -978,7 +1300,7 @@ export function Inspector() {
               )}
             </>
           ) : null}
-          <div ref={transcriptRef} className={`${centerView === "tree" ? "hidden" : ""} h-[calc(100vh-290px)] min-h-[360px] overflow-auto px-4 py-4`}>
+          <div ref={transcriptRef} className={`${centerView === "tree" ? "hidden" : ""} min-h-0 flex-1 overflow-auto px-4 py-4`}>
             {session?.forkedFrom ? (
               <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 <GitBranch size={13} className="shrink-0" />
@@ -991,13 +1313,29 @@ export function Inspector() {
               <div>
                 {transcriptRows.map(({ turn, ordinal }, index) => {
                   const label = ordinal !== null ? session.turnLabels?.find((item) => item.turnIndex === ordinal - 1) : undefined;
+                  // Seeded business messages (campaign openers) never went through the webhook.
+                  const outbound = turn.role === "agent" && (session.outboundSeeds?.includes(index) ?? false);
+                  const at = session.turnTimes?.[index];
+                  const noteKey = `transcript:${session.id}:${ordinal}`;
                   return (
-                    <div key={`${turn.role}-${index}`} className="group border-b border-line/60">
+                    <div key={`${turn.role}-${index}`} className="group relative border-b border-line/60">
                       <div className="flex items-start gap-3 py-2.5">
-                        <span className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}>
+                        <span
+                          className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}
+                          title={at ? formatClock(at) : undefined}
+                        >
                           {turn.role === "agent" ? "agent" : "caller"}
                         </span>
                         <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-bright"}`}>
+                          {outbound ? (
+                            <span
+                              className="micro mr-2 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 align-[1px] text-amber-300"
+                              title="Outbound business message — seeded into history, no webhook delivery"
+                            >
+                              <Megaphone size={10} aria-hidden="true" />
+                              outbound
+                            </span>
+                          ) : null}
                           {turn.content}
                         </div>
                       </div>
@@ -1013,7 +1351,7 @@ export function Inspector() {
                           ) : null}
                           <span className="data mr-1">t{ordinal}</span>
                           <button
-                            onClick={() => void labelTurn(ordinal, "good")}
+                            onClick={() => void labelTurn(ordinal, { verdict: "good" }, label)}
                             className={`grid h-6 w-6 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${label?.verdict === "good" ? "text-fern" : ""}`}
                             title="Label this turn good"
                             aria-label={`Label turn ${ordinal} good`}
@@ -1021,12 +1359,20 @@ export function Inspector() {
                             <ThumbsUp size={12} />
                           </button>
                           <button
-                            onClick={() => void labelTurn(ordinal, "bad")}
+                            onClick={() => void labelTurn(ordinal, { verdict: "bad" }, label)}
                             className={`grid h-6 w-6 place-items-center rounded hover:bg-red-50 hover:text-danger ${label?.verdict === "bad" ? "text-danger" : ""}`}
                             title="Label this turn bad"
                             aria-label={`Label turn ${ordinal} bad`}
                           >
                             <ThumbsDown size={12} />
+                          </button>
+                          <button
+                            onClick={() => toggleNoteEditor(noteKey)}
+                            className={`grid h-6 w-6 place-items-center rounded hover:bg-amber-50 hover:text-amber-300 ${label?.note || noteEditorKey === noteKey ? "text-amber-300" : ""}`}
+                            title={label?.note ? `Note: ${label.note}` : "Add a note to this turn"}
+                            aria-label={`Edit the note on turn ${ordinal}`}
+                          >
+                            <StickyNote size={12} />
                           </button>
                           <button
                             onClick={() => {
@@ -1041,6 +1387,17 @@ export function Inspector() {
                             <GitBranch size={12} />
                           </button>
                         </div>
+                      ) : null}
+                      {ordinal !== null && noteEditorKey === noteKey ? (
+                        <NotePopover
+                          key={noteKey}
+                          initial={label?.note ?? ""}
+                          busy={noteBusy}
+                          error={noteError}
+                          className="left-[60px] top-[calc(100%-6px)]"
+                          onCancel={() => setNoteEditorKey(null)}
+                          onSave={(draft) => void saveNote(ordinal, draft, label)}
+                        />
                       ) : null}
                       {forkTurn === ordinal && ordinal !== null ? (
                         <div className="mb-2 ml-[60px] rounded-md border border-indigo-200 bg-indigo-50 p-3">
@@ -1080,7 +1437,7 @@ export function Inspector() {
           </div>
 
           {stepState?.active && viewingLive && centerView === "transcript" ? (
-            <div className="border-t border-line bg-skyglass px-3 py-2">
+            <div className="shrink-0 border-t border-line bg-skyglass px-3 py-2">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-fern">
                   <StepForward size={13} />
@@ -1096,9 +1453,22 @@ export function Inspector() {
                     {stepState.checkpoint.conversationState ? " + state" : ""}
                   </span>
                 ) : null}
-                {stepState.lastResult?.expectResults.map((expectation) => (
+                <button
+                  onClick={() => {
+                    setStepError(null);
+                    setStepStripOpen(true);
+                  }}
+                  className="data flex items-center gap-1 text-[11px] text-slate-500 hover:text-bright"
+                  title="Simulated clock — open the step strip to warp it or queue an outbound message"
+                >
+                  <Clock3 size={12} />
+                  {formatClock(stepState.virtualNow)}
+                  <span className={stepState.clockOffsetMs ? "text-amber-300" : ""}>· {formatOffset(stepState.clockOffsetMs)}</span>
+                </button>
+                {/* Absent after an outbound seed: nothing was delivered, so nothing to check. */}
+                {stepState.lastResult?.expectResults.map((expectation, index) => (
                   <span
-                    key={expectation.action}
+                    key={`${expectation.action}-${index}`}
                     className={`rounded-full px-2 py-0.5 font-medium ${expectation.passed ? "bg-emerald-50 text-fern" : "bg-red-50 text-danger"}`}
                     title={expectation.passed ? undefined : `observed: ${expectation.observed.join(", ") || "none"}`}
                   >
@@ -1112,19 +1482,52 @@ export function Inspector() {
                   End step
                 </button>
               </div>
+              {stepState.queue.length ? (
+                <div className={`mt-1.5 space-y-1 ${queueExpanded ? "max-h-32 overflow-auto" : ""}`}>
+                  {(queueExpanded ? stepState.queue : stepState.queue.slice(0, 1)).map((turn, index) => (
+                    <div key={index} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+                      <span className="micro w-9 shrink-0 text-slate-400">{index === 0 ? "next" : `#${index + 1}`}</span>
+                      <QueuedTurn turn={turn} />
+                      {index === 0 ? (
+                        <>
+                          <button
+                            onClick={() => void dropQueueHead()}
+                            disabled={stepState.sending}
+                            className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] text-slate-400 hover:bg-red-50 hover:text-danger disabled:opacity-40"
+                            title="Drop this queued turn without sending it"
+                            aria-label="Drop the next queued turn"
+                          >
+                            <Trash2 size={12} />
+                            Drop
+                          </button>
+                          {stepState.queue.length > 1 ? (
+                            <button onClick={() => setQueueExpanded((open) => !open)} className="micro shrink-0 text-slate-400 hover:text-bright">
+                              {queueExpanded ? "hide queue" : `+${stepState.queue.length - 1} more`}
+                            </button>
+                          ) : null}
+                        </>
+                      ) : null}
+                    </div>
+                  ))}
+                </div>
+              ) : null}
               {stepError ? <div className="mt-1 text-xs text-danger">{stepError}</div> : null}
             </div>
           ) : null}
-          <div className={`${centerView === "tree" ? "hidden" : ""} border-t border-line p-3`}>
+          <div className={`${centerView === "tree" ? "hidden" : ""} shrink-0 border-t border-line p-3`}>
             <div className="flex gap-2">
               <input
+                ref={callerInputRef}
                 value={text}
                 disabled={!viewingLive}
+                readOnly={headIsAgent && !agentHeadEditable}
                 onChange={(event) => setText(event.target.value)}
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void sendTurn();
                 }}
-                className="h-10 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern disabled:bg-mist disabled:text-slate-500"
+                className={`h-10 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none disabled:bg-mist disabled:text-slate-500 ${
+                  headIsAgent ? "border-amber-200 bg-amber-50 text-amber-300 focus:border-amber-300" : "border-line bg-panel focus:border-fern"
+                }`}
                 placeholder={
                   !viewingLive
                     ? "Saved run is read-only"
@@ -1134,7 +1537,7 @@ export function Inspector() {
                         : "Type the next caller turn for this branch"
                       : "Type caller turn"
                 }
-                aria-label="Caller turn"
+                aria-label={headIsAgent ? "Next outbound message" : "Caller turn"}
               />
               {voiceAvailable && viewingLive ? (
                 <MicToggle
@@ -1146,14 +1549,31 @@ export function Inspector() {
                 onClick={sendTurn}
                 disabled={!viewingLive || (stepState?.active && stepState.sending)}
                 className="grid h-10 w-10 place-items-center rounded-md bg-cta text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
-                title={stepState?.active ? "Send next step" : "Send turn"}
-                aria-label={stepState?.active ? "Send next step" : "Send turn"}
+                title={headIsAgent ? "Seed the outbound message" : stepState?.active ? "Send next step" : "Send turn"}
+                aria-label={headIsAgent ? "Seed the outbound message" : stepState?.active ? "Send next step" : "Send turn"}
               >
-                {stepState?.active ? <StepForward size={16} /> : <Send size={16} />}
+                {headIsAgent ? <Megaphone size={16} /> : stepState?.active ? <StepForward size={16} /> : <Send size={16} />}
               </button>
             </div>
+            {headIsAgent ? (
+              <div className="micro mt-1.5 flex items-center gap-2 text-amber-300">
+                <Megaphone size={11} aria-hidden="true" />
+                outbound message — press Send to seed it
+                {!agentHeadEditable ? (
+                  <button
+                    onClick={() => {
+                      setAgentHeadEditable(true);
+                      callerInputRef.current?.focus();
+                    }}
+                    className="micro text-slate-400 underline-offset-2 hover:text-bright hover:underline"
+                  >
+                    edit
+                  </button>
+                ) : null}
+              </div>
+            ) : null}
             {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
-            {voiceAvailable && viewingLive && !voiceError ? (
+            {voiceAvailable && viewingLive && !voiceError && !headIsAgent ? (
               <div className={`micro mt-1.5 ${voiceState === "recording" ? "text-danger" : voiceState === "transcribing" ? "text-fern" : "text-slate-500"}`}>
                 {voiceState === "recording"
                   ? "recording — release space (or click stop) to send"
@@ -1165,7 +1585,7 @@ export function Inspector() {
           </div>
         </section>
 
-        <aside className="space-y-4">
+        <aside className="space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1">
           <section className="overflow-hidden rounded-lg border border-line bg-panel">
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
@@ -1214,7 +1634,7 @@ export function Inspector() {
             <PayloadBlock value={selected ? { status: selected.response.status, headers: selected.response.headers, parsed: selected.response.parsed, rawBody: selected.response.rawBody } : null} />
           </section>
 
-          {session?.callEnded ? (
+          {session?.callEnded && session.channel === "voice" ? (
             <section className="rounded-lg border border-line bg-panel">
               <PanelHeader icon={<PhoneOff size={16} />} title="Call Ended" meta={`${session.callEnded.durationSeconds}s`} />
               <div className="space-y-2 px-4 pb-4 text-sm">
@@ -1262,7 +1682,7 @@ export function Inspector() {
           ) : null}
         </aside>
       </div>
-    </main>
+    </div>
   );
 }
 
@@ -1425,6 +1845,120 @@ function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "t
   );
 }
 
+/** One queued step: a caller line or an outbound business message, with its delay and expectations. */
+function QueuedTurn({ turn }: { turn: StepQueueTurn }) {
+  const outbound = turn.agent !== undefined;
+  const content = turn.agent ?? turn.caller ?? "";
+  return (
+    <>
+      {outbound ? (
+        <span
+          className="micro flex shrink-0 items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-amber-300"
+          title="Outbound business message — seeded into history, no webhook delivery"
+        >
+          <Megaphone size={10} aria-hidden="true" />
+          outbound
+        </span>
+      ) : (
+        <span className="micro shrink-0 text-fern">caller</span>
+      )}
+      <span className={`min-w-[8rem] flex-1 truncate ${outbound ? "text-amber-300" : "text-bright"}`} title={content}>
+        {content}
+      </span>
+      {turn.edited ? <span className="micro shrink-0 text-slate-400">edited</span> : null}
+      {turn.after !== undefined ? (
+        <span className="data shrink-0 rounded bg-mist px-1.5 py-0.5 text-[10px] text-slate-600" title="The simulated clock advances this much before the turn is sent">
+          after {formatAfter(turn.after)}
+        </span>
+      ) : null}
+      {turn.expect ? <ExpectChips expect={turn.expect} /> : null}
+    </>
+  );
+}
+
+/** What the step debugger will check on this turn's reply. */
+function ExpectChips({ expect }: { expect: StepExpect }) {
+  const chip = "data shrink-0 rounded px-1.5 py-0.5 text-[10px]";
+  return (
+    <>
+      {(expect.actions ?? []).map((action) => (
+        <span key={`a-${action}`} className={`${chip} bg-emerald-50 text-fern`} title="Expected action">
+          {action}
+        </span>
+      ))}
+      {(expect.forbiddenActions ?? []).map((action) => (
+        <span key={`f-${action}`} className={`${chip} bg-red-50 text-danger`} title="Forbidden action">
+          no {action}
+        </span>
+      ))}
+      {expect.replyMatches !== undefined ? (
+        <span className={`${chip} max-w-[12rem] truncate bg-mist text-slate-600`} title={`Reply must match /${expect.replyMatches}/i`}>
+          /{expect.replyMatches}/
+        </span>
+      ) : null}
+    </>
+  );
+}
+
+/** Small anchored editor for a turn's free-text note. Escape cancels, ⌘/Ctrl+Enter saves. */
+function NotePopover({
+  initial,
+  busy,
+  error,
+  className,
+  onSave,
+  onCancel
+}: {
+  initial: string;
+  busy: boolean;
+  error: string | null;
+  className: string;
+  onSave: (draft: string) => void;
+  onCancel: () => void;
+}) {
+  const [draft, setDraft] = useState(initial);
+  return (
+    <div
+      role="dialog"
+      aria-label="Turn note"
+      className={`absolute z-20 w-72 rounded-md border border-amber-200 bg-panel p-2.5 shadow-soft ${className}`}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") {
+          event.preventDefault();
+          event.stopPropagation();
+          onCancel();
+        } else if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+          event.preventDefault();
+          onSave(draft);
+        }
+      }}
+    >
+      <textarea
+        value={draft}
+        onChange={(event) => setDraft(event.target.value)}
+        className="h-20 w-full resize-y rounded border border-line bg-mist p-2 text-xs leading-5 text-bright outline-none focus:border-amber-300"
+        placeholder="Why is this turn good or bad? (empty clears the note)"
+        aria-label="Note"
+        autoFocus
+      />
+      {error ? <div className="mt-1 text-[11px] text-danger">{error}</div> : null}
+      <div className="mt-2 flex items-center justify-end gap-1.5">
+        <span className="micro mr-auto text-slate-400">esc to close</span>
+        <button onClick={onCancel} className="h-7 rounded border border-line px-2.5 text-[11px] font-medium text-slate-600 hover:border-slate-400">
+          Cancel
+        </button>
+        <button
+          onClick={() => onSave(draft)}
+          disabled={busy}
+          className="h-7 rounded bg-cta px-2.5 text-[11px] font-medium text-white hover:brightness-110 disabled:opacity-50"
+        >
+          {busy ? "Saving…" : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function KeyValue({ name, value }: { name: string; value: string }) {
   return (
     <div className="min-w-0 rounded-md border border-line bg-mist px-3 py-2">
@@ -1445,6 +1979,61 @@ function formatRunDate(timestamp: string): string {
     hour: "numeric",
     minute: "2-digit"
   }).format(new Date(timestamp));
+}
+
+function channelLabel(channel: string): string {
+  return CHANNEL_OPTIONS.find((option) => option.value === channel)?.label ?? channel;
+}
+
+/** Simulated wall-clock time, with the weekday since warps usually span days. */
+function formatClock(timestamp: string): string {
+  const at = new Date(timestamp);
+  if (Number.isNaN(at.getTime())) return timestamp;
+  return new Intl.DateTimeFormat(undefined, { weekday: "short", month: "short", day: "numeric", hour: "numeric", minute: "2-digit" }).format(at);
+}
+
+/** Clock offset as its two largest units ("+2d 3h"); zero reads "real time". */
+function formatOffset(offsetMs: number): string {
+  if (!Number.isFinite(offsetMs) || Math.abs(offsetMs) < 1000) return "real time";
+  return `${offsetMs < 0 ? "-" : "+"}${formatDuration(Math.abs(offsetMs))}`;
+}
+
+function formatDuration(ms: number): string {
+  const units: Array<[string, number]> = [
+    ["d", 86_400_000],
+    ["h", 3_600_000],
+    ["m", 60_000],
+    ["s", 1000]
+  ];
+  const parts: string[] = [];
+  let rest = ms;
+  for (const [unit, size] of units) {
+    const count = Math.floor(rest / size);
+    if (count > 0) {
+      parts.push(`${count}${unit}`);
+      rest -= count * size;
+    }
+    if (parts.length === 2) break;
+  }
+  return parts.join(" ") || `${ms}ms`;
+}
+
+/** Scenario `after` is a duration string ("2h") or milliseconds. */
+function formatAfter(after: string | number): string {
+  return typeof after === "number" ? formatDuration(after) : after;
+}
+
+/** Scenario listings grouped by folder, in the server's (path-sorted) order. */
+function groupScenarios(listings: ScenarioListing[]): Array<[string, ScenarioListing[]]> {
+  const groups = new Map<string, ScenarioListing[]>();
+  for (const listing of listings) groups.set(listing.group, [...(groups.get(listing.group) ?? []), listing]);
+  return [...groups];
+}
+
+/** "examples/messaging" → "Messaging", ".agentphone-devtools/exports" → "Exports". */
+function groupLabel(group: string): string {
+  const leaf = group.split("/").filter(Boolean).at(-1) ?? group;
+  return leaf.charAt(0).toUpperCase() + leaf.slice(1);
 }
 
 /** All run ids connected to `anchorId` through forkedFrom links, in either direction. */
@@ -1479,6 +2068,7 @@ function summarizeLive(session: InspectorSession): InspectorSessionSummary {
     startedAt: session.startedAt,
     endedAt: session.endedAt,
     transcriptTurns: session.transcript.length,
-    deliveries: session.deliveries.length
+    deliveries: session.deliveries.length,
+    ...(session.contact ? { contact: session.contact } : {})
   };
 }

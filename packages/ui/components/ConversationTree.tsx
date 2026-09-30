@@ -51,6 +51,7 @@ const GOOD = "#0ca30c";
 const BAD = "#d03b3b";
 const LIVE = "#5abc6e";
 const FORK = "#a78bfa";
+const NOTE = "#e8c06a";
 
 export function buildTurnForest(sessions: InspectorSession[]): TurnNode[] {
   const byId = new Map(sessions.map((session) => [session.id, session]));
@@ -232,6 +233,7 @@ export function ConversationTree({
           const leafOfLive = live && !node.children.some((child) => child.runIds.includes(liveSessionId));
           return (
             <g key={node.key} transform={`translate(${entry.x}, ${entry.y})`} onClick={() => onSelect(node)} className="cursor-pointer" role="button" aria-label={`Turn ${node.turnNumber}: ${node.caller}`}>
+              {node.label?.note ? <title>{`Note: ${node.label.note}`}</title> : null}
               <rect
                 width={NODE_W}
                 height={NODE_H}
@@ -254,6 +256,7 @@ export function ConversationTree({
               {node.label?.verdict === "bad" ? (
                 <path d={`M ${NODE_W - 16} 11 L ${NODE_W - 12} 15 M ${NODE_W - 12} 11 L ${NODE_W - 16} 15`} stroke="#fff" strokeWidth={1.1} strokeLinecap="round" />
               ) : null}
+              {node.label?.note ? <NoteGlyph x={NODE_W - (node.label.verdict ? 32 : 19)} y={8} /> : null}
               <text x={12} y={33} fontSize={11.5} fill={INK} fontWeight={500}>
                 {truncate(node.caller, 30)}
               </text>
@@ -270,6 +273,16 @@ export function ConversationTree({
         })}
       </svg>
     </div>
+  );
+}
+
+/** Tiny sticky-note mark: the node's label carries a note (full text on hover). */
+function NoteGlyph({ x, y }: { x: number; y: number }) {
+  return (
+    <g transform={`translate(${x}, ${y})`}>
+      <path d="M 0 1.5 Q 0 0 1.5 0 L 9 0 L 9 7 L 7 10 L 1.5 10 Q 0 10 0 8.5 Z" fill={NOTE} />
+      <path d="M 2.2 3.2 L 6.8 3.2 M 2.2 5.6 L 5.6 5.6" stroke="#202020" strokeWidth={0.9} strokeLinecap="round" />
+    </g>
   );
 }
 

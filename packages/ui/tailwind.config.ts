@@ -11,7 +11,17 @@ const config: Config = {
     extend: {
       colors: {
         ink: "#0d0d0c", // page + toolbar canvas
+        frame: "#161615", // dashboard content frame (their inset surface)
         panel: "#1c1c1a", // card surface
+        raised: "#232321", // nested card / tile icon wells
+        // Messaging bubbles, matched to Apple's and WhatsApp's dark palettes.
+        imessage: "#1f8fff",
+        smsgreen: "#34c759",
+        whatsapp: "#25d366",
+        bubble: "#2c2c2e",
+        // Their dashboard badge tints (webhook routing explainer).
+        badgeblue: "#7aa2ff",
+        badgepurple: "#c084fc",
         bright: "#f0efe9", // primary text
         mist: "#242422", // washes / hover fills
         line: "#2d2d2a", // hairline borders
@@ -49,6 +59,20 @@ const config: Config = {
       },
       boxShadow: {
         soft: "0 14px 34px rgba(0, 0, 0, 0.45)"
+      },
+      keyframes: {
+        typing: {
+          "0%, 60%, 100%": { transform: "translateY(0)", opacity: "0.35" },
+          "30%": { transform: "translateY(-3px)", opacity: "1" }
+        },
+        pop: {
+          "0%": { transform: "scale(0.92)", opacity: "0" },
+          "100%": { transform: "scale(1)", opacity: "1" }
+        }
+      },
+      animation: {
+        typing: "typing 1.2s infinite ease-in-out",
+        pop: "pop 160ms ease-out"
       }
     }
   },
