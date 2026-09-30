@@ -12,7 +12,7 @@
     "dist"
   ],
   "scripts": {
-    "build": "tsc -p tsconfig.json"
+    "build": "tsc -p tsconfig.json && node -e \"require('node:fs').chmodSync('dist/index.js', 0o755)\""
   },
   "dependencies": {
     "@agentphone-devtools/core": "0.1.0",
