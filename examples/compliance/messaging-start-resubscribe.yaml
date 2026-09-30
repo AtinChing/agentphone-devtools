@@ -1,0 +1,28 @@
+name: Messaging — START re-subscribes
+description: After an opt-out, START must restore consent and marketing may resume on the next reply.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - agent: "Hi Jordan, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - caller: "STOP"
+    after: 3m
+    expect:
+      actions:
+        - opt_out
+  - caller: "START"
+    after: 2d
+    expect:
+      actions:
+        - resubscribe
+      replyMatches: "resubscribed"
+  - caller: "YES"
+    after: 1m
+    expect:
+      actions:
+        - issue_promo_code

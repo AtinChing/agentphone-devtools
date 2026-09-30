@@ -106,3 +106,13 @@ describe("AgentPhone event builders", () => {
     });
   });
 });
+
+describe("message channels", () => {
+  it("builds and validates events on every message channel, including WhatsApp", () => {
+    for (const channel of ["sms", "mms", "imessage", "whatsapp"] as const) {
+      const payload = buildMessageEvent({ message: "hello", channel });
+      expect(payload.channel).toBe(channel);
+      expect(payload.data.message).toBe("hello");
+    }
+  });
+});

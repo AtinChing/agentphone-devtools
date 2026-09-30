@@ -1,3 +1,4 @@
+import { isCallerTurn } from "./scenario.js";
 import type { AgentResponseChunk, Scenario, ScenarioAssertion, ScenarioResult } from "./types.js";
 
 export interface ScenarioTurnObservation {
@@ -16,8 +17,13 @@ export interface ScenarioObservation {
 export function evaluateScenario(scenario: Scenario, observation: ScenarioObservation): ScenarioResult {
   const assertions: ScenarioAssertion[] = [];
 
+  // Observations exist only for caller turns; agent-seeded turns are context,
+  // not deliveries. `index` stays the position in scenario.turns for display.
+  let deliveryCursor = 0;
   scenario.turns.forEach((turn, index) => {
-    const observed = observation.turns[index];
+    if (!isCallerTurn(turn)) return;
+    const observed = observation.turns[deliveryCursor];
+    deliveryCursor += 1;
     const hasDeliveryExpectation =
       turn.expect?.status !== undefined || turn.expect?.timedOut !== undefined || turn.expect?.retries !== undefined;
     if (!hasDeliveryExpectation) {
@@ -94,6 +100,19 @@ export function evaluateScenario(scenario: Scenario, observation: ScenarioObserv
 
     const expectedActions = turn.expect?.actions ?? [];
     const observedActions = collectObservedActions(observed?.responses ?? []);
+    for (const forbidden of turn.expect?.forbiddenActions ?? []) {
+      const passed = !observedActions.includes(forbidden);
+      assertions.push({
+        kind: "action",
+        passed,
+        expected: `no ${forbidden}`,
+        observed: observedActions.length ? observedActions.join(", ") : "none",
+        turnIndex: index,
+        message: passed
+          ? `Turn ${index + 1} correctly did not return ${forbidden}`
+          : `Turn ${index + 1} returned forbidden action ${forbidden}`
+      });
+    }
     for (const expectedAction of expectedActions) {
       const passed = observedActions.includes(expectedAction);
       assertions.push({

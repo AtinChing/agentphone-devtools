@@ -1,4 +1,10 @@
-export type MessageChannel = "sms" | "mms" | "imessage";
+export type MessageChannel = "sms" | "mms" | "imessage" | "whatsapp";
+/**
+ * Channels the simulator can drive a whole conversation over. MMS is a
+ * message channel in the contract but its media payloads are not simulated,
+ * so it is not a session channel.
+ */
+export type SessionChannel = "sms" | "imessage" | "whatsapp" | "voice";
 export type VoiceChannel = "voice";
 export type AgentPhoneChannel = MessageChannel | VoiceChannel;
 export type AgentPhoneEvent = "agent.message" | "agent.call_ended";
@@ -128,10 +134,22 @@ export interface DispatchOptions {
   onChunk?: (chunk: AgentResponseChunk) => void;
 }
 
-export interface ScenarioTurn {
+/**
+ * Simulated elapsed time before a turn ("2d", "3h", "45m", "90s", "500ms",
+ * combinations like "1h30m", or a number of milliseconds). Advances the
+ * simulator's virtual clock — payload timestamps and recentHistory[].at move
+ * forward — without actually waiting, so time-dependent handler logic
+ * (follow-up windows, promo expiry, re-introduction after long gaps) is
+ * testable in milliseconds.
+ */
+export type SimulatedDelay = string | number;
+
+export interface ScenarioCallerTurn {
   caller: string;
   expect?: {
     actions?: string[];
+    /** Actions that must NOT appear (e.g. no marketing action after an opt-out). */
+    forbiddenActions?: string[];
     status?: number;
     timedOut?: boolean;
     retries?: number;
@@ -145,7 +163,21 @@ export interface ScenarioTurn {
   };
   fault?: DeliveryFault;
   waitMs?: number;
+  after?: SimulatedDelay;
 }
+
+/**
+ * An outbound message the business sent outside the webhook (e.g. a
+ * campaign opener sent through the send API). It is seeded into the
+ * conversation history so later inbound replies reach the handler with the
+ * real context, but nothing is delivered to the webhook for it.
+ */
+export interface ScenarioAgentTurn {
+  agent: string;
+  after?: SimulatedDelay;
+}
+
+export type ScenarioTurn = ScenarioCallerTurn | ScenarioAgentTurn;
 
 export interface DeliveryFault {
   invalidSignature?: boolean;
@@ -160,7 +192,9 @@ export interface DeliveryFault {
 export interface Scenario {
   name: string;
   description?: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
+  /** ISO datetime the simulated clock starts at (defaults to real time). */
+  startAt?: string;
   agentId: string;
   numberId: string;
   from: string;

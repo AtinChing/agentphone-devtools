@@ -43,7 +43,7 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
   console.log(dim(`${scenario.channel} -> ${config.targetUrl} | ${state.queue.length} scripted turn(s)`));
   console.log(
     dim(
-      `Commands: c send | e edit next | t <text> add turn |${voice.available ? " v speak next turn |" : ""} g/b [note] label last | fork <n> | x [path] export | state | q quit | help`
+      `Commands: c send | e edit next | t <text> add turn | say <text> queue outbound | drop | warp <2d|3h|45m> |${voice.available ? " v speak |" : ""} g/b [note] label last | fork <n> | x [path] export | state | q quit | help`
     )
   );
 
@@ -53,9 +53,15 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
   try {
     while (!ended) {
       state = step.state();
+      const clock = state.clockOffsetMs > 0 ? dim(` · simulated clock +${humanOffset(state.clockOffsetMs)} (${state.virtualNow})`) : "";
       if (state.queue.length > 0) {
         const next = state.queue[0];
-        console.log(`\n${cyan(`next [turn ${state.completedTurns + 1}]`)} caller: ${next.caller}${next.edited ? dim(" (edited)") : ""}`);
+        const gap = next.after !== undefined ? dim(` (after ${next.after})`) : "";
+        if (next.agent !== undefined) {
+          console.log(`\n${cyan("next [outbound]")} agent: ${next.agent}${gap}${next.edited ? dim(" (edited)") : ""}${clock}`);
+        } else {
+          console.log(`\n${cyan(`next [turn ${state.completedTurns + 1}]`)} caller: ${next.caller}${gap}${next.edited ? dim(" (edited)") : ""}${clock}`);
+        }
       } else {
         console.log(`\n${dim("No scripted turns left. `t <text>` adds one; `q` ends the call.")}`);
       }
@@ -74,6 +80,11 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
           case "continue": {
             console.log(dim(`sending turn ${state.completedTurns + 1}...`));
             const result = await step.sendNext();
+            if (!result.delivery) {
+              console.log(`${bold("outbound")}  ${dim("seeded into history (sent outside the webhook — nothing delivered)")}`);
+              printSnapshot(runtime, result.state, false);
+              break;
+            }
             printDelivery(result.delivery, result.state.lastResult?.turnNumber ?? state.completedTurns + 1);
             printExpectations(result.state);
             printSnapshot(runtime, result.state, false);
@@ -182,6 +193,29 @@ export async function runStepDebugger(config: DevtoolsServerConfig, scenarioPath
             console.log(`${green("heard:")} ${transcriptText} ${dim("(now the next turn — edit with `e`, send with `c`)")}`);
             break;
           }
+          case "say": {
+            if (!argText) {
+              console.log(red("Usage: say <outbound message text> — queues a business-sent message (campaign opener, follow-up)"));
+              break;
+            }
+            step.addAgentTurn(argText);
+            break;
+          }
+          case "drop": {
+            const dropped = step.state().queue[0];
+            step.dropNext();
+            console.log(dim(`dropped: ${dropped?.agent ?? dropped?.caller ?? ""}`));
+            break;
+          }
+          case "warp": {
+            if (!argText) {
+              console.log(red("Usage: warp <duration> — e.g. warp 2d, warp 3h, warp 45m"));
+              break;
+            }
+            const after = step.warp(argText);
+            console.log(`${cyan("⏩")} simulated clock is now ${after.virtualNow} ${dim(`(+${humanOffset(after.clockOffsetMs)} from real time)`)}`);
+            break;
+          }
           case "state": {
             printSnapshot(runtime, step.state(), true);
             break;
@@ -255,6 +289,13 @@ function printSnapshot(runtime: DevtoolsRuntime, state: StepState, full: boolean
       console.log(`    ${dim(`${entry.direction === "inbound" ? "caller" : "agent "} |`)} ${entry.content}`);
     }
   }
+}
+
+function humanOffset(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 172_800_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
 }
 
 function countUserTurns(state: { transcript: Array<{ role: string }> }): number {

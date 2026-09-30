@@ -6,6 +6,7 @@ import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
 import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
+import type { SessionChannel } from "@agentphone-devtools/core";
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
 import { loadBaselineArtifact } from "./baseline.js";
@@ -14,7 +15,7 @@ import { runStepDebugger } from "./step.js";
 interface CliOptions {
   targetUrl: string;
   secret: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   timeoutSeconds: number;
   contextLimit: number;
   port: number;
@@ -160,7 +161,7 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`Timed out waiting for ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
-async function runInteractive(runtime: Awaited<ReturnType<typeof startDevtoolsServer>>["runtime"], channel: "sms" | "voice") {
+async function runInteractive(runtime: Awaited<ReturnType<typeof startDevtoolsServer>>["runtime"], channel: SessionChannel) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log("Interactive caller prompt. Type `end call` to emit call-ended, `quit` to stop.");
   try {
@@ -334,9 +335,9 @@ function buildServerConfig(options: CliOptions): DevtoolsServerConfig {
   };
 }
 
-function parseChannel(value: string): "sms" | "voice" {
-  if (value === "sms" || value === "voice") return value;
-  throw new Error("channel must be sms or voice");
+function parseChannel(value: string): SessionChannel {
+  if (value === "sms" || value === "imessage" || value === "whatsapp" || value === "voice") return value;
+  throw new Error("channel must be sms, imessage, whatsapp, or voice");
 }
 
 function requireValue(args: string[], index: number, flag: string): string {
@@ -355,7 +356,7 @@ Usage:
 Options:
   --target <url>             Webhook URL to receive simulated AgentPhone events
   --secret <secret>          Webhook signing secret
-  --channel <sms|voice>      Interactive channel, default voice
+  --channel <channel>        sms, imessage, whatsapp, or voice (default voice)
   --scenario <path>          Scenario to replay; repeat in CI mode to build a suite
   --scenario-dir <path>      Recursively run all YAML/JSON scenarios in CI mode
   --step                     Step through one --scenario turn by turn: pause,

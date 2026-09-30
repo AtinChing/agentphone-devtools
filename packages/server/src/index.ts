@@ -8,6 +8,12 @@ import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeCon
 import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
 import { StepController } from "./step-controller.js";
 import { detectVoiceSupport, transcribeAudioBuffer, type VoiceSupport } from "./voice.js";
+import { ContactsStore, type Contact, type ContactInput } from "./contacts.js";
+import { EnvironmentsStore, type EnvironmentInput } from "./environments.js";
+import { computeUsageStats } from "./stats.js";
+import { listScenarios } from "./scenarios.js";
+import { dirname, join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
 
 // Voice tooling doesn't change while the server runs; detect once on demand.
 let cachedVoiceSupport: VoiceSupport | undefined;
@@ -36,8 +42,11 @@ import {
   type DeliveryFault,
   type Scenario,
   type ScenarioResult,
+  type SessionChannel,
   type SignedDelivery,
-  type TranscriptTurn
+  type TranscriptTurn,
+  isCallerTurn,
+  parseDuration
 } from "@agentphone-devtools/core";
 
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
@@ -65,11 +74,15 @@ export {
   type PushToTalkRecording,
   type VoiceSupport
 } from "./voice.js";
+export { ContactsStore, type Contact, type ContactInput } from "./contacts.js";
+export { EnvironmentsStore, type Environment, type EnvironmentInput, type EnvironmentView } from "./environments.js";
+export { computeUsageStats, type UsageStats, type DailyActivity } from "./stats.js";
+export { listScenarios, type ScenarioListing } from "./scenarios.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
   secret: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   timeoutSeconds: number;
   contextLimit: number;
   port: number;
@@ -137,7 +150,7 @@ export interface TurnLabel {
  * exactly — the handler itself is stateless per request.
  */
 export interface ConversationCheckpoint {
-  recentHistory: Array<{ content: string; direction: "inbound" | "outbound"; channel: "sms" | "voice"; at: string }>;
+  recentHistory: Array<{ content: string; direction: "inbound" | "outbound"; channel: SessionChannel; at: string }>;
   conversationState: ConversationState;
 }
 
@@ -151,11 +164,32 @@ export interface ReplayDeliveryInput {
   fault?: DeliveryFault;
 }
 
+/** A simulated customer: who the caller/texter is in a conversation. */
+export interface SessionContact {
+  id: string;
+  name: string;
+  number: string;
+}
+
 export interface InspectorSession {
   id: string;
   targetUrl: string;
   secretPreview: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
+  /** The simulated customer on this conversation, when one was chosen. */
+  contact?: SessionContact;
+  /**
+   * ISO timestamp per transcript entry (aligned by index). Carries the
+   * simulated clock, so a message thread can show real day/time gaps.
+   */
+  turnTimes?: string[];
+  /**
+   * Transcript indexes of agent messages that were seeded as outbound sends
+   * (campaign openers, scheduled follow-ups) rather than webhook replies.
+   */
+  outboundSeeds?: number[];
+  /** Virtual-clock offset from real time, in ms, at the last update. */
+  clockOffsetMs?: number;
   status: "idle" | "running" | "ended";
   startedAt: string;
   endedAt?: string;
@@ -189,6 +223,7 @@ export interface InspectorSession {
   runSettings?: {
     contextLimit: number;
     timeoutSeconds: number;
+    retryOnNon200?: boolean;
   };
   /** Lineage when this session was forked from another run's checkpoint. */
   forkedFrom?: {
@@ -203,7 +238,7 @@ export interface InspectorSession {
 export interface InspectorSessionSummary {
   id: string;
   targetUrl: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   status: InspectorSession["status"];
   startedAt: string;
   endedAt?: string;
@@ -213,6 +248,10 @@ export interface InspectorSessionSummary {
   forkedFrom?: InspectorSession["forkedFrom"];
   /** Scenario outcome, when the run executed one. */
   scenarioPassed?: boolean;
+  contact?: SessionContact;
+  averageLatencyMs?: number;
+  lastMessage?: string;
+  lastActivityAt?: string;
 }
 
 type SseClient = {
@@ -220,7 +259,7 @@ type SseClient = {
   close: () => void;
 };
 
-type HistoryTurn = TranscriptTurn & { at: string; channel: "sms" | "voice" };
+type HistoryTurn = TranscriptTurn & { at: string; channel: SessionChannel };
 
 export class DevtoolsRuntime {
   private readonly clients = new Set<SseClient>();
@@ -229,6 +268,17 @@ export class DevtoolsRuntime {
   private config: DevtoolsServerConfig;
   private conversationState: ConversationState = null;
   private session: InspectorSession;
+  /**
+   * Virtual clock: offset from real time. Payload timestamps and
+   * recentHistory[].at use it so time-dependent handler logic is testable
+   * without waiting. The HMAC timestamp header always uses real time, so
+   * handlers' freshness checks keep working.
+   */
+  private clockOffsetMs = 0;
+
+  /** Caller number for the payload when the session has no bound contact. */
+  private callerNumber?: string;
+  private contactResolver?: (number: string) => SessionContact | undefined;
 
   constructor(config: DevtoolsServerConfig) {
     this.config = config;
@@ -239,18 +289,33 @@ export class DevtoolsRuntime {
   }
 
   getState(): InspectorSession {
-    return structuredClone(this.session);
+    return this.withContact(structuredClone(this.session));
   }
 
   getHistory(): InspectorSessionSummary[] {
     return this.sessionStore
       .list()
       .filter((session) => session.id === this.session.id || session.status !== "idle" || session.transcript.length > 0 || session.deliveries.length > 0)
-      .map(summarizeSession);
+      .map((session) => summarizeSession(this.withContact(session)));
   }
 
   getHistorySession(sessionId: string): InspectorSession | undefined {
-    return sessionId === this.session.id ? this.getState() : this.sessionStore.get(sessionId);
+    if (sessionId === this.session.id) return this.getState();
+    const stored = this.sessionStore.get(sessionId);
+    return stored ? this.withContact(stored) : undefined;
+  }
+
+  /**
+   * Runs recorded without a bound contact still carry the caller's number in
+   * every payload. Resolving it at read time lets older history show up
+   * under the right person without rewriting what was stored.
+   */
+  private withContact(session: InspectorSession): InspectorSession {
+    if (session.contact || !this.contactResolver) return session;
+    const first = session.deliveries.find((delivery) => delivery.event === "agent.message");
+    const from = (first?.request.body as { data?: { from?: unknown } } | undefined)?.data?.from;
+    const contact = typeof from === "string" ? this.resolveContact(from) : undefined;
+    return contact ? { ...session, contact } : session;
   }
 
   getScenarioExport(sessionId: string, options: ScenarioExportOptions = {}): Scenario | undefined {
@@ -273,6 +338,17 @@ export class DevtoolsRuntime {
     const deleted = this.sessionStore.delete(sessionId);
     if (deleted) this.emit("history", this.getHistory());
     return deleted;
+  }
+
+  /** Delete every saved run except the live session. */
+  clearHistory(): number {
+    let removed = 0;
+    for (const session of this.sessionStore.list()) {
+      if (session.id === this.session.id) continue;
+      if (this.sessionStore.delete(session.id)) removed += 1;
+    }
+    this.emit("history", this.getHistory());
+    return removed;
   }
 
   setBaseline(sessionId: string, name?: string): InspectorSession | null {
@@ -315,17 +391,87 @@ export class DevtoolsRuntime {
     return compareRuns(baseline, candidate, options);
   }
 
-  reset(update?: RuntimeConfigUpdate & { conversationState?: ConversationState }): InspectorSession {
+  reset(
+    update?: RuntimeConfigUpdate & { conversationState?: ConversationState; contact?: SessionContact | null; from?: string }
+  ): InspectorSession {
+    let contact: SessionContact | undefined;
+    let from: string | undefined;
     if (update) {
-      const { conversationState, ...configUpdate } = update;
+      const { conversationState, contact: nextContact, from: nextFrom, ...configUpdate } = update;
       this.config = { ...this.config, ...parseRuntimeConfigUpdate(configUpdate) };
       this.conversationState = conversationState ?? null;
+      contact = nextContact ?? undefined;
+      from = nextFrom;
     } else {
       this.conversationState = null;
     }
     if (isUntouchedSession(this.session)) this.sessionStore.delete(this.session.id);
     this.history.length = 0;
+    this.clockOffsetMs = 0;
+    this.callerNumber = undefined;
     this.session = this.newSession();
+    // A scenario's `from` binds the run to a known contact when one has that
+    // number; otherwise it is still the number the payload reports.
+    if (!contact && from) contact = this.resolveContact(from);
+    if (contact) this.session.contact = { ...contact };
+    else if (from) this.callerNumber = from;
+    this.publishState();
+    return this.getState();
+  }
+
+  /** Look a caller number up in the contacts the server knows about. */
+  resolveContact(number: string | undefined): SessionContact | undefined {
+    if (!number || !this.contactResolver) return undefined;
+    const contact = this.contactResolver(number);
+    return contact ? { id: contact.id, name: contact.name, number: contact.number } : undefined;
+  }
+
+  setContactResolver(resolver: ((number: string) => SessionContact | undefined) | undefined): void {
+    this.contactResolver = resolver;
+  }
+
+  /** Current simulated time (real time plus the virtual-clock offset). */
+  now(): string {
+    return isoNow(new Date(Date.now() + this.clockOffsetMs));
+  }
+
+  clockOffset(): number {
+    return this.clockOffsetMs;
+  }
+
+  /** Move the simulated clock forward. Never waits; only future timestamps change. */
+  advanceClock(ms: number): InspectorSession {
+    if (!Number.isFinite(ms) || ms < 0) throw new Error("Clock can only move forward");
+    this.clockOffsetMs += Math.round(ms);
+    this.session.clockOffsetMs = this.clockOffsetMs;
+    this.pushLog(`Simulated clock advanced by ${formatOffset(ms)}`);
+    this.publishState();
+    return this.getState();
+  }
+
+  /** Pin the simulated clock to an absolute time (scenario startAt). */
+  setClock(iso: string): InspectorSession {
+    const target = Date.parse(iso);
+    if (Number.isNaN(target)) throw new Error(`Invalid clock time: ${iso}`);
+    this.clockOffsetMs = target - Date.now();
+    this.session.clockOffsetMs = this.clockOffsetMs;
+    this.publishState();
+    return this.getState();
+  }
+
+  /**
+   * Record an outbound message the business sent outside the webhook — a
+   * campaign opener or scheduled follow-up sent through the send API. It
+   * enters the transcript and rolling history so later inbound replies
+   * reach the handler with the real context; nothing is delivered for it.
+   */
+  seedAgentMessage(text: string, channel: SessionChannel = this.config.channel): InspectorSession {
+    const content = text.trim();
+    if (!content) throw new Error("Outbound message text must not be empty");
+    this.session.status = "running";
+    if (this.session.transcript.length === 0) this.session.channel = channel;
+    this.pushTranscript({ role: "agent", content }, this.now(), channel);
+    (this.session.outboundSeeds ??= []).push(this.session.transcript.length - 1);
     this.publishState();
     return this.getState();
   }
@@ -340,10 +486,11 @@ export class DevtoolsRuntime {
     };
   }
 
-  async sendCallerTurn(text: string, channel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
+  async sendCallerTurn(text: string, channel: SessionChannel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
     this.session.status = "running";
-    const timestamp = isoNow();
+    const timestamp = this.now();
     const recentHistory = scenarioToRecentHistory(this.history, this.config.contextLimit);
+    const from = this.session.contact?.number ?? this.callerNumber;
     const payload =
       channel === "voice"
         ? buildVoiceMessageEvent({
@@ -352,7 +499,8 @@ export class DevtoolsRuntime {
             callId: this.session.callId,
             agentId: "agt_local",
             conversationState: this.conversationState,
-            recentHistory
+            recentHistory,
+            ...(from ? { from } : {})
           })
         : buildMessageEvent({
             message: text,
@@ -361,9 +509,13 @@ export class DevtoolsRuntime {
             conversationId: this.session.conversationId,
             agentId: "agt_local",
             conversationState: this.conversationState,
-            recentHistory
+            recentHistory,
+            ...(from ? { from } : {})
           });
 
+    // A run's channel is whatever its first turn used, so a session opened
+    // on the CLI default can still become an iMessage thread or a call.
+    if (this.session.transcript.length === 0) this.session.channel = channel;
     this.pushTranscript({ role: "user", content: text }, timestamp, channel);
     const delivery = await this.dispatchAndRecord(payload, fault);
     this.recordAgentResponse(delivery, channel);
@@ -373,7 +525,7 @@ export class DevtoolsRuntime {
 
   async endCall(options: { disconnectionReason?: string; callSuccessful?: boolean } = {}): Promise<InspectorDelivery | null> {
     this.session.status = "ended";
-    this.session.endedAt = isoNow();
+    this.session.endedAt = this.now();
 
     if (this.session.channel !== "voice") {
       this.publishState();
@@ -403,14 +555,21 @@ export class DevtoolsRuntime {
       timeoutSeconds: overrides.timeoutSeconds ?? scenario.timeoutSeconds,
       contextLimit: overrides.contextLimit ?? scenario.contextLimit,
       retryOnNon200: overrides.retryOnNon200 ?? this.config.retryOnNon200,
-      conversationState: scenario.conversationState
+      conversationState: scenario.conversationState,
+      from: scenario.from
     });
 
     this.pushLog(`Running scenario: ${scenario.name}`);
+    if (scenario.startAt) this.setClock(scenario.startAt);
     this.publishState();
 
     const turnDeliveries: InspectorDelivery[] = [];
     for (const turn of scenario.turns) {
+      if (turn.after !== undefined) this.advanceClock(parseDuration(turn.after));
+      if (!isCallerTurn(turn)) {
+        this.seedAgentMessage(turn.agent, scenario.channel);
+        continue;
+      }
       turnDeliveries.push(await this.sendCallerTurn(turn.caller, scenario.channel, turn.fault));
       if (turn.waitMs) await new Promise((resolve) => setTimeout(resolve, turn.waitMs));
     }
@@ -505,14 +664,17 @@ export class DevtoolsRuntime {
     const source = this.getHistorySession(sourceSessionId);
     if (!source) throw new Error(`No run found with id ${sourceSessionId}`);
     const totalCallerTurns = source.transcript.filter((turn) => turn.role === "user").length;
-    if (!Number.isInteger(callerTurns) || callerTurns < 1 || callerTurns > totalCallerTurns) {
-      throw new Error(`Fork point must be a completed caller turn between 1 and ${totalCallerTurns}`);
+    const leadingSeeds = (source.outboundSeeds ?? []).length > 0;
+    const minimumTurn = leadingSeeds ? 0 : 1;
+    if (!Number.isInteger(callerTurns) || callerTurns < minimumTurn || callerTurns > totalCallerTurns) {
+      throw new Error(`Fork point must be a completed caller turn between ${minimumTurn} and ${totalCallerTurns}`);
     }
 
     const forkingLive = sourceSessionId === this.session.id;
     const conversationState = forkingLive
       ? structuredClone(this.conversationState)
-      : extractConversationState(source, callerTurns);
+      : extractConversationState(source, Math.max(callerTurns, 1));
+    const sourceClockOffset = forkingLive ? this.clockOffsetMs : source.clockOffsetMs ?? 0;
     if (forkingLive) this.persistSession();
 
     // Prefix ends just before the caller turn after the fork point, so the
@@ -533,18 +695,29 @@ export class DevtoolsRuntime {
       (delivery) => delivery.event === "agent.message" && !delivery.replayOf
     );
 
-    this.reset({ channel: source.channel, conversationState });
+    this.reset({ channel: source.channel, conversationState, contact: source.contact ?? null });
     this.session.forkedFrom = { sessionId: source.id, turnIndex: callerTurns };
     this.session.status = "running";
-    // Each inherited turn keeps its own delivery's timestamp, so the forked
-    // run's recentHistory reflects the source's real timing rather than
-    // collapsing every prefix turn onto the run's start time.
+    // Each inherited turn keeps its own timestamp (the source's per-turn
+    // record when present, else its delivery's), so the forked run's
+    // recentHistory reflects the source's real timing.
     let prefixCallerIndex = -1;
-    for (const turn of prefix) {
+    prefix.forEach((turn, index) => {
       if (turn.role === "user") prefixCallerIndex += 1;
-      const at = sourceTurnDeliveries[prefixCallerIndex]?.timestamp ?? source.startedAt;
+      const at =
+        source.turnTimes?.[index] ??
+        (prefixCallerIndex >= 0 ? sourceTurnDeliveries[prefixCallerIndex]?.timestamp : undefined) ??
+        source.startedAt;
       this.pushTranscript({ ...turn }, at, source.channel);
-    }
+    });
+    const inheritedSeeds = (source.outboundSeeds ?? []).filter((index) => index < prefix.length);
+    if (inheritedSeeds.length) this.session.outboundSeeds = [...inheritedSeeds];
+    // The branch continues from the source's simulated time, never earlier
+    // than its last inherited turn.
+    const lastInheritedAt = this.history.at(-1)?.at;
+    const lastInheritedOffset = lastInheritedAt ? Date.parse(lastInheritedAt) - Date.now() : Number.NEGATIVE_INFINITY;
+    this.clockOffsetMs = Math.max(sourceClockOffset, lastInheritedOffset);
+    this.session.clockOffsetMs = this.clockOffsetMs;
     this.session.deliveries = sourceTurnDeliveries
       .slice(0, callerTurns)
       .map((delivery) => ({ ...structuredClone(delivery), inheritedFrom: { sessionId: source.id } }));
@@ -643,15 +816,16 @@ export class DevtoolsRuntime {
     return { result, retries };
   }
 
-  private recordAgentResponse(delivery: InspectorDelivery, channel: "sms" | "voice"): void {
+  private recordAgentResponse(delivery: InspectorDelivery, channel: SessionChannel): void {
     const parsed = delivery.response.parsed;
     const responseText = parsed.final?.text ?? parsed.chunks.find((chunk) => chunk.text && !chunk.interim)?.text ?? fallbackSmsText(delivery);
     if (!responseText) return;
-    this.pushTranscript({ role: "agent", content: responseText }, isoNow(), channel);
+    this.pushTranscript({ role: "agent", content: responseText }, this.now(), channel);
   }
 
-  private pushTranscript(turn: TranscriptTurn, at: string, channel: "sms" | "voice"): void {
+  private pushTranscript(turn: TranscriptTurn, at: string, channel: SessionChannel): void {
     this.session.transcript.push(turn);
+    (this.session.turnTimes ??= []).push(at);
     this.history.push({ ...turn, at, channel });
   }
 
@@ -675,9 +849,12 @@ export class DevtoolsRuntime {
       deliveries: [],
       warnings: [],
       logs: [],
+      turnTimes: [],
+      clockOffsetMs: this.clockOffsetMs,
       runSettings: {
         contextLimit: this.config.contextLimit,
-        timeoutSeconds: this.config.timeoutSeconds
+        timeoutSeconds: this.config.timeoutSeconds,
+        retryOnNon200: this.config.retryOnNon200 === true
       }
     };
   }
@@ -706,6 +883,11 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   const app = Fastify({ logger: false });
   const runtime = new DevtoolsRuntime(config);
   const step: StepController = new StepController(runtime, () => runtime.publishEvent("step", step.state()));
+  const dataDir = dirname(config.historyPath);
+  const contacts = new ContactsStore(join(dataDir, "contacts.json"));
+  const environments = new EnvironmentsStore(join(dataDir, "environments.json"));
+  runtime.setContactResolver((number) => contacts.list().find((contact) => contact.number === number));
+  const scenarioDirectories = ["examples/scenarios", "examples/messaging", "examples/compliance", "examples/faults", ".agentphone-devtools/exports"];
 
   await app.register(cors, { origin: true });
 
@@ -763,6 +945,31 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     }
   );
 
+  // Save a run as a scenario file under .agentphone-devtools/exports so it
+  // shows up in the scenario picker and can be replayed or run in CI.
+  app.post<{ Params: { sessionId: string }; Body: { name?: string; assertions?: boolean; format?: "yaml" | "json" } }>(
+    "/api/history/:sessionId/export",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const scenario = runtime.getScenarioExport(request.params.sessionId, { scaffoldAssertions: body.assertions !== false });
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      const trimmedName = (body.name ?? "").trim();
+      if (trimmedName) scenario.name = trimmedName;
+      const format = body.format === "json" ? "json" : "yaml";
+      const slug = (trimmedName || `run-${request.params.sessionId}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || `run-${request.params.sessionId}`;
+      const directory = resolve(process.cwd(), ".agentphone-devtools/exports");
+      mkdirSync(directory, { recursive: true });
+      const filePath = join(directory, `${slug}.${format}`);
+      writeFileSync(filePath, format === "json" ? stringifyScenarioJson(scenario) : stringifyScenarioYaml(scenario), "utf8");
+      return { path: `.agentphone-devtools/exports/${slug}.${format}`, name: scenario.name, turns: scenario.turns.length };
+    }
+  );
+
   app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     if (request.params.sessionId === runtime.getState().id) {
       return reply.code(409).send({ error: "the active session cannot be deleted" });
@@ -815,7 +1022,7 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   });
 
   app.post<{
-    Body: { text: string; channel?: "sms" | "voice"; fault?: DeliveryFault };
+    Body: { text: string; channel?: SessionChannel; fault?: DeliveryFault };
   }>("/api/send", async (request, reply) => {
     if (!request.body?.text) return reply.code(400).send({ error: "text is required" });
     return runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
@@ -879,12 +1086,44 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
 
   app.get("/api/step", async () => step.state());
 
-  app.post<{ Body: { scenarioPath?: string; sessionId?: string } }>("/api/step/start", async (request, reply) => {
+  app.post<{
+    Body: { scenarioPath?: string; sessionId?: string; contactId?: string; channel?: SessionChannel; blank?: boolean };
+  }>("/api/step/start", async (request, reply) => {
     const body = request.body ?? {};
     try {
-      if (body.scenarioPath) return step.startFromScenario(await loadScenarioFile(body.scenarioPath));
+      const contact = body.contactId ? contacts.get(body.contactId) : undefined;
+      if (body.contactId && !contact) return reply.code(404).send({ error: "contact not found" });
+      const sessionContact = contact ? { id: contact.id, name: contact.name, number: contact.number } : undefined;
+      if (body.scenarioPath) return step.startFromScenario(await loadScenarioFile(body.scenarioPath), sessionContact);
       if (body.sessionId) return step.startFromSession(body.sessionId);
-      return reply.code(400).send({ error: "scenarioPath or sessionId is required" });
+      if (body.blank || contact) {
+        return step.startBlank(body.channel ?? contact?.channel ?? runtime.getState().channel, sessionContact, contact?.conversationState ?? null);
+      }
+      return reply.code(400).send({ error: "scenarioPath, sessionId, contactId, or blank is required" });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/step/drop", async (_request, reply) => {
+    try {
+      return step.dropNext();
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { duration?: string | number } }>("/api/step/warp", async (request, reply) => {
+    try {
+      return step.warp(request.body?.duration ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { text?: string; after?: string | number } }>("/api/step/agent", async (request, reply) => {
+    try {
+      return step.addAgentTurn(request.body?.text ?? "", request.body?.after);
     } catch (error) {
       return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
     }
@@ -956,6 +1195,130 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     if (!delivery) return reply.code(404).send({ error: "source delivery not found" });
     return delivery;
   });
+
+  // ── Simulated clock ───────────────────────────────────────────────────────
+  app.get("/api/clock", async () => ({ offsetMs: runtime.clockOffset(), now: runtime.now() }));
+
+  app.post<{ Body: { duration?: string | number } }>("/api/clock/advance", async (request, reply) => {
+    try {
+      const ms = parseDuration(request.body?.duration ?? "");
+      runtime.advanceClock(ms);
+      step.state();
+      runtime.publishEvent("step", step.state());
+      return { offsetMs: runtime.clockOffset(), now: runtime.now() };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { at?: string } }>("/api/clock/set", async (request, reply) => {
+    try {
+      runtime.setClock(request.body?.at ?? "");
+      runtime.publishEvent("step", step.state());
+      return { offsetMs: runtime.clockOffset(), now: runtime.now() };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ── Outbound seeds (campaign openers, follow-ups sent outside the webhook) ─
+  app.post<{ Body: { text?: string; channel?: SessionChannel } }>("/api/seed-agent-message", async (request, reply) => {
+    try {
+      return runtime.seedAgentMessage(request.body?.text ?? "", request.body?.channel);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ── Conversations: start a fresh live session with a contact ─────────────
+  app.post<{ Body: { contactId?: string; channel?: SessionChannel; conversationState?: ConversationState } }>(
+    "/api/conversations/start",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const contact = body.contactId ? contacts.get(body.contactId) : undefined;
+      if (body.contactId && !contact) return reply.code(404).send({ error: "contact not found" });
+      try {
+        return runtime.reset({
+          ...(body.channel ?? contact?.channel ? { channel: body.channel ?? contact?.channel } : {}),
+          conversationState: body.conversationState ?? contact?.conversationState ?? null,
+          ...(contact ? { contact: { id: contact.id, name: contact.name, number: contact.number } } : {})
+        });
+      } catch (error) {
+        return sendConfigValidationError(reply, error);
+      }
+    }
+  );
+
+  // ── Scenario discovery ────────────────────────────────────────────────────
+  app.get("/api/scenarios", async () => listScenarios(scenarioDirectories));
+
+  // ── Contacts ──────────────────────────────────────────────────────────────
+  app.get("/api/contacts", async () => contacts.list());
+  app.post<{ Body: ContactInput }>("/api/contacts", async (request, reply) => {
+    try {
+      return contacts.upsert(request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.put<{ Params: { contactId: string }; Body: ContactInput }>("/api/contacts/:contactId", async (request, reply) => {
+    if (!contacts.get(request.params.contactId)) return reply.code(404).send({ error: "contact not found" });
+    try {
+      return contacts.upsert({ ...request.body, id: request.params.contactId });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.delete<{ Params: { contactId: string } }>("/api/contacts/:contactId", async (request, reply) => {
+    if (!contacts.delete(request.params.contactId)) return reply.code(404).send({ error: "contact not found" });
+    return reply.code(204).send();
+  });
+
+  // ── Environments (sub-accounts): named simulator targets ──────────────────
+  app.get("/api/environments", async () => ({
+    active: { targetUrl: runtime.getState().targetUrl, secretPreview: runtime.getState().secretPreview, channel: runtime.getState().channel },
+    environments: environments.list()
+  }));
+  app.post<{ Body: EnvironmentInput }>("/api/environments", async (request, reply) => {
+    try {
+      return environments.upsert(request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.put<{ Params: { environmentId: string }; Body: EnvironmentInput }>("/api/environments/:environmentId", async (request, reply) => {
+    if (!environments.get(request.params.environmentId)) return reply.code(404).send({ error: "environment not found" });
+    try {
+      return environments.upsert({ ...request.body, id: request.params.environmentId });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.delete<{ Params: { environmentId: string } }>("/api/environments/:environmentId", async (request, reply) => {
+    if (!environments.delete(request.params.environmentId)) return reply.code(404).send({ error: "environment not found" });
+    return reply.code(204).send();
+  });
+  app.post<{ Params: { environmentId: string } }>("/api/environments/:environmentId/activate", async (request, reply) => {
+    const environment = environments.get(request.params.environmentId);
+    if (!environment) return reply.code(404).send({ error: "environment not found" });
+    try {
+      return runtime.reset({
+        targetUrl: environment.targetUrl,
+        secret: environment.secret,
+        ...(environment.channel ? { channel: environment.channel } : {})
+      });
+    } catch (error) {
+      return sendConfigValidationError(reply, error);
+    }
+  });
+
+  // ── Usage / overview aggregates ───────────────────────────────────────────
+  app.get("/api/stats", async () => {
+    const sessions = runtime.getHistory().map((summary) => runtime.getHistorySession(summary.id)).filter((session): session is InspectorSession => Boolean(session));
+    return computeUsageStats(sessions);
+  });
+
+  app.delete("/api/history", async () => ({ removed: runtime.clearHistory() }));
 
   app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
@@ -1090,8 +1453,25 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     deliveries: session.deliveries.length,
     baselineName: session.baseline?.name,
     ...(session.forkedFrom ? { forkedFrom: session.forkedFrom } : {}),
-    ...(session.scenarioResult ? { scenarioPassed: session.scenarioResult.passed } : {})
+    ...(session.scenarioResult ? { scenarioPassed: session.scenarioResult.passed } : {}),
+    ...(session.contact ? { contact: session.contact } : {}),
+    ...(session.deliveries.length
+      ? {
+          averageLatencyMs: Math.round(
+            session.deliveries.reduce((total, delivery) => total + delivery.latencyMs, 0) / session.deliveries.length
+          )
+        }
+      : {}),
+    ...(session.transcript.length ? { lastMessage: session.transcript[session.transcript.length - 1].content } : {}),
+    lastActivityAt: session.turnTimes?.at(-1) ?? session.endedAt ?? session.startedAt
   };
+}
+
+function formatOffset(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 172_800_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
 }
 
 function isUntouchedSession(session: InspectorSession): boolean {

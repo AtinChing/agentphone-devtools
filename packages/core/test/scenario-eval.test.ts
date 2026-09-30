@@ -90,3 +90,76 @@ turns:
     expect(() => parseScenario(yaml("(unclosed"), "s.yaml")).toThrow(/valid regular expression/);
   });
 });
+
+describe("messaging scenarios: agent turns, simulated time, forbidden actions", () => {
+  const campaign: Scenario = {
+    ...scenario,
+    channel: "imessage",
+    startAt: "2026-09-14T16:00:00.000Z",
+    turns: [
+      { agent: "Hi Jordan, fall tune-up special. Reply YES to claim." },
+      { caller: "YES", after: "2h", expect: { actions: ["issue_promo_code"], forbiddenActions: ["opt_out"], replyMatches: "FALL20" } },
+      { caller: "Thanks!", expect: { actions: ["campaign_closed"] } }
+    ]
+  };
+
+  it("only caller turns consume deliveries; agent turns are seeded history", () => {
+    const result = evaluateScenario(campaign, {
+      turns: [
+        { ok: true, status: 200, responses: [{ text: "Your code is FALL20", action: "issue_promo_code" }] },
+        { ok: true, status: 200, responses: [{ text: "See you soon", action: "campaign_closed" }] }
+      ]
+    });
+
+    expect(result.passed).toBe(true);
+    expect(result.assertions.map((assertion) => assertion.turnIndex)).toEqual([1, 1, 1, 1, 2, 2]);
+    expect(result.assertions.map((assertion) => assertion.kind)).toEqual(["delivery", "reply", "action", "action", "delivery", "action"]);
+  });
+
+  it("fails a forbidden action that was observed", () => {
+    const result = evaluateScenario(campaign, {
+      turns: [
+        { ok: true, status: 200, responses: [{ text: "Your code is FALL20", action: "issue_promo_code" }, { action: "opt_out" }] },
+        { ok: true, status: 200, responses: [{ action: "campaign_closed" }] }
+      ]
+    });
+
+    const forbidden = result.assertions.find((assertion) => assertion.expected === "no opt_out");
+    expect(forbidden?.passed).toBe(false);
+    expect(result.passed).toBe(false);
+  });
+
+  it("parses agent turns, durations, and startAt from YAML", () => {
+    const parsed = parseScenario(`
+name: Campaign
+channel: imessage
+startAt: "2026-09-14T16:00:00Z"
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 5
+turns:
+  - agent: "Fall tune-up special. Reply YES."
+  - caller: YES
+    after: 10d
+    expect:
+      actions: [promo_expired]
+      forbiddenActions: [issue_promo_code]
+`);
+    expect(parsed.channel).toBe("imessage");
+    expect(parsed.startAt).toBe("2026-09-14T16:00:00Z");
+    expect(parsed.turns[0]).toEqual({ agent: "Fall tune-up special. Reply YES." });
+    expect(parsed.turns[1]).toMatchObject({ caller: "YES", after: "10d" });
+  });
+
+  it("rejects scenarios with no caller turn, bad durations, or bad startAt", () => {
+    const base = { ...campaign, turns: [{ caller: "hi" }] };
+    expect(() => parseScenario(JSON.stringify({ ...base, turns: [{ agent: "only outbound" }] }))).toThrow();
+    expect(() => parseScenario(JSON.stringify({ ...base, turns: [{ caller: "hi", after: "2 days" }] }))).toThrow(/duration/i);
+    expect(() => parseScenario(JSON.stringify({ ...base, startAt: "yesterday" }))).toThrow();
+    expect(() => parseScenario(JSON.stringify({ ...base, channel: "pigeon" }))).toThrow();
+  });
+});

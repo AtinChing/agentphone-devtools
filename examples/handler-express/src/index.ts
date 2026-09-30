@@ -26,12 +26,20 @@ app.post("/webhook", express.raw({ type: "application/json" }), (request, respon
     return;
   }
 
-  const payload = JSON.parse(rawBody) as {
+  let payload: {
     event: "agent.message" | "agent.call_ended";
-    channel: "sms" | "voice";
+    channel: "sms" | "mms" | "imessage" | "whatsapp" | "voice";
     data: Record<string, unknown>;
+    timestamp?: string;
     recentHistory?: RecentHistoryItem[];
   };
+  try {
+    payload = JSON.parse(rawBody);
+  } catch {
+    // A signed but unparseable body is a client error, not a crash.
+    response.status(400).json({ error: "malformed JSON body" });
+    return;
+  }
 
   if (payload.event === "agent.call_ended") {
     response.status(200).json({ ok: true });
@@ -40,13 +48,15 @@ app.post("/webhook", express.raw({ type: "application/json" }), (request, respon
 
   const callerText = String(payload.channel === "voice" ? payload.data.transcript ?? "" : payload.data.message ?? "");
   const recentHistory = Array.isArray(payload.recentHistory) ? payload.recentHistory : [];
-  const reply = answer(callerText, recentHistory);
+  // Time-dependent logic reads the event's own timestamp, never the wall
+  // clock, so replayed and simulated conversations behave like the originals.
+  const nowMs = Date.parse(String(payload.timestamp ?? "")) || Date.now();
+  const reply = answer(callerText, recentHistory, nowMs);
 
-  if (payload.channel === "voice") {
-    response.json(reply);
-  } else {
-    response.type("text/plain").send(reply.text);
-  }
+  // Message channels accept plain text or a JSON object. Replying with the
+  // object form keeps the action fields visible, so message conversations can
+  // be asserted on exactly like voice ones.
+  response.json(reply);
 });
 
 app.listen(port, () => {
@@ -54,8 +64,43 @@ app.listen(port, () => {
   console.log(`Webhook secret: ${secret}`);
 });
 
-function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
+const BUSINESS = "North Lot EV Charging";
+const PROMO_OPENER = /fall tune-up special/i;
+const PROMO_WINDOW_MS = 7 * 24 * 60 * 60 * 1000;
+
+function answer(text: string, recentHistory: RecentHistoryItem[] = [], nowMs = Date.now()) {
   const normalized = text.toLowerCase();
+  const trimmed = normalized.trim();
+
+  // ── Messaging compliance: carrier keywords and opt-out memory ────────────
+  // Bare keywords are exact-match on the whole message so "cancel my
+  // appointment" is never mistaken for a CANCEL opt-out.
+  if (/^(stop|stopall|unsubscribe|end|quit|cancel)\W*$/.test(trimmed)) {
+    return {
+      text: `You have been unsubscribed from ${BUSINESS} messages and will not receive more. Reply START to resubscribe.`,
+      action: "opt_out"
+    };
+  }
+  if (/^(help|info)\W*$/.test(trimmed)) {
+    return {
+      text: `${BUSINESS}: automated assistant for service updates and offers. Reply STOP to unsubscribe. Support: help@northlot.example or +1 555 010 0199.`,
+      action: "help"
+    };
+  }
+  if (/^(start|unstop|subscribe)\W*$/.test(trimmed)) {
+    return {
+      text: `You are resubscribed to ${BUSINESS} messages. Reply STOP to opt out anytime.`,
+      action: "resubscribe"
+    };
+  }
+  // An opted-out number gets no marketing, however long ago the STOP was —
+  // the memory lives in the conversation history the platform carries.
+  if (isOptedOut(recentHistory)) {
+    return {
+      text: "This number is currently unsubscribed, so I can't send offers or details. Reply START to resubscribe.",
+      action: "opt_out_reminder"
+    };
+  }
 
   // Compliance rules come before everything else — an opt-out or a
   // disclosure question must be honored no matter where the conversation is.
@@ -104,6 +149,41 @@ function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
       text: "Just to be sure: cancelling forfeits the $25 deposit. Should I go ahead — yes or no?",
       action: "confirm_cancellation"
     };
+  }
+
+  // ── Campaign replies (the opener was sent outside the webhook) ───────────
+  const openerAt = campaignOpenerTime(recentHistory);
+  if (openerAt !== undefined) {
+    if (/\b(no thanks|no thank you|not (right )?now|not interested|maybe later|pass|no$)\b/.test(normalized)) {
+      return {
+        text: "No problem — I won't follow up about this offer. Text us anytime if you'd like to book.",
+        action: "campaign_declined"
+      };
+    }
+    if (/\b(what|which|how much|include|cover|details|tell me more|more info)\b/.test(normalized)) {
+      return {
+        text: "The tune-up includes a full connector inspection, cable check, and firmware update — about 45 minutes. Reply YES to claim 20% off.",
+        action: "campaign_info"
+      };
+    }
+    if (/\b(yes|yeah|yep|sure|claim|sign me up|i'm in|im in|interested|book)\b/.test(normalized)) {
+      if (nowMs - openerAt > PROMO_WINDOW_MS) {
+        return {
+          text: `That fall special ended on ${new Date(openerAt + PROMO_WINDOW_MS).toDateString()}. Our current offer is 10% off tune-ups booked this month — reply YES if you'd like that instead.`,
+          action: "promo_expired"
+        };
+      }
+      return {
+        text: "You're in! Your code is FALL20 — show it at check-in for 20% off any service. Offer valid through the end of the week.",
+        action: "issue_promo_code"
+      };
+    }
+    if (/\b(thank|thanks|perfect|great)\b/.test(normalized)) {
+      return {
+        text: "You're welcome! Show code FALL20 at check-in. See you soon.",
+        action: "campaign_closed"
+      };
+    }
   }
 
   if (/\b(thank|thanks|done|working|perfect)\b/.test(normalized)) {
@@ -170,6 +250,26 @@ function answer(text: string, recentHistory: RecentHistoryItem[] = []) {
 function hasAppointmentContext(normalized: string, recentHistory: RecentHistoryItem[]) {
   if (/\b(appointment|cancel)/.test(normalized)) return true;
   return recentHistory.some((item) => /\b(appointment|cancel)/.test(String(item?.content ?? "").toLowerCase()));
+}
+
+/** When the campaign opener was sent, from the outbound history the platform carries. */
+function campaignOpenerTime(recentHistory: RecentHistoryItem[]): number | undefined {
+  const opener = recentHistory.find((item) => item?.direction === "outbound" && PROMO_OPENER.test(String(item?.content ?? "")));
+  if (!opener) return undefined;
+  const at = Date.parse(String(opener.at ?? ""));
+  return Number.isFinite(at) ? at : undefined;
+}
+
+/** Opted out = the agent confirmed an unsubscribe and has not confirmed a resubscribe since. */
+function isOptedOut(recentHistory: RecentHistoryItem[]): boolean {
+  let optedOut = false;
+  for (const item of recentHistory) {
+    if (item?.direction !== "outbound") continue;
+    const content = String(item?.content ?? "");
+    if (/have been unsubscribed/i.test(content)) optedOut = true;
+    if (/resubscribed to/i.test(content)) optedOut = false;
+  }
+  return optedOut;
 }
 
 /** True when the agent's most recent reply was the deposit confirmation question. */

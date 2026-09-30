@@ -15,8 +15,8 @@ import type {
 
 const phoneNumberSchema = z.string().regex(/^\+\d{8,15}$/);
 const directionSchema = z.enum(["inbound", "outbound"]);
-const channelSchema = z.enum(["sms", "mms", "imessage", "voice"]);
-const messageChannelSchema = z.enum(["sms", "mms", "imessage"]);
+const channelSchema = z.enum(["sms", "mms", "imessage", "whatsapp", "voice"]);
+const messageChannelSchema = z.enum(["sms", "mms", "imessage", "whatsapp"]);
 const isoDateSchema = z.string().datetime({ offset: true });
 
 export const recentHistoryItemSchema = z

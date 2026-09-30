@@ -1,0 +1,24 @@
+name: Campaign reply — question first
+description: The customer asks what the offer covers before committing; the agent answers, then issues the code on YES.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876545"
+to: "+15551234567"
+conversationState:
+  customerName: Priya Natarajan
+  tier: gold
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - agent: "Hi Priya, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - caller: "What does the tune-up include?"
+    after: 25m
+    expect:
+      actions:
+        - campaign_info
+  - caller: "Ok yes, sign me up"
+    after: 5m
+    expect:
+      actions:
+        - issue_promo_code
