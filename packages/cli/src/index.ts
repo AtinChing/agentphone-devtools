@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
@@ -135,6 +135,15 @@ async function main() {
 }
 
 function startUi(uiPort: number, serverUrl: string): ChildProcess {
+  // `next build` and `next dev` share .next; leftover production artifacts
+  // make the dev server load mismatched chunks ("__webpack_modules__[moduleId]
+  // is not a function"). A BUILD_ID only exists after a production build, so
+  // its presence means the cache must go before dev starts.
+  const nextDir = join(uiDir, ".next");
+  if (existsSync(join(nextDir, "BUILD_ID"))) {
+    rmSync(nextDir, { recursive: true, force: true });
+    console.log("Cleared a production build from packages/ui/.next so the dev server starts clean.");
+  }
   const child = spawn(process.execPath, [nextBin, "dev", "-p", String(uiPort), "-H", "127.0.0.1"], {
     cwd: uiDir,
     env: {
