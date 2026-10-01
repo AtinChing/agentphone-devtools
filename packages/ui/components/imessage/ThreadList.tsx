@@ -30,10 +30,10 @@ export function ThreadList({
 }) {
   const empty = groups.length === 0;
   return (
-    <aside className="flex w-[300px] shrink-0 flex-col border-r border-line" style={{ background: LIST_BG }}>
+    <aside className="flex w-[300px] shrink-0 flex-col border-r border-white/[0.06]" style={{ background: LIST_BG }}>
       <div className="flex items-center gap-2 px-3 pb-2 pt-3">
         <div className="relative min-w-0 flex-1">
-          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-slate-400" />
+          <Search size={14} className="pointer-events-none absolute left-2.5 top-1/2 -translate-y-1/2 text-white/40" />
           <input
             value={query}
             onChange={(event) => onQuery(event.target.value)}
@@ -42,14 +42,14 @@ export function ThreadList({
             }}
             placeholder="Search"
             aria-label="Search conversations"
-            className="h-8 w-full rounded-lg border border-transparent bg-[#232321] pl-8 pr-7 text-[13px] text-bright outline-none placeholder:text-slate-400 focus:border-[#1f8fff]/60"
+            className="focus-ring h-8 w-full rounded-[10px] bg-input pl-8 pr-7 text-[13px] text-white placeholder:text-white/40"
           />
           {query ? (
             <button
               type="button"
               onClick={() => onQuery("")}
               aria-label="Clear search"
-              className="absolute right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full bg-slate-400 text-[#121211]"
+              className="absolute right-1.5 top-1/2 flex h-4 w-4 -translate-y-1/2 items-center justify-center rounded-full bg-white/40 text-[#161616] hover:bg-white/60"
             >
               <X size={10} strokeWidth={3} />
             </button>
@@ -60,7 +60,7 @@ export function ThreadList({
           onClick={onNew}
           title="New message"
           aria-label="New message"
-          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg text-slate-600 transition hover:bg-mist hover:text-bright"
+          className="focus-ring flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           <SquarePen size={17} />
         </button>
@@ -68,14 +68,14 @@ export function ThreadList({
 
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {composing ? (
-          <div className="relative mb-0.5 flex items-center gap-3 rounded-xl bg-mist px-3 py-2.5">
+          <div className="relative mb-0.5 flex items-center gap-3 rounded-[12px] bg-white/[0.06] px-3 py-2.5">
             <span className="absolute bottom-2 left-0 top-2 w-[3px] rounded-full" style={{ background: CHANNELS[composing.channel].accent }} />
-            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-[#3a3a38] text-slate-600">
+            <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-white/[0.08] text-white/60">
               <SquarePen size={16} />
             </span>
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[14px] font-semibold text-bright">{composing.name ? `To: ${composing.name}` : "New Message"}</span>
-              <span className="block text-[12.5px] text-slate-500">Draft</span>
+              <span className="block truncate text-[14px] font-semibold text-white">{composing.name ? `To: ${composing.name}` : "New Message"}</span>
+              <span className="block text-[12.5px] text-text-secondary">Draft</span>
             </span>
           </div>
         ) : null}
@@ -84,9 +84,9 @@ export function ThreadList({
           <div key={group.key}>
             {group.header ? (
               <div className="flex items-baseline gap-2 px-3 pb-1 pt-3">
-                <span className="truncate text-[11px] font-semibold uppercase tracking-[0.06em] text-slate-500">{group.header.title}</span>
-                {group.header.subtitle ? <span className="shrink-0 text-[11px] text-slate-400">{group.header.subtitle}</span> : null}
-                <span className="ml-auto shrink-0 text-[10.5px] text-slate-400">{group.header.count}</span>
+                <span className="truncate text-[11px] font-semibold uppercase tracking-[0.08em] text-text-secondary">{group.header.title}</span>
+                {group.header.subtitle ? <span className="shrink-0 text-[11px] text-white/35">{group.header.subtitle}</span> : null}
+                <span className="ml-auto shrink-0 text-[10.5px] tabular-nums text-white/35">{group.header.count}</span>
               </div>
             ) : null}
             {group.rows.map((row) => (
@@ -97,8 +97,8 @@ export function ThreadList({
 
         {empty && !composing ? (
           <div className="px-6 py-14 text-center">
-            <div className="text-[14px] font-semibold text-slate-700">{query ? "No Results" : "No Conversations"}</div>
-            <div className="mt-1.5 text-[12.5px] leading-5 text-slate-500">
+            <div className="text-[14px] font-medium text-white">{query ? "No Results" : "No Conversations"}</div>
+            <div className="mt-1.5 text-[12.5px] leading-5 text-text-dim">
               {query
                 ? `Nothing matches “${query}”.`
                 : connected
@@ -120,8 +120,8 @@ function ThreadRowButton({ row, selected, nested, onSelect }: { row: ThreadRow; 
       type="button"
       onClick={() => onSelect(row)}
       aria-current={selected ? "true" : undefined}
-      className={`relative mb-0.5 flex w-full items-start gap-3 rounded-xl px-3 py-2.5 text-left transition ${
-        selected ? "bg-mist" : "hover:bg-white/[0.035]"
+      className={`relative mb-0.5 flex w-full items-start gap-3 rounded-[12px] px-3 py-2.5 text-left transition-colors ${
+        selected ? "bg-white/[0.06]" : "hover:bg-white/[0.035]"
       }`}
     >
       {selected ? <span className="absolute bottom-2 left-0 top-2 w-[3px] rounded-full" style={{ background: style.accent }} /> : null}
@@ -130,17 +130,17 @@ function ThreadRowButton({ row, selected, nested, onSelect }: { row: ThreadRow; 
         {row.live ? (
           <span
             className="absolute -bottom-0.5 -right-0.5 h-3 w-3 rounded-full bg-[#34c759]"
-            style={{ boxShadow: `0 0 0 2px ${selected ? "#242422" : LIST_BG}` }}
+            style={{ boxShadow: `0 0 0 2px ${selected ? "#242424" : LIST_BG}` }}
             title="Live conversation"
           />
         ) : null}
       </span>
       <span className="min-w-0 flex-1">
         <span className="flex items-baseline gap-2">
-          <span className={`truncate text-[14px] font-semibold ${empty ? "text-slate-700" : "text-bright"}`}>{row.name}</span>
-          <span className="ml-auto shrink-0 text-[12px] text-slate-400">{listTime(row.at)}</span>
+          <span className={`truncate text-[14px] font-semibold ${empty ? "text-white/80" : "text-white"}`}>{row.name}</span>
+          <span className="ml-auto shrink-0 text-[12px] text-text-secondary">{listTime(row.at)}</span>
         </span>
-        <span className={`mt-0.5 line-clamp-2 break-words text-[13px] leading-[17px] ${empty ? "italic text-slate-400" : "text-slate-500"}`}>{row.preview}</span>
+        <span className={`mt-0.5 line-clamp-2 break-words text-[13px] leading-[17px] ${empty ? "italic text-white/40" : "text-text-secondary"}`}>{row.preview}</span>
         <span className="mt-1 flex items-center gap-2">
           <span className="inline-flex items-center gap-1 text-[10.5px] font-semibold" style={{ color: style.text }}>
             <span className="inline-block h-1.5 w-1.5 rounded-full" style={{ background: style.accent }} />
@@ -152,7 +152,7 @@ function ThreadRowButton({ row, selected, nested, onSelect }: { row: ThreadRow; 
               branch
             </span>
           ) : null}
-          {row.live ? <span className="text-[10.5px] font-medium text-[#34c759]">live</span> : row.ended ? <span className="text-[10.5px] text-slate-400">ended</span> : null}
+          {row.live ? <span className="text-[10.5px] font-medium text-[#34c759]">live</span> : row.ended ? <span className="text-[10.5px] text-white/35">ended</span> : null}
         </span>
       </span>
     </button>

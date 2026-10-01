@@ -2,14 +2,13 @@
 
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useState } from "react";
-import { Plus } from "lucide-react";
 import { api, errorMessage } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { EnvironmentsResponse } from "@/lib/types";
-import { Button, Card, Notice, Page, PageHeader, formatRelative } from "@/components/dashboard/ui";
+import { Button, Card, EmptyState, Notice, Page, PageBody, PageHeader, formatRelative } from "@/components/dashboard/ui";
 import { AgentCard, type AgentProfile } from "@/components/dashboard/AgentCard";
 import { AgentCreateModal } from "@/components/dashboard/AgentCreateModal";
-import { ServerOffline, hasTraffic, useRunDetails, useServerOffline } from "@/components/dashboard/RunsShared";
+import { RunsSearch, ServerOffline, hasTraffic, useRunDetails, useServerOffline } from "@/components/dashboard/RunsShared";
 
 /** How many recent runs are fetched in full to read deliveries and actions. */
 const DETAIL_SAMPLE = 30;
@@ -22,6 +21,7 @@ export default function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [busyKey, setBusyKey] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
+  const [query, setQuery] = useState("");
 
   const trafficRuns = useMemo(() => runs.filter(hasTraffic), [runs]);
   const sample = useMemo(() => trafficRuns.slice(0, DETAIL_SAMPLE), [trafficRuns]);
@@ -108,6 +108,9 @@ export default function AgentsPage() {
     }
   }
 
+  const needle = query.trim().toLowerCase();
+  const visible = needle ? agents.filter((agent) => [agent.name, agent.targetUrl, agent.description].some((text) => text.toLowerCase().includes(needle))) : agents;
+
   let body;
   if (!session && offline) {
     body = (
@@ -116,23 +119,50 @@ export default function AgentsPage() {
       </Card>
     );
   } else if (!session) {
-    body = <p className="py-10 text-center text-[14px] text-slate-500">Loading…</p>;
+    body = (
+      <div className="flex flex-col gap-3">
+        {[0, 1].map((index) => (
+          <div key={index} className="h-24 animate-pulse rounded-[12px] bg-card-content" />
+        ))}
+      </div>
+    );
   } else {
     body = (
-      <div className="grid items-start gap-4 xl:grid-cols-2">
-        {agents.map((agent) => (
-          <AgentCard
-            key={agent.key}
-            agent={agent}
-            runs={trafficRuns}
-            details={details}
-            detailsLoading={loading}
-            busy={busyKey === agent.key}
-            onActivate={() => void activate(agent)}
-            onOpen={(path) => void open(agent, path)}
-            onRemove={() => void remove(agent)}
-          />
-        ))}
+      <div className="flex flex-col gap-5">
+        <div className="flex flex-wrap items-center justify-between gap-4 text-xs text-text-secondary">
+          <RunsSearch value={query} onChange={setQuery} placeholder="Search by name or webhook URL" />
+          <span className="tabular-nums">
+            {visible.length} of {agents.length} {agents.length === 1 ? "agent" : "agents"}
+          </span>
+        </div>
+        {visible.length ? (
+          <div className="flex flex-col gap-3">
+            {visible.map((agent) => (
+              <AgentCard
+                key={agent.key}
+                agent={agent}
+                runs={trafficRuns}
+                details={details}
+                detailsLoading={loading}
+                busy={busyKey === agent.key}
+                onActivate={() => void activate(agent)}
+                onOpen={(path) => void open(agent, path)}
+                onRemove={() => void remove(agent)}
+              />
+            ))}
+          </div>
+        ) : (
+          <Card>
+            <EmptyState
+              title={`No agents match “${query.trim()}”`}
+              action={
+                <Button variant="secondary" size="sm" onClick={() => setQuery("")}>
+                  Clear search
+                </Button>
+              }
+            />
+          </Card>
+        )}
       </div>
     );
   }
@@ -143,17 +173,15 @@ export default function AgentsPage() {
         title="Agents"
         subtitle="Manage agents for calls and messages"
         actions={
-          <Button onClick={() => setCreating(true)} disabled={!connected}>
-            <Plus size={15} /> New agent
+          <Button plus onClick={() => setCreating(true)} disabled={!connected}>
+            New agent
           </Button>
         }
       />
-      {error ? (
-        <div className="mb-4">
-          <Notice tone="error">{error}</Notice>
-        </div>
-      ) : null}
-      {body}
+      <PageBody>
+        {error ? <Notice tone="error">{error}</Notice> : null}
+        {body}
+      </PageBody>
       {creating ? (
         <AgentCreateModal
           defaultChannel={session?.channel ?? "imessage"}

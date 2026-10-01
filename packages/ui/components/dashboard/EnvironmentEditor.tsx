@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, type FormEvent } from "react";
-import { Eye, EyeOff } from "lucide-react";
+import { Eye, EyeSlash } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import type { EnvironmentInput, EnvironmentView, SessionChannel } from "@/lib/types";
 import { Button, Field, Modal, Notice, inputClass } from "@/components/dashboard/ui";
@@ -20,14 +20,17 @@ const CHANNELS: { value: SessionChannel; label: string }[] = [
  */
 export function EnvironmentEditor({
   environment,
+  initialName = "",
   onClose,
   onSaved
 }: {
   environment?: EnvironmentView;
+  /** Prefills the name when creating (from the page's inline create row). */
+  initialName?: string;
   onClose: () => void;
   onSaved: (environment: EnvironmentView) => void;
 }) {
-  const [name, setName] = useState(environment?.name ?? "");
+  const [name, setName] = useState(environment?.name ?? initialName);
   const [targetUrl, setTargetUrl] = useState(environment?.targetUrl ?? "");
   const [secret, setSecret] = useState("");
   const [showSecret, setShowSecret] = useState(false);
@@ -61,19 +64,28 @@ export function EnvironmentEditor({
     <Modal title={environment ? `Edit ${environment.name}` : "Create sub-account"} onClose={onClose}>
       <form onSubmit={(event) => void submit(event)} className="space-y-4">
         <Field label="Name">
-          <input autoFocus value={name} onChange={(event) => setName(event.target.value)} placeholder="Fall promo campaign" className={inputClass} />
+          <input
+            autoFocus={!initialName}
+            value={name}
+            onChange={(event) => setName(event.target.value)}
+            placeholder="Fall promo campaign"
+            className={inputClass}
+          />
         </Field>
         <Field label="Webhook URL" hint="Where this sub-account's agents receive events.">
           <input
             value={targetUrl}
             onChange={(event) => setTargetUrl(event.target.value)}
+            autoFocus={Boolean(initialName) && !environment}
             placeholder="http://localhost:3000/webhook"
-            className={`${inputClass} data`}
+            className={`${inputClass} font-mono`}
           />
         </Field>
         <Field
           label="Signing secret"
-          hint={environment ? `Leave blank to keep the current secret (${environment.secretPreview}).` : "Used to sign every delivery with HMAC-SHA256."}
+          hint={
+            environment ? `Leave blank to keep the current secret (${environment.secretPreview}).` : "Used to sign every delivery with HMAC-SHA256."
+          }
         >
           <div className="relative">
             <input
@@ -82,15 +94,15 @@ export function EnvironmentEditor({
               onChange={(event) => setSecret(event.target.value)}
               placeholder={environment ? environment.secretPreview : "whsec_…"}
               autoComplete="new-password"
-              className={`${inputClass} data pr-11`}
+              className={`${inputClass} pr-11 font-mono`}
             />
             <button
               type="button"
               onClick={() => setShowSecret((current) => !current)}
-              className="absolute right-3 top-1/2 -translate-y-1/2 text-slate-500 hover:text-bright"
+              className="focus-ring absolute right-3 top-1/2 -translate-y-1/2 rounded text-white/40 hover:text-white"
               aria-label={showSecret ? "Hide secret" : "Show secret"}
             >
-              {showSecret ? <EyeOff size={16} /> : <Eye size={16} />}
+              {showSecret ? <EyeSlash size={16} /> : <Eye size={16} />}
             </button>
           </div>
         </Field>
@@ -106,11 +118,11 @@ export function EnvironmentEditor({
           </select>
         </Field>
         {error ? <Notice tone="error">{error}</Notice> : null}
-        <div className="-mx-6 mt-2 flex justify-end gap-2 border-t border-line px-6 pt-4">
-          <Button variant="secondary" onClick={onClose}>
+        <div className="-mx-6 !mt-6 flex justify-end gap-2 border-t border-surface-border px-6 pt-4">
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button type="submit" busy={saving}>
+          <Button type="submit" variant="submit" busy={saving}>
             {environment ? "Save changes" : "Create sub-account"}
           </Button>
         </div>

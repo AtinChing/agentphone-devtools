@@ -101,20 +101,20 @@ export function ComposeBar({
   return (
     <div className="shrink-0 px-4 pb-3 pt-2" style={{ background: THREAD_BG }}>
       {queued && !disabled ? (
-        <div className="mb-2 flex items-center gap-2 rounded-xl border border-line bg-panel px-3 py-1.5 text-[12.5px]">
-          <span className="micro shrink-0 text-slate-500">Next</span>
-          {queued.agent !== undefined ? <Megaphone size={12} className="shrink-0 text-slate-500" /> : null}
-          <span className="min-w-0 flex-1 truncate text-slate-700">
+        <div className="mb-2 flex items-center gap-2 rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3 py-1.5 text-[12.5px]">
+          <span className="shrink-0 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-secondary">Next</span>
+          {queued.agent !== undefined ? <Megaphone size={12} className="shrink-0 text-text-secondary" /> : null}
+          <span className="min-w-0 flex-1 truncate text-white/80">
             {queued.agent !== undefined ? `Business: “${queued.agent}”` : `“${queued.caller ?? ""}”`}
           </span>
           {queued.after !== undefined ? (
-            <span className="shrink-0 text-[11px] text-caution">after {typeof queued.after === "number" ? formatOffset(queued.after).replace("+", "") : queued.after}</span>
+            <span className="shrink-0 text-[11px] text-amber-400">after {typeof queued.after === "number" ? formatOffset(queued.after).replace("+", "") : queued.after}</span>
           ) : null}
           <button
             type="button"
             onClick={() => void submit("")}
             disabled={sending || busy}
-            className="shrink-0 rounded-md px-2 py-0.5 text-[12px] font-semibold text-bright hover:bg-mist disabled:opacity-40"
+            className="shrink-0 rounded-[6px] px-2 py-0.5 text-[12px] font-medium text-white transition-colors hover:bg-white/[0.06] disabled:opacity-40"
           >
             Send
           </button>
@@ -126,7 +126,7 @@ export function ComposeBar({
                 onSkipQueued().catch((failure) => setError(errorMessage(failure)));
               }}
               disabled={sending || busy}
-              className="shrink-0 rounded-md px-2 py-0.5 text-[12px] text-slate-500 hover:bg-mist hover:text-bright disabled:opacity-40"
+              className="shrink-0 rounded-[6px] px-2 py-0.5 text-[12px] text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-white disabled:opacity-40"
             >
               Skip
             </button>
@@ -135,7 +135,7 @@ export function ComposeBar({
       ) : null}
 
       {shownError ? (
-        <div className="mb-1.5 flex items-center gap-1.5 px-3 text-[12px] text-[#f08080]" role="alert">
+        <div className="mb-1.5 flex items-center gap-1.5 px-3 text-[12px] text-red-400" role="alert">
           <CircleAlert size={13} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate" title={shownError}>
             {shownError}
@@ -146,7 +146,7 @@ export function ComposeBar({
               setError(null);
               dictation.clearError();
             }}
-            className="shrink-0 text-[11px] text-slate-500 hover:text-bright"
+            className="shrink-0 text-[11px] text-text-secondary hover:text-white"
           >
             Dismiss
           </button>
@@ -166,7 +166,7 @@ export function ComposeBar({
             title={recording ? "Stop dictation" : "Dictate (or hold Space)"}
             aria-label={recording ? "Stop dictation" : "Dictate message"}
             className={`mb-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full transition disabled:opacity-40 ${
-              recording ? "bg-[#ff453a] text-white" : "text-slate-500 hover:bg-mist hover:text-bright"
+              recording ? "bg-[#ff453a] text-white" : "text-text-secondary hover:bg-white/[0.06] hover:text-white"
             }`}
           >
             {transcribing ? <Loader2 size={16} className="animate-spin" /> : recording ? <Square size={11} fill="currentColor" /> : <Mic size={17} />}
@@ -189,8 +189,8 @@ export function ComposeBar({
           }}
           placeholder={placeholder}
           aria-label={`${style.placeholder} message`}
-          className={`min-h-[32px] flex-1 resize-none bg-transparent px-1 py-[6px] text-[15px] leading-5 text-bright outline-none ${
-            recording ? "placeholder:text-[#ff6961]" : "placeholder:text-slate-400"
+          className={`min-h-[32px] flex-1 resize-none bg-transparent px-1 py-[6px] text-[15px] leading-5 text-white outline-none ${
+            recording ? "placeholder:text-[#ff6961]" : "placeholder:text-text-secondary"
           }`}
         />
         <button
@@ -205,7 +205,7 @@ export function ComposeBar({
           {busy || sending ? <Loader2 size={16} className="animate-spin" /> : <ArrowUp size={18} strokeWidth={2.6} />}
         </button>
       </div>
-      <div className="mt-1.5 flex items-center justify-between px-3 text-[10.5px] text-slate-400">
+      <div className="mt-1.5 flex items-center justify-between px-3 text-[10.5px] text-white/35">
         <span>
           Enter to send · Shift+Enter for a new line
           {voiceAvailable && !disabled ? " · hold Space (outside the field) to talk" : ""}

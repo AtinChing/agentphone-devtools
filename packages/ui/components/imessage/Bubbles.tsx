@@ -33,7 +33,7 @@ export function BubbleShape({
   return (
     <div
       className={`relative max-w-[70%] rounded-[18px] px-3 py-[7px] text-[15px] leading-[20px] ${pop ? "animate-pop" : ""} ${
-        highlight ? "ring-2 ring-white/70 ring-offset-2 ring-offset-[#161615]" : ""
+        highlight ? "ring-2 ring-white/70 ring-offset-2 ring-offset-[#1a1a1a]" : ""
       } ${faded ? "opacity-75" : ""}`}
       style={{ background: color, color: textColor, transformOrigin: side === "right" ? "bottom right" : "bottom left" }}
     >
@@ -93,8 +93,8 @@ export function DateSeparator({ iso }: { iso: string }) {
   const { day, time } = separatorLabel(iso);
   if (!day) return null;
   return (
-    <div className="mb-1 mt-5 select-none text-center text-[11px] text-slate-500">
-      <span className="font-semibold text-slate-600">{day}</span> {time}
+    <div className="mb-1 mt-5 select-none text-center text-[11px] text-text-secondary">
+      <span className="font-semibold text-text-subtle">{day}</span> {time}
     </div>
   );
 }
@@ -103,13 +103,13 @@ export function DeliveredLabel({ channel, at }: { channel: ThreadChannel; at: st
   if (channel === "whatsapp") {
     const time = new Date(at).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" });
     return (
-      <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] font-medium text-slate-500">
+      <div className="mt-1 flex items-center gap-1 pr-1 text-[11px] font-medium text-text-secondary">
         {time}
         <CheckCheck size={14} className="text-[#53bdeb]" aria-label="Delivered" />
       </div>
     );
   }
-  return <div className="mt-1 pr-1 text-[11px] font-medium text-slate-500">{channel === "sms" ? "Sent as Text Message" : "Delivered"}</div>;
+  return <div className="mt-1 pr-1 text-[11px] font-medium text-text-secondary">{channel === "sms" ? "Sent as Text Message" : "Delivered"}</div>;
 }
 
 /** Handler actions + step expectations under an agent reply. */
@@ -127,7 +127,7 @@ export function ReplyMeta({ actions, results }: { actions: string[]; results?: S
           key={result.action}
           title={`Expected ${result.action} · observed ${result.observed.join(", ") || "none"}`}
           className={`data inline-flex items-center gap-0.5 rounded-md px-1.5 py-px text-[10.5px] leading-4 ${
-            result.passed ? "bg-emerald-50 text-fern" : "bg-red-50 text-[#f08080]"
+            result.passed ? "bg-primary/15 text-primary" : "bg-red-500/15 text-red-400"
           }`}
         >
           {result.passed ? <Check size={10} strokeWidth={3} /> : <X size={10} strokeWidth={3} />}
@@ -150,7 +150,7 @@ export function ForkButton({ onClick, active, label = "Fork from here" }: { onCl
       }`}
     >
       <GitBranch size={13} />
-      <span className="pointer-events-none absolute bottom-full mb-1.5 whitespace-nowrap rounded-md border border-line bg-[#2c2c2e] px-2 py-1 text-[11px] font-medium text-bright opacity-0 shadow-soft transition group-hover/fork:opacity-100">
+      <span className="pointer-events-none absolute bottom-full mb-1.5 whitespace-nowrap rounded-[6px] border border-white/[0.08] bg-[#2c2c2e] px-2 py-1 text-[11px] font-medium text-white opacity-0 shadow-soft transition group-hover/fork:opacity-100">
         {label}
       </span>
     </button>
@@ -217,7 +217,7 @@ export function ForkPopover({
   return (
     <div
       ref={cardRef}
-      className={`mt-2 w-[344px] max-w-full animate-pop rounded-2xl border border-line bg-panel p-3.5 shadow-soft ${align === "right" ? "self-end" : "self-start"}`}
+      className={`mt-2 w-[344px] max-w-full animate-pop rounded-[16px] border border-surface-border bg-surface p-4 shadow-modal ${align === "right" ? "self-end" : "self-start"}`}
       style={{ transformOrigin: align === "right" ? "top right" : "top left" }}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
@@ -228,15 +228,15 @@ export function ForkPopover({
     >
       <div className="flex items-center gap-2">
         <GitBranch size={14} className="text-indigo-400" />
-        <span className="text-[13px] font-semibold text-bright">
+        <span className="text-[13px] font-semibold text-white">
           {mode === "seed" ? "Branch from this message" : mode === "instead" ? "Branch with a different message" : "Branch this conversation after this message"}
         </span>
-        <button type="button" onClick={onCancel} aria-label="Close" className="ml-auto text-slate-500 hover:text-bright">
+        <button type="button" onClick={onCancel} aria-label="Close" className="ml-auto text-white/40 transition-colors hover:text-white">
           <X size={14} />
         </button>
       </div>
       {onMode && mode !== "seed" ? (
-        <div className="mt-2.5 grid grid-cols-2 rounded-lg bg-raised p-0.5 text-[12px]">
+        <div className="mt-3 grid grid-cols-2 gap-1 rounded-[10px] bg-white/[0.04] p-1 text-[12.5px]">
           {(["after", "instead"] as const).map((option) => (
             <button
               key={option}
@@ -244,8 +244,8 @@ export function ForkPopover({
               disabled={option === "instead" && !insteadAllowed}
               onClick={() => onMode(option)}
               title={option === "instead" && !insteadAllowed ? "The first message of a run can only be replaced by starting a new conversation" : undefined}
-              className={`rounded-md px-2 py-1 font-medium transition disabled:cursor-not-allowed disabled:opacity-40 ${
-                mode === option ? "bg-[#3a3a38] text-bright shadow-sm" : "text-slate-500 hover:text-bright"
+              className={`rounded-[6px] px-2 py-1.5 leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                mode === option ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"
               }`}
             >
               {option === "after" ? "After this message" : "Instead of this"}
@@ -253,7 +253,7 @@ export function ForkPopover({
           ))}
         </div>
       ) : null}
-      <p className="mt-2 text-[12px] leading-[17px] text-slate-500">{copy.description}</p>
+      <p className="mt-2.5 text-[12px] leading-[17px] text-text-secondary">{copy.description}</p>
       <input
         autoFocus
         value={text}
@@ -265,20 +265,20 @@ export function ForkPopover({
           }
         }}
         placeholder={copy.placeholder}
-        className="mt-2.5 h-9 w-full rounded-full border border-line bg-raised px-3.5 text-[14px] text-bright outline-none placeholder:text-slate-400 focus:border-indigo-400"
+        className="mt-2.5 h-9 w-full rounded-[10px] border border-transparent bg-input px-3 text-[14px] text-white outline-none placeholder:text-white/30 focus:border-indigo-400/60"
       />
-      {error ? <div className="mt-2 text-[12px] text-[#f08080]">{error}</div> : null}
+      {error ? <div className="mt-2 text-[12px] text-red-400">{error}</div> : null}
       <div className="mt-3 flex items-center justify-between gap-2">
-        <span className="text-[11px] text-slate-400">{text.trim() ? "Sends to your handler right away" : "Leave empty to just open the branch"}</span>
+        <span className="text-[11px] text-text-dim">{text.trim() ? "Sends to your handler right away" : "Leave empty to just open the branch"}</span>
         <div className="flex gap-1.5">
-          <button type="button" onClick={onCancel} className="h-8 rounded-lg px-3 text-[13px] text-slate-600 hover:bg-mist hover:text-bright">
+          <button type="button" onClick={onCancel} className="h-8 rounded-[8px] px-3 text-[13px] text-text-dim transition-colors hover:text-white">
             Cancel
           </button>
           <button
             type="button"
             onClick={() => void submit()}
             disabled={busy || busyExternally}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[#5b46c9] px-3 text-[13px] font-semibold text-white transition hover:bg-[#6a55d8] disabled:opacity-50"
+            className="inline-flex h-8 items-center gap-1.5 rounded-[8px] bg-[#5b46c9] px-3 text-[13px] font-medium text-white transition hover:bg-[#6a55d8] active:scale-[0.96] disabled:opacity-50"
           >
             {busy ? <Loader2 size={13} className="animate-spin" /> : <GitBranch size={13} />}
             Create branch

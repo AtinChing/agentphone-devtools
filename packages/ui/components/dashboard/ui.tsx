@@ -2,28 +2,36 @@
 
 import Link from "next/link";
 import { type ReactNode } from "react";
-import { Loader2 } from "lucide-react";
+import { CircleNotch, Plus, X } from "@phosphor-icons/react";
 
 /**
- * Dashboard primitives, styled after the AgentPhone console: page title +
- * subtitle, dark rounded cards with hairline borders, green primary
- * buttons, stat tiles with an icon well, tiny uppercase eyebrow labels.
+ * Dashboard primitives with the AgentPhone console's own recipes: the
+ * rounded content frame, Alte Haas Grotesk page titles, translucent
+ * rounded-[18px] cards, green primary buttons, tiny status badges.
  */
 
 export function Page({ children, className = "", wide }: { children: ReactNode; className?: string; wide?: boolean }) {
-  return <div className={`mx-auto w-full ${wide ? "" : "max-w-[1400px]"} px-8 py-8 ${className}`}>{children}</div>;
+  void wide;
+  return <div className={`flex min-h-0 w-full flex-1 flex-col overflow-y-auto p-4 md:p-7 ${className}`}>{children}</div>;
 }
 
 export function PageHeader({ title, subtitle, actions }: { title: string; subtitle?: string; actions?: ReactNode }) {
   return (
-    <div className="mb-7 flex flex-wrap items-start justify-between gap-4">
-      <div>
-        <h1 className="text-[30px] font-bold leading-tight tracking-tight text-bright">{title}</h1>
-        {subtitle ? <p className="mt-1.5 text-[15px] text-slate-500">{subtitle}</p> : null}
+    <div className="flex flex-col gap-2">
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0">
+          <h1 className="font-heading text-[22px] font-bold leading-tight text-white md:text-[28px]">{title}</h1>
+          {subtitle ? <p className="mt-2 text-[14px] leading-snug text-white/50">{subtitle}</p> : null}
+        </div>
+        {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
       </div>
-      {actions ? <div className="flex items-center gap-2">{actions}</div> : null}
     </div>
   );
+}
+
+/** Wraps page sections below the header with the console's spacing and entrance. */
+export function PageBody({ children, className = "" }: { children: ReactNode; className?: string }) {
+  return <div className={`stagger-enter mt-6 flex w-full flex-col gap-8 ${className}`}>{children}</div>;
 }
 
 export function Card({
@@ -43,29 +51,31 @@ export function Card({
   padded?: boolean;
   badge?: ReactNode;
 }) {
+  const hasHeader = Boolean(title || actions);
   return (
-    <section className={`rounded-2xl border border-line bg-panel ${className}`}>
-      {title || actions ? (
-        <header className={`flex flex-wrap items-start justify-between gap-3 ${padded ? "px-6 pt-6" : "px-6 pt-5"} ${children ? "pb-4" : "pb-6"}`}>
+    <section className={`overflow-hidden rounded-[18px] bg-card shadow-card backdrop-blur-[2px] ${className}`}>
+      {hasHeader ? (
+        <header className={`flex flex-wrap items-center justify-between gap-3 px-6 py-4 ${children ? "border-b border-surface-border" : ""}`}>
           <div className="min-w-0">
-            <div className="flex items-center gap-2.5">
-              {title ? <h2 className="text-[19px] font-semibold text-bright">{title}</h2> : null}
+            <div className="flex items-center gap-3">
+              {title ? <h2 className="text-lg font-semibold text-text">{title}</h2> : null}
               {badge}
             </div>
-            {subtitle ? <p className="mt-1 text-[14px] text-slate-500">{subtitle}</p> : null}
+            {subtitle ? <p className="mt-0.5 text-sm text-text-dim">{subtitle}</p> : null}
           </div>
           {actions ? <div className="flex shrink-0 items-center gap-2">{actions}</div> : null}
         </header>
       ) : null}
-      {children ? <div className={padded ? `px-6 pb-6 ${title ? "" : "pt-6"}` : ""}>{children}</div> : null}
+      {children ? <div className={padded ? "p-6" : ""}>{children}</div> : null}
     </section>
   );
 }
 
 export function Eyebrow({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <div className={`text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500 ${className}`}>{children}</div>;
+  return <div className={`text-xs font-semibold uppercase tracking-wider text-text-secondary ${className}`}>{children}</div>;
 }
 
+/** The Usage page's tile: label + icon well, big number, dim sub-line. */
 export function StatTile({
   label,
   value,
@@ -79,16 +89,37 @@ export function StatTile({
   icon?: ReactNode;
   tone?: "default" | "good" | "bad";
 }) {
-  const valueTone = tone === "good" ? "text-fern" : tone === "bad" ? "text-danger" : "text-bright";
+  const valueTone = tone === "good" ? "text-primary" : tone === "bad" ? "text-red-400" : "text-text";
   return (
-    <div className="rounded-2xl border border-line bg-panel px-6 py-5">
-      <div className="flex items-start justify-between gap-3">
-        <div className="text-[15px] text-slate-600">{label}</div>
-        {icon ? <div className="flex h-11 w-11 items-center justify-center rounded-xl bg-raised text-slate-600">{icon}</div> : null}
+    <div className="rounded-[18px] bg-card p-5 shadow-card backdrop-blur-[2px]">
+      <div className="mb-4 flex items-center justify-between gap-3">
+        <p className="text-sm text-text-secondary">{label}</p>
+        {icon ? <div className="flex size-10 shrink-0 items-center justify-center rounded-[10px] bg-white/[0.05] text-text-secondary">{icon}</div> : null}
       </div>
-      <div className={`mt-2 text-[34px] font-bold leading-none tracking-tight ${valueTone}`}>{value}</div>
-      {hint ? <div className="mt-3 text-[13px] text-slate-500">{hint}</div> : null}
+      <p className={`text-3xl font-bold tracking-tight tabular-nums ${valueTone}`}>{value}</p>
+      {hint ? <p className="mt-1.5 text-xs text-text-dim">{hint}</p> : null}
     </div>
+  );
+}
+
+/** The Overview page's tile: label top-left, big heading-face number bottom-left. */
+export function OverviewTile({ label, value, descriptor, href, className = "" }: { label: string; value: ReactNode; descriptor?: string; href?: string; className?: string }) {
+  const classes = `relative h-40 flex-1 overflow-hidden rounded-[18px] bg-card shadow-card backdrop-blur-[2px] ${href ? "cursor-pointer transition-colors hover:bg-card-hover" : ""} ${className}`;
+  const body = (
+    <>
+      <p className="absolute left-4 top-4 text-[14px] font-medium leading-[1.3] text-white/90 md:left-6 md:top-6 md:text-[16px]">{label}</p>
+      <div className="absolute bottom-4 left-4 flex items-end gap-2 md:bottom-6 md:left-6">
+        <span className="font-heading text-[26px] font-bold leading-none tracking-[-0.64px] tabular-nums text-white md:text-[32px]">{value}</span>
+        {descriptor ? <span className="text-[14px] font-medium leading-[1.3] text-white/70">{descriptor}</span> : null}
+      </div>
+    </>
+  );
+  return href ? (
+    <Link href={href} className={classes}>
+      {body}
+    </Link>
+  ) : (
+    <div className={classes}>{body}</div>
   );
 }
 
@@ -98,22 +129,19 @@ export function Badge({
   className = ""
 }: {
   children: ReactNode;
-  tone?: "neutral" | "green" | "blue" | "purple" | "amber" | "red";
+  tone?: "neutral" | "green" | "blue" | "purple" | "amber" | "red" | "cyan";
   className?: string;
 }) {
   const tones: Record<string, string> = {
-    neutral: "border-line bg-raised text-slate-600",
-    green: "border-[#2e5a37] bg-[#173322] text-fern",
-    blue: "border-[#2f4a86] bg-[#1a2540] text-badgeblue",
-    purple: "border-[#5a3b8a] bg-[#2a1f40] text-badgepurple",
-    amber: "border-amber-200 bg-amber-50 text-amber-300",
-    red: "border-[#6b2a2a] bg-red-50 text-[#f08080]"
+    neutral: "border-white/[0.08] bg-white/[0.05] text-white/60",
+    green: "border-emerald-500/20 bg-emerald-500/15 text-emerald-400",
+    blue: "border-blue-500/20 bg-blue-500/15 text-blue-400",
+    purple: "border-purple-500/20 bg-purple-500/15 text-purple-400",
+    amber: "border-amber-500/20 bg-amber-500/15 text-amber-400",
+    red: "border-red-500/20 bg-red-500/15 text-red-400",
+    cyan: "border-cyan-500/20 bg-cyan-500/15 text-cyan-400"
   };
-  return (
-    <span className={`inline-flex items-center gap-1 rounded-md border px-2 py-0.5 text-[11.5px] font-medium leading-4 ${tones[tone]} ${className}`}>
-      {children}
-    </span>
-  );
+  return <span className={`inline-flex items-center gap-1 rounded border px-2 py-0.5 text-[10px] font-medium leading-4 ${tones[tone]} ${className}`}>{children}</span>;
 }
 
 export function Button({
@@ -126,39 +154,48 @@ export function Button({
   busy,
   type = "button",
   className = "",
-  title
+  title,
+  plus
 }: {
   children: ReactNode;
   onClick?: () => void;
   href?: string;
-  variant?: "primary" | "secondary" | "ghost" | "danger" | "bright";
+  variant?: "primary" | "secondary" | "ghost" | "danger" | "bright" | "submit";
   size?: "sm" | "md" | "lg";
   disabled?: boolean;
   busy?: boolean;
   type?: "button" | "submit";
   className?: string;
   title?: string;
+  /** Prefix the console's bold plus icon (header "+ New …" actions). */
+  plus?: boolean;
 }) {
-  const sizes = { sm: "h-8 px-3 text-[13px]", md: "h-10 px-4 text-[14px]", lg: "h-12 px-6 text-[15px]" };
+  const sizes = { sm: "h-8 px-3 text-[13px]", md: "h-9 px-3.5 text-[14px]", lg: "h-11 px-5 text-[15px]" };
   const variants: Record<string, string> = {
-    primary: "bg-cta text-white hover:bg-[#478f52] disabled:opacity-50",
-    bright: "bg-[#4caf50] text-white hover:bg-[#5bbf5f] disabled:opacity-50",
-    secondary: "border border-line bg-raised text-bright hover:border-slate-400 disabled:opacity-50",
-    ghost: "text-slate-600 hover:bg-mist hover:text-bright disabled:opacity-50",
-    danger: "border border-[#6b2a2a] bg-red-50 text-[#f08080] hover:bg-[#4a2020] disabled:opacity-50"
+    primary: "rounded-[8px] bg-primary text-white hover:bg-primary/90 disabled:opacity-50",
+    bright: "rounded-[8px] bg-primary text-white hover:bg-primary/90 disabled:opacity-50",
+    submit: "rounded-[10px] bg-primary text-primary-foreground-strong hover:brightness-110 disabled:opacity-50",
+    secondary: "rounded-[10px] border border-surface-border bg-white/[0.03] text-white hover:bg-white/[0.06] disabled:opacity-50",
+    ghost: "rounded-[10px] text-text-dim hover:text-white disabled:opacity-50",
+    danger: "rounded-[10px] border border-red-500/20 bg-red-500/10 text-red-400 hover:bg-red-500/15 disabled:opacity-50"
   };
-  const classes = `inline-flex items-center justify-center gap-2 rounded-lg font-semibold transition ${sizes[size]} ${variants[variant]} ${className}`;
+  const classes = `focus-ring inline-flex shrink-0 items-center justify-center gap-1.5 font-medium leading-none transition-[transform,background-color,color,filter] duration-200 active:scale-[0.96] ${sizes[size]} ${variants[variant]} ${className}`;
+  const content = (
+    <>
+      {busy ? <CircleNotch size={15} className="animate-spin" /> : plus ? <Plus size={16} weight="bold" /> : null}
+      {children}
+    </>
+  );
   if (href) {
     return (
       <Link href={href} className={classes} title={title}>
-        {children}
+        {content}
       </Link>
     );
   }
   return (
     <button type={type} onClick={onClick} disabled={disabled || busy} className={classes} title={title}>
-      {busy ? <Loader2 size={15} className="animate-spin" /> : null}
-      {children}
+      {content}
     </button>
   );
 }
@@ -166,25 +203,23 @@ export function Button({
 export function Field({ label, hint, children, className = "" }: { label: ReactNode; hint?: ReactNode; children: ReactNode; className?: string }) {
   return (
     <label className={`block ${className}`}>
-      <div className="mb-1.5 text-[14px] text-slate-600">{label}</div>
+      <div className="mb-2 block text-sm text-text-dim">{label}</div>
       {children}
-      {hint ? <div className="mt-1.5 text-[13px] text-slate-500">{hint}</div> : null}
+      {hint ? <div className="mt-1.5 text-xs text-text-dim">{hint}</div> : null}
     </label>
   );
 }
 
-export const inputClass =
-  "h-11 w-full rounded-xl border border-line bg-raised px-3.5 text-[14px] text-bright outline-none placeholder:text-slate-400 focus:border-fern";
-export const textareaClass =
-  "w-full rounded-xl border border-line bg-raised px-3.5 py-2.5 text-[14px] text-bright outline-none placeholder:text-slate-400 focus:border-fern";
+export const inputClass = "focus-ring h-10 w-full rounded-[10px] bg-input px-3 py-2 text-sm text-white placeholder:text-white/30";
+export const textareaClass = "focus-ring w-full rounded-[10px] bg-input px-3 py-2 text-sm text-white placeholder:text-white/30";
 
 export function EmptyState({ icon, title, description, action }: { icon?: ReactNode; title: string; description?: ReactNode; action?: ReactNode }) {
   return (
-    <div className="flex flex-col items-center justify-center px-6 py-16 text-center">
-      {icon ? <div className="mb-5 flex h-16 w-16 items-center justify-center rounded-full bg-raised text-slate-500">{icon}</div> : null}
-      <div className="text-[17px] font-semibold text-bright">{title}</div>
-      {description ? <div className="mt-2 max-w-md text-[15px] text-slate-500">{description}</div> : null}
-      {action ? <div className="mt-6">{action}</div> : null}
+    <div className="flex flex-col items-center px-6 py-10 text-center">
+      {icon ? <div className="flex h-12 w-12 items-center justify-center rounded-full bg-white/[0.04] text-text-dim [&>svg]:h-6 [&>svg]:w-6">{icon}</div> : null}
+      <p className="mt-4 text-sm font-medium text-white">{title}</p>
+      {description ? <p className="mt-1 max-w-md text-sm text-text-dim">{description}</p> : null}
+      {action ? <div className="mt-4">{action}</div> : null}
     </div>
   );
 }
@@ -192,11 +227,11 @@ export function EmptyState({ icon, title, description, action }: { icon?: ReactN
 export function Table({ head, children, className = "" }: { head: ReactNode[]; children: ReactNode; className?: string }) {
   return (
     <div className={`overflow-x-auto ${className}`}>
-      <table className="w-full border-collapse text-left text-[14px]">
+      <table className="w-full border-collapse text-left text-sm">
         <thead>
-          <tr className="border-b border-line">
+          <tr>
             {head.map((cell, index) => (
-              <th key={index} className="px-4 py-3 text-[12px] font-semibold uppercase tracking-[0.06em] text-slate-500">
+              <th key={index} className="border-b border-surface-border px-4 py-3 text-left text-xs font-medium uppercase tracking-wider text-text-dim">
                 {cell}
               </th>
             ))}
@@ -210,42 +245,40 @@ export function Table({ head, children, className = "" }: { head: ReactNode[]; c
 
 export function Row({ children, onClick, className = "" }: { children: ReactNode; onClick?: () => void; className?: string }) {
   return (
-    <tr
-      onClick={onClick}
-      className={`border-b border-line/70 last:border-b-0 ${onClick ? "cursor-pointer hover:bg-mist" : ""} ${className}`}
-    >
+    <tr onClick={onClick} className={`border-b border-white/[0.04] last:border-b-0 ${onClick ? "cursor-pointer transition-colors hover:bg-white/[0.02]" : ""} ${className}`}>
       {children}
     </tr>
   );
 }
 
 export function Cell({ children, className = "", mono }: { children: ReactNode; className?: string; mono?: boolean }) {
-  return <td className={`px-4 py-3 align-middle text-slate-700 ${mono ? "data" : ""} ${className}`}>{children}</td>;
+  return <td className={`px-4 py-3 align-middle text-text ${mono ? "font-mono text-xs" : ""} ${className}`}>{children}</td>;
 }
 
 export function Toggle({ checked, onChange, label }: { checked: boolean; onChange: (value: boolean) => void; label?: ReactNode }) {
   return (
-    <button type="button" onClick={() => onChange(!checked)} className="flex items-center gap-3" aria-pressed={checked}>
-      <span className={`relative h-6 w-11 rounded-full transition ${checked ? "bg-cta" : "bg-raised border border-line"}`}>
-        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition ${checked ? "left-[22px]" : "left-0.5"}`} />
+    <button type="button" onClick={() => onChange(!checked)} className="focus-ring flex items-center gap-3 rounded-full" aria-pressed={checked}>
+      <span className={`relative h-6 w-11 rounded-full transition-colors ${checked ? "bg-primary" : "bg-white/[0.1]"}`}>
+        <span className={`absolute top-0.5 h-5 w-5 rounded-full bg-white transition-[left] ${checked ? "left-[22px]" : "left-0.5"}`} />
       </span>
-      {label ? <span className="text-[14px] text-slate-700">{label}</span> : null}
+      {label ? <span className="text-sm text-text">{label}</span> : null}
     </button>
   );
 }
 
 export function Modal({ title, onClose, children, footer, width = "max-w-lg" }: { title: string; onClose: () => void; children: ReactNode; footer?: ReactNode; width?: string }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className={`w-full ${width} rounded-2xl border border-line bg-panel shadow-soft`} onClick={(event) => event.stopPropagation()}>
-        <header className="flex items-center justify-between border-b border-line px-6 py-4">
-          <h3 className="text-[17px] font-semibold text-bright">{title}</h3>
-          <button type="button" onClick={onClose} className="text-slate-500 hover:text-bright" aria-label="Close">
-            ✕
+    <div className="fixed inset-0 z-50 flex items-center justify-center" role="dialog" aria-modal="true" aria-label={title}>
+      <div className="absolute inset-0 bg-black/60 backdrop-blur-sm" onClick={onClose} />
+      <div className={`relative z-10 mx-4 w-full ${width} rounded-[20px] border border-surface-border bg-surface p-6 text-foreground shadow-modal`}>
+        <header className="mb-4 flex items-center justify-between">
+          <h3 className="text-lg font-semibold text-text">{title}</h3>
+          <button type="button" onClick={onClose} className="focus-ring rounded-full p-1 text-white/40 hover:text-white" aria-label="Close">
+            <X size={16} weight="bold" />
           </button>
         </header>
-        <div className="px-6 py-5">{children}</div>
-        {footer ? <footer className="flex justify-end gap-2 border-t border-line px-6 py-4">{footer}</footer> : null}
+        <div>{children}</div>
+        {footer ? <footer className="mt-6 flex justify-end gap-2">{footer}</footer> : null}
       </div>
     </div>
   );
@@ -253,12 +286,12 @@ export function Modal({ title, onClose, children, footer, width = "max-w-lg" }: 
 
 export function Notice({ tone = "info", children }: { tone?: "info" | "warn" | "error" | "good"; children: ReactNode }) {
   const tones = {
-    info: "border-line bg-raised text-slate-700",
-    warn: "border-amber-200 bg-amber-50 text-amber-300",
-    error: "border-[#6b2a2a] bg-red-50 text-[#f08080]",
-    good: "border-[#2e5a37] bg-skyglass text-fern"
+    info: "border-white/[0.06] bg-white/[0.03] text-text-secondary",
+    warn: "border-amber-500/20 bg-amber-500/10 text-amber-400",
+    error: "border-red-500/20 bg-red-500/10 text-red-400",
+    good: "border-primary/20 bg-primary/10 text-primary"
   };
-  return <div className={`rounded-xl border px-4 py-3 text-[14px] ${tones[tone]}`}>{children}</div>;
+  return <div className={`rounded-[12px] border px-4 py-2.5 text-sm ${tones[tone]}`}>{children}</div>;
 }
 
 export function ChannelBadge({ channel }: { channel: string }) {
@@ -274,12 +307,12 @@ export function ChannelBadge({ channel }: { channel: string }) {
 }
 
 export function StatusDot({ ok, className = "" }: { ok: boolean | null; className?: string }) {
-  const color = ok === null ? "bg-slate-400" : ok ? "bg-fern" : "bg-danger";
+  const color = ok === null ? "bg-white/30" : ok ? "bg-primary" : "bg-red-400";
   return <span className={`inline-block h-2 w-2 rounded-full ${color} ${className}`} />;
 }
 
-/** Initials avatar, like the contact circles in Messages. */
-export function Avatar({ name, size = 40, className = "" }: { name: string; size?: number; className?: string }) {
+/** Initials avatar. `plain` gives the console's gray circle; the default keeps Messages-style hues for contacts. */
+export function Avatar({ name, size = 40, className = "", plain }: { name: string; size?: number; className?: string; plain?: boolean }) {
   const initials = name
     .split(/\s+/)
     .filter(Boolean)
@@ -289,8 +322,13 @@ export function Avatar({ name, size = 40, className = "" }: { name: string; size
   const hue = [...name].reduce((total, char) => total + char.charCodeAt(0), 0) % 360;
   return (
     <span
-      className={`inline-flex shrink-0 items-center justify-center rounded-full font-semibold text-white ${className}`}
-      style={{ width: size, height: size, fontSize: Math.round(size * 0.38), background: `linear-gradient(180deg, hsl(${hue} 30% 55%), hsl(${hue} 30% 40%))` }}
+      className={`inline-flex shrink-0 items-center justify-center rounded-full font-medium ${plain ? "bg-white/[0.06] text-white/50" : "text-white"} ${className}`}
+      style={{
+        width: size,
+        height: size,
+        fontSize: Math.round(size * 0.38),
+        ...(plain ? {} : { background: `linear-gradient(180deg, hsl(${hue} 30% 55%), hsl(${hue} 30% 40%))` })
+      }}
     >
       {initials || "?"}
     </span>

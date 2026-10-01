@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useCallback, useState } from "react";
-import { CircleCheck, CircleX, Loader2 } from "lucide-react";
+import { CheckCircle, CircleNotch, XCircle } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import type { InspectorSession, ScenarioListing, SessionChannel } from "@/lib/types";
 import { ChannelBadge, Eyebrow, Notice } from "./ui";
@@ -95,10 +95,10 @@ export function ComplianceResults({ suite }: { suite: ComplianceSuite }) {
   const allPassed = !running && passed === rows.length;
 
   return (
-    <div className="rounded-xl border border-line bg-frame">
-      <div className="flex items-center justify-between gap-3 border-b border-line px-4 py-3">
+    <div className="overflow-hidden rounded-[12px] border border-white/[0.06] bg-white/[0.02]">
+      <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
         <Eyebrow>Compliance suite</Eyebrow>
-        <span className={`text-[13px] font-semibold ${running ? "text-slate-500" : allPassed ? "text-fern" : "text-danger"}`}>
+        <span className={`text-[13px] font-medium tabular-nums ${running ? "text-text-secondary" : allPassed ? "text-primary" : "text-red-400"}`}>
           {running ? `Running ${Math.min(finished + 1, rows.length)} of ${rows.length}…` : `${passed}/${rows.length} passed`}
         </span>
       </div>
@@ -107,34 +107,34 @@ export function ComplianceResults({ suite }: { suite: ComplianceSuite }) {
           const bad = row.state === "failed" || row.state === "error";
           const content = (
             <>
-              <span className="mt-0.5 shrink-0">
+              <span className="mt-px shrink-0">
                 {row.state === "running" ? (
-                  <Loader2 size={15} className="animate-spin text-slate-500" />
+                  <CircleNotch size={16} className="animate-spin text-text-secondary" />
                 ) : row.state === "passed" ? (
-                  <CircleCheck size={15} className="text-fern" />
+                  <CheckCircle size={16} weight="fill" className="text-primary" />
                 ) : bad ? (
-                  <CircleX size={15} className="text-danger" />
+                  <XCircle size={16} weight="fill" className="text-red-400" />
                 ) : (
-                  <span className="block h-[15px] w-[15px] rounded-full border border-slate-300" />
+                  <span className="block h-4 w-4 rounded-full border border-white/20" />
                 )}
               </span>
               <span className="min-w-0 flex-1">
-                <span className={`block truncate ${bad ? "text-[#f08080]" : "text-bright"}`}>{row.name}</span>
-                {row.message && bad ? <span className="mt-0.5 block text-[12px] text-[#f08080]/80">{row.message}</span> : null}
+                <span className={`block truncate ${bad ? "text-red-400" : "text-text"}`}>{row.name}</span>
+                {row.message && bad ? <span className="mt-0.5 block text-xs text-red-400/80">{row.message}</span> : null}
               </span>
               <ChannelBadge channel={row.channel} />
               {row.assertions ? (
-                <span className="data w-10 shrink-0 text-right text-[12px] text-slate-500">
+                <span className="w-10 shrink-0 text-right font-mono text-xs text-text-dim">
                   {row.assertions.passed}/{row.assertions.total}
                 </span>
               ) : null}
             </>
           );
-          const className = `flex items-start gap-3 border-b border-line/70 px-4 py-2.5 text-[13.5px] last:border-b-0 ${bad ? "bg-red-50" : ""}`;
+          const className = `flex items-start gap-3 border-b border-white/[0.04] px-4 py-2.5 text-[13px] last:border-b-0 ${bad ? "bg-red-500/[0.06]" : ""}`;
           return (
             <li key={row.path}>
               {row.sessionId ? (
-                <Link href={runHref({ id: row.sessionId, channel: row.channel })} className={`${className} hover:bg-mist`} title="Open this run">
+                <Link href={runHref({ id: row.sessionId, channel: row.channel })} className={`${className} transition-colors hover:bg-white/[0.03]`} title="Open this run">
                   {content}
                 </Link>
               ) : (

@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Download, FileCode2, MessageCircle, Trash2, Wrench, X } from "lucide-react";
+import { ChatCircle, DownloadSimple, FileCode, Trash, Wrench, X } from "@phosphor-icons/react";
 import { api, errorMessage, serverUrl } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, SessionChannel } from "@/lib/types";
@@ -92,55 +92,60 @@ export function RunsDrawer({
 
   return (
     <>
-      <div className="fixed inset-0 z-40 flex justify-end bg-black/50" onClick={onClose}>
+      <div className="fixed inset-0 z-40 flex justify-end bg-black/60 backdrop-blur-sm" onClick={onClose}>
         <aside
-          className="flex h-full w-full max-w-[580px] flex-col border-l border-line bg-panel shadow-soft"
+          className="flex h-full w-full max-w-[580px] flex-col border-l border-surface-border bg-surface text-foreground shadow-modal"
           onClick={(event) => event.stopPropagation()}
           aria-label="Run detail"
         >
-          <header className="flex items-start gap-3 border-b border-line px-6 py-5">
-            <Avatar name={name} size={40} />
+          <header className="flex items-center gap-3 border-b border-surface-border px-6 py-4">
+            <Avatar name={name} size={40} plain />
             <div className="min-w-0 flex-1">
               <div className="flex flex-wrap items-center gap-2">
-                <h2 className="truncate text-[17px] font-semibold text-bright">{name}</h2>
+                <h2 className="truncate text-lg font-semibold text-text">{name}</h2>
                 {channel ? <ChannelBadge channel={channel} /> : null}
                 {isLive ? <Badge tone="green">Live</Badge> : null}
               </div>
-              <div className="mt-0.5 truncate text-[12.5px] text-slate-500">
-                {contact ? `${formatPhone(contact.number)} · ` : ""}
-                <span className="data">{runId}</span>
+              <div className="mt-0.5 truncate text-xs text-text-dim">
+                {contact ? <span className="tabular-nums">{formatPhone(contact.number)} · </span> : ""}
+                <span className="font-mono">{runId}</span>
               </div>
             </div>
-            <button type="button" onClick={onClose} aria-label="Close" className="rounded-lg p-1.5 text-slate-500 hover:bg-mist hover:text-bright">
-              <X size={18} />
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="focus-ring rounded-full p-1.5 text-white/40 transition-colors hover:bg-white/[0.06] hover:text-white"
+            >
+              <X size={16} weight="bold" />
             </button>
           </header>
 
-          <div className="min-h-0 flex-1 space-y-6 overflow-y-auto px-6 py-5">
+          <div className="min-h-0 flex-1 space-y-7 overflow-y-auto px-6 py-5">
             {error ? <Notice tone="error">{error}</Notice> : null}
-            {!session && !error ? <p className="text-[14px] text-slate-500">Loading…</p> : null}
+            {!session && !error ? <p className="text-sm text-text-dim">Loading…</p> : null}
             {session ? (
               <>
                 <div className="flex flex-wrap gap-2">
                   {session.channel === "voice" ? (
                     <Button href={`/devtools?session=${encodedId}`} size="sm">
-                      <Wrench size={14} /> Open in Inspector
+                      <Wrench size={14} weight="bold" /> Open in Inspector
                     </Button>
                   ) : (
                     <Button href={`/imessage?session=${encodedId}`} size="sm">
-                      <MessageCircle size={14} /> Open in iMessage
+                      <ChatCircle size={14} weight="bold" /> Open in iMessage
                     </Button>
                   )}
                   <Button href={serverUrl(`/api/history/${encodedId}/report.md`)} size="sm" variant="secondary">
-                    <Download size={14} /> Download report
+                    <DownloadSimple size={14} /> Download report
                   </Button>
                   {session.transcript.some((turn) => turn.role === "user") ? (
                     <Button href={serverUrl(`/api/history/${encodedId}/scenario.yaml?assertions=1`)} size="sm" variant="secondary">
-                      <FileCode2 size={14} /> Export scenario
+                      <FileCode size={14} /> Export scenario
                     </Button>
                   ) : (
                     <Button size="sm" variant="secondary" disabled title="This run has no customer turns to export">
-                      <FileCode2 size={14} /> Export scenario
+                      <FileCode size={14} /> Export scenario
                     </Button>
                   )}
                   <Button
@@ -150,7 +155,7 @@ export function RunsDrawer({
                     disabled={isLive}
                     title={isLive ? "The live session can't be deleted; start a new conversation first" : undefined}
                   >
-                    <Trash2 size={14} /> Delete run
+                    <Trash size={14} /> Delete run
                   </Button>
                 </div>
 
@@ -179,7 +184,7 @@ export function RunsDrawer({
           onClose={() => setConfirmingDelete(false)}
           footer={
             <>
-              <Button variant="secondary" onClick={() => setConfirmingDelete(false)}>
+              <Button variant="ghost" onClick={() => setConfirmingDelete(false)}>
                 Cancel
               </Button>
               <Button variant="danger" onClick={deleteRun} busy={deleting}>
@@ -188,9 +193,9 @@ export function RunsDrawer({
             </>
           }
         >
-          <p className="text-[14px] text-slate-600">
-            The transcript and every delivery for <span className="data text-bright">{runId}</span> are removed from local history. Branches forked from it
-            keep their own copies.
+          <p className="text-sm leading-snug text-text-secondary">
+            The transcript and every delivery for <span className="font-mono text-text">{runId}</span> are removed from local history. Branches forked from
+            it keep their own copies.
           </p>
           {deleteError ? (
             <div className="mt-4">
@@ -205,9 +210,9 @@ export function RunsDrawer({
 
 function Fact({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl bg-raised px-3.5 py-2.5">
-      <Eyebrow>{label}</Eyebrow>
-      <div className="mt-1 text-[14px] text-bright">{children}</div>
+    <div className="min-w-0 rounded-[12px] bg-white/[0.04] p-3">
+      <div className="text-xs text-text-dim">{label}</div>
+      <div className="mt-1 text-sm font-medium tabular-nums text-text">{children}</div>
     </div>
   );
 }
@@ -225,9 +230,9 @@ function RunFacts({ session, onOpenRun }: { session: InspectorSession; onOpenRun
         <Fact label="Avg latency">{formatLatency(average)}</Fact>
       </div>
       {fork ? (
-        <div className="text-[13px] text-slate-500">
+        <div className="text-[13px] text-text-secondary">
           <Badge tone="purple">Branch</Badge> forked from{" "}
-          <button type="button" onClick={() => onOpenRun(fork.sessionId)} className="data text-badgepurple hover:underline">
+          <button type="button" onClick={() => onOpenRun(fork.sessionId)} className="focus-ring rounded font-mono text-purple-400 hover:underline">
             {fork.sessionId}
           </button>{" "}
           after caller turn {fork.turnIndex}
@@ -266,7 +271,7 @@ function CallSummary({ session }: { session: InspectorSession }) {
       <Eyebrow className="mb-3">Call summary</Eyebrow>
       {ended ? (
         <div className="space-y-3">
-          {ended.summary ? <p className="text-[14px] leading-relaxed text-slate-700">{ended.summary}</p> : null}
+          {ended.summary ? <p className="text-sm leading-relaxed text-text-secondary">{ended.summary}</p> : null}
           <div className="grid grid-cols-2 gap-2">
             <Fact label="Duration">{formatDuration(callDurationSeconds(session))}</Fact>
             <Fact label="Sentiment">
@@ -276,12 +281,12 @@ function CallSummary({ session }: { session: InspectorSession }) {
               <SuccessMark value={ended.callSuccessful} />
             </Fact>
             <Fact label="Disconnection">
-              <span className="data text-[13px]">{ended.disconnectionReason || "—"}</span>
+              <span className="font-mono text-xs font-normal">{ended.disconnectionReason || "—"}</span>
             </Fact>
           </div>
         </div>
       ) : (
-        <p className="text-[14px] text-slate-500">
+        <p className="text-sm text-text-dim">
           {session.status === "running" ? "The call is still open; its summary arrives with agent.call_ended." : "No agent.call_ended event was recorded for this call."}
         </p>
       )}
@@ -290,14 +295,14 @@ function CallSummary({ session }: { session: InspectorSession }) {
 }
 
 const CUSTOMER_BUBBLE: Record<SessionChannel, string> = {
-  imessage: "bg-imessage text-white",
-  sms: "bg-smsgreen text-white",
+  imessage: "bg-[#1f8fff] text-white",
+  sms: "bg-[#34c759] text-white",
   whatsapp: "bg-[#005c4b] text-white",
-  voice: "bg-[#2a1f40] text-bright"
+  voice: "bg-purple-500/20 text-text"
 };
 
 function Transcript({ session, customerName }: { session: InspectorSession; customerName: string }) {
-  if (!session.transcript.length) return <p className="text-[14px] text-slate-500">No messages yet.</p>;
+  if (!session.transcript.length) return <p className="text-sm text-text-dim">No messages yet.</p>;
   const seeded = new Set(session.outboundSeeds ?? []);
   return (
     <div className="space-y-2.5">
@@ -308,12 +313,12 @@ function Transcript({ session, customerName }: { session: InspectorSession; cust
           <div key={index} className={`flex flex-col ${customer ? "items-end" : "items-start"}`}>
             <div
               className={`max-w-[82%] whitespace-pre-wrap break-words rounded-2xl px-3 py-1.5 text-[13px] leading-snug ${
-                customer ? CUSTOMER_BUBBLE[session.channel] : "bg-raised text-bright"
+                customer ? CUSTOMER_BUBBLE[session.channel] : "bg-white/[0.06] text-text"
               }`}
             >
               {turn.content}
             </div>
-            <div className="mt-0.5 px-1 text-[11px] text-slate-500">
+            <div className="mt-0.5 px-1 text-[11px] text-text-dim">
               {customer ? customerName : "Agent"}
               {seeded.has(index) ? " · sent via API" : ""}
               {at ? ` · ${formatDateTime(at)}` : ""}
@@ -326,19 +331,19 @@ function Transcript({ session, customerName }: { session: InspectorSession; cust
 }
 
 function DeliveryList({ deliveries }: { deliveries: InspectorDelivery[] }) {
-  if (!deliveries.length) return <p className="text-[14px] text-slate-500">No webhook deliveries yet.</p>;
+  if (!deliveries.length) return <p className="text-sm text-text-dim">No webhook deliveries yet.</p>;
   return (
     <ul className="space-y-2">
       {deliveries.map((delivery) => {
         const failed = isFailedDelivery(delivery);
         const actions = deliveryActions([delivery]);
         return (
-          <li key={delivery.id} className="rounded-xl border border-line bg-frame px-3.5 py-2.5">
+          <li key={delivery.id} className="rounded-[12px] border border-white/[0.06] bg-white/[0.02] px-4 py-3">
             <div className="flex items-center justify-between gap-3">
-              <span className="data truncate text-[12.5px] text-bright">{delivery.event}</span>
+              <span className="truncate font-mono text-xs text-text">{delivery.event}</span>
               <div className="flex shrink-0 items-center gap-2">
                 <Badge tone={failed ? "red" : "green"}>{delivery.timedOut ? "timeout" : delivery.response.status || "no response"}</Badge>
-                <span className="data text-[12px] text-slate-500">{formatLatency(delivery.latencyMs)}</span>
+                <span className="font-mono text-xs text-text-dim">{formatLatency(delivery.latencyMs)}</span>
               </div>
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
@@ -349,7 +354,7 @@ function DeliveryList({ deliveries }: { deliveries: InspectorDelivery[] }) {
               {delivery.faults?.length ? <Badge tone="amber">fault: {delivery.faults.join(", ")}</Badge> : null}
               {delivery.replayOf ? <Badge>replay</Badge> : null}
               {delivery.inheritedFrom ? <Badge tone="purple">inherited</Badge> : null}
-              <span className="ml-auto text-[11.5px] text-slate-500">{formatDateTime(delivery.timestamp)}</span>
+              <span className="ml-auto text-[11px] text-text-dim">{formatDateTime(delivery.timestamp)}</span>
             </div>
           </li>
         );

@@ -9,9 +9,9 @@ import type { Contact, InspectorDelivery, InspectorSession, InspectorSessionSumm
 export type ThreadChannel = "imessage" | "sms" | "whatsapp";
 
 /** Conversation background; the bubble tails mask against it. */
-export const THREAD_BG = "#161615";
-export const LIST_BG = "#121211";
-export const RAIL_BG = "#131312";
+export const THREAD_BG = "#1a1a1a";
+export const LIST_BG = "#161616";
+export const RAIL_BG = "#171717";
 
 export interface ChannelStyle {
   label: string;

@@ -1,9 +1,9 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { PhoneCall } from "lucide-react";
+import { PhoneCall } from "@phosphor-icons/react";
 import { useLive } from "@/lib/live";
-import { Button, Card, Cell, EmptyState, Page, PageHeader, Row, Table, formatRelative } from "@/components/dashboard/ui";
+import { Button, Card, Cell, EmptyState, Page, PageBody, PageHeader, Row, Table, formatRelative } from "@/components/dashboard/ui";
 import { RunsDrawer } from "@/components/dashboard/RunsDrawer";
 import {
   RunContact,
@@ -32,15 +32,15 @@ export default function VoiceCallsPage() {
   const visible = useMemo(() => calls.filter((run) => runMatches(run, query)), [calls, query]);
   // Duration, sentiment and outcome live on the full session's call_ended payload.
   const { details, loading } = useRunDetails(calls);
-  const pending = <span className="text-slate-500">{loading ? "…" : "—"}</span>;
+  const pending = <span className="text-text-dim">{loading ? "…" : "—"}</span>;
 
   let body;
   if (!runs.length && offline) body = <ServerOffline />;
-  else if (!runs.length && !connected) body = <p className="px-6 py-10 text-center text-[14px] text-slate-500">Loading…</p>;
+  else if (!runs.length && !connected) body = <p className="px-6 py-10 text-center text-sm text-text-dim">Loading…</p>;
   else if (!calls.length)
     body = (
       <EmptyState
-        icon={<PhoneCall size={26} />}
+        icon={<PhoneCall size={24} />}
         title="No calls yet"
         description="Voice calls are simulated turn by turn: each caller utterance becomes a signed agent.message delivery, and hanging up sends agent.call_ended."
         action={<Button href="/devtools">Start a call in the Inspector</Button>}
@@ -54,24 +54,24 @@ export default function VoiceCallsPage() {
           const session = details.get(run.id);
           const duration = session ? callDurationSeconds(session) : callDurationSeconds(run);
           return (
-            <Row key={run.id} onClick={() => select(run.id)} className={run.id === selected ? "bg-mist" : ""}>
+            <Row key={run.id} onClick={() => select(run.id)} className={run.id === selected ? "bg-white/[0.04]" : ""}>
               <Cell className="min-w-[200px]">
                 <RunContact run={run} />
               </Cell>
-              <Cell mono className="whitespace-nowrap">
-                {duration !== undefined ? formatDuration(duration) : run.status === "running" ? <span className="text-fern">live</span> : "—"}
+              <Cell className="whitespace-nowrap tabular-nums">
+                {duration !== undefined ? formatDuration(duration) : run.status === "running" ? <span className="text-primary">live</span> : "—"}
               </Cell>
               <Cell>{session ? <SentimentBadge sentiment={session.callEnded?.userSentiment} /> : pending}</Cell>
               <Cell className="whitespace-nowrap">{session ? <SuccessMark value={session.callEnded?.callSuccessful} /> : pending}</Cell>
-              <Cell mono>{run.transcriptTurns}</Cell>
-              <Cell mono>{run.deliveries}</Cell>
-              <Cell mono className="whitespace-nowrap">
+              <Cell className="tabular-nums">{run.transcriptTurns}</Cell>
+              <Cell className="tabular-nums">{run.deliveries}</Cell>
+              <Cell mono className="whitespace-nowrap text-text-secondary">
                 {formatLatency(run.averageLatencyMs)}
               </Cell>
               <Cell>
                 <RunStatus run={run} />
               </Cell>
-              <Cell className="whitespace-nowrap text-slate-500">{formatRelative(run.startedAt)}</Cell>
+              <Cell className="whitespace-nowrap text-text-secondary">{formatRelative(run.startedAt)}</Cell>
             </Row>
           );
         })}
@@ -82,22 +82,22 @@ export default function VoiceCallsPage() {
     <Page>
       <PageHeader
         title="Voice Calls"
-        subtitle="Every simulated call, with its outcome and each webhook turn."
+        subtitle={`${calls.length} ${calls.length === 1 ? "call" : "calls"} total`}
         actions={
-          <Button href="/devtools" variant="secondary">
-            <PhoneCall size={15} /> New call
+          <Button href="/devtools" plus>
+            New call
           </Button>
         }
       />
-      <Card padded={false}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-          <div className="text-[14px] text-slate-500">
-            {calls.length} {calls.length === 1 ? "call" : "calls"}
+      <PageBody>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <p className="text-sm text-text-secondary">Every simulated call, with its outcome and each webhook turn.</p>
+            <RunsSearch value={query} onChange={setQuery} placeholder="Search caller or message" />
           </div>
-          <RunsSearch value={query} onChange={setQuery} placeholder="Search caller or message" />
+          <Card padded={false}>{body}</Card>
         </div>
-        {body}
-      </Card>
+      </PageBody>
       {selected ? <RunsDrawer runId={selected} run={runs.find((run) => run.id === selected)} onClose={() => select(null)} onOpenRun={select} /> : null}
     </Page>
   );

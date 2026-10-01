@@ -2,39 +2,55 @@
 @tailwind components;
 @tailwind utilities;
 
+/* AgentPhone's heading face, vendored (free font by Yann Le Coroller). */
+@font-face {
+  font-family: "Alte Haas Grotesk";
+  src: url("/fonts/AlteHaasGroteskRegular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Alte Haas Grotesk";
+  src: url("/fonts/AlteHaasGroteskBold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
 @layer components {
   .config-input {
     @apply h-9 w-full rounded-md border border-line bg-panel px-2 text-xs text-bright outline-none focus:border-fern;
   }
 }
 
-/* Design-tool dot grid for the conversation tree canvas. */
-.tree-canvas {
-  background-color: #171716;
-  background-image: radial-gradient(#2e2e2b 1px, transparent 1px);
-  background-size: 22px 22px;
-}
-
-/* Uppercase mono micro-label — panel titles, gutters, chrome text. */
-.micro {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, monospace;
-  font-size: 10px;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-}
-
-/* Dark code pane for payloads. */
-.console-pane {
-  background: #141413;
-  color: #d8d6ca;
-}
-.console-pane::-webkit-scrollbar-thumb {
-  background: #3f3e3a;
-  border-color: #171715;
-}
-
+/* The console's own variables, so arbitrary values like text-[var(--text-dim)]
+   resolve exactly as they do on agentphone.ai. */
 :root {
   color-scheme: dark;
+  --bg: #151515;
+  --bg-card: #262626cc;
+  --bg-card-hover: #0f0f0f;
+  --bg-elevated: #1c1c1c;
+  --border: #ffffff0f;
+  --border-bright: #ffffff1a;
+  --text: #e8e8e8;
+  --text-secondary: #888;
+  --text-dim: #555;
+  --text-subtle: #a1a1aa;
+  --green: #26b65a;
+  --green-dim: #26b65a26;
+  --green-glow: #26b65a66;
+  --background: #151515;
+  --surface: #1c1c1c;
+  --surface-border: #2a2a2a;
+  --card: #262626cc;
+  --foreground: #fff;
+  --input: #ffffff14;
+  --ring: #26b65a;
+  --font-heading: "Alte Haas Grotesk", "Inter", -apple-system, system-ui, sans-serif;
+  --font-body: "Inter", -apple-system, system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "SF Mono", Menlo, monospace;
 }
 
 * {
@@ -44,22 +60,99 @@
 body {
   min-height: 100vh;
   margin: 0;
-  background: #0d0d0c;
-  color: #f0efe9;
-  font-family:
-    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  background: var(--background);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
 }
 
 button,
 input,
-select {
+select,
+textarea {
   font: inherit;
+}
+
+::selection {
+  background: color-mix(in srgb, var(--green) 60%, transparent);
+  color: var(--foreground);
+}
+
+/* Focus treatment used on every interactive element in the console. */
+.focus-ring {
+  outline: none;
+  transition-property: box-shadow, background-color, color, transform;
+  transition-duration: 200ms;
+}
+.focus-ring:focus-visible {
+  box-shadow: 0 0 0 2px var(--background), 0 0 0 4px var(--ring);
+}
+
+/* Page content fades in one block at a time, like the console. */
+.stagger-enter > * {
+  animation: 0.5s cubic-bezier(0.16, 1, 0.3, 1) both enter-stagger;
+}
+.stagger-enter > :nth-child(2) {
+  animation-delay: 90ms;
+}
+.stagger-enter > :nth-child(3) {
+  animation-delay: 0.18s;
+}
+.stagger-enter > :nth-child(4) {
+  animation-delay: 0.27s;
+}
+.stagger-enter > :nth-child(5) {
+  animation-delay: 0.36s;
+}
+@keyframes enter-stagger {
+  0% {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  100% {
+    opacity: 1;
+    transform: none;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .stagger-enter > * {
+    animation: none;
+  }
+}
+html[data-reduce-motion="true"] .stagger-enter > * {
+  animation: none;
+}
+
+/* Design-tool dot grid for the conversation tree canvas. */
+.tree-canvas {
+  background-color: #171717;
+  background-image: radial-gradient(#2e2e2e 1px, transparent 1px);
+  background-size: 22px 22px;
+}
+
+/* Uppercase mono micro-label — panel titles, gutters, chrome text. */
+.micro {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+}
+
+/* Dark code pane for payloads. */
+.console-pane {
+  background: #111111;
+  color: #d8d6ca;
+}
+.console-pane::-webkit-scrollbar-thumb {
+  background: #3f3e3a;
+  border-color: #171715;
 }
 
 pre,
 code,
 .data {
-  font-family: ui-monospace, "SFMono-Regular", Menlo, Consolas, "Liberation Mono", monospace;
+  font-family: var(--font-mono);
   font-variant-numeric: tabular-nums;
 }
 
@@ -69,9 +162,9 @@ code,
 }
 
 ::-webkit-scrollbar-thumb {
-  background: #3a3a37;
+  background: #3a3a3a;
   border-radius: 8px;
-  border: 2px solid #0d0d0c;
+  border: 2px solid #151515;
 }
 
 ::-webkit-scrollbar-track {

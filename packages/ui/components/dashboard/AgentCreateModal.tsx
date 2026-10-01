@@ -47,29 +47,29 @@ export function AgentCreateModal({ defaultChannel, onClose, onCreated }: { defau
       width="max-w-xl"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={create} busy={saving} disabled={!name.trim() || !targetUrl.trim() || !secret.trim()}>
+          <Button variant="submit" onClick={create} busy={saving} disabled={!name.trim() || !targetUrl.trim() || !secret.trim()}>
             Create and activate
           </Button>
         </>
       }
     >
       <div className="space-y-4">
-        <Notice>
+        <p className="text-sm leading-relaxed text-text-secondary">
           In the simulator an agent is your webhook handler: the URL AgentPhone would POST events to, and the secret it signs them with. Creating one makes
           it the active target for iMessage, the Inspector and scenario runs.
-        </Notice>
+        </p>
         <Field label="Name">
           <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} placeholder="Support agent (staging)" autoFocus />
         </Field>
         <Field label="Webhook URL" hint="Absolute http:// or https:// URL of your handler.">
-          <input className={`${inputClass} data`} value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} placeholder="http://localhost:3000/webhook" />
+          <input className={`${inputClass} font-mono text-[13px]`} value={targetUrl} onChange={(event) => setTargetUrl(event.target.value)} placeholder="http://localhost:3000/webhook" />
         </Field>
         <div className="grid gap-4 sm:grid-cols-2">
           <Field label="Signing secret" hint="Used for the HMAC signature header.">
-            <input className={`${inputClass} data`} value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="whsec_…" />
+            <input className={`${inputClass} font-mono text-[13px]`} value={secret} onChange={(event) => setSecret(event.target.value)} placeholder="whsec_…" />
           </Field>
           <Field label="Default channel">
             <select className={inputClass} value={channel} onChange={(event) => setChannel(event.target.value as SessionChannel)}>

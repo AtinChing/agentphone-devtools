@@ -44,12 +44,17 @@ const COL_GAP = 56;
 const ROW_GAP = 18;
 const PAD = 28;
 
-const INK = "#f0efe9";
-const MUTED = "#8a8981";
-const EDGE = "#4a4945";
-const GOOD = "#0ca30c";
-const BAD = "#d03b3b";
-const LIVE = "#5abc6e";
+// AgentPhone console palette: surface cards on the dot grid, #26b65a green.
+const INK = "#e8e8e8";
+const MUTED = "#888888";
+const REPLY = "#a1a1aa";
+const EDGE = "#3d3d3d";
+const SURFACE = "#1c1c1c";
+const SURFACE_BORDER = "#2a2a2a";
+const PRIMARY = "#26b65a";
+const GOOD = PRIMARY;
+const BAD = "#ef4444";
+const LIVE = PRIMARY;
 const FORK = "#a78bfa";
 const NOTE = "#e8c06a";
 
@@ -192,7 +197,7 @@ export function ConversationTree({
 
   if (!placed.length) {
     return (
-      <div className="grid h-full min-h-[300px] place-items-center px-8 text-center text-sm text-slate-400">
+      <div className="grid h-full min-h-[300px] place-items-center px-8 text-center text-sm text-text-secondary">
         Send a caller turn and the conversation will grow here, one checkpoint per turn.
       </div>
     );
@@ -237,13 +242,13 @@ export function ConversationTree({
               <rect
                 width={NODE_W}
                 height={NODE_H}
-                rx={10}
-                fill="#202020"
-                stroke={selected ? INK : node.failed ? BAD : "#383834"}
-                strokeWidth={selected ? 2 : 1.2}
+                rx={12}
+                fill={SURFACE}
+                stroke={selected ? PRIMARY : node.failed ? BAD : SURFACE_BORDER}
+                strokeWidth={selected ? 2 : 1}
               />
               {leafOfLive ? (
-                <rect x={-4} y={-4} width={NODE_W + 8} height={NODE_H + 8} rx={13} fill="none" stroke={LIVE} strokeWidth={1.6} strokeDasharray="4 3" />
+                <rect x={-4} y={-4} width={NODE_W + 8} height={NODE_H + 8} rx={15} fill="none" stroke={LIVE} strokeWidth={1.5} strokeDasharray="4 3" />
               ) : null}
               <text x={12} y={17} fontSize={9.5} fill={MUTED} className="data">
                 t{node.turnNumber}
@@ -260,11 +265,11 @@ export function ConversationTree({
               <text x={12} y={33} fontSize={11.5} fill={INK} fontWeight={500}>
                 {truncate(node.caller, 30)}
               </text>
-              <text x={12} y={49} fontSize={10.5} fill="#9c9b93">
+              <text x={12} y={49} fontSize={10.5} fill={REPLY}>
                 {node.agentReply ? truncate(node.agentReply, 32) : "…"}
               </text>
               {node.actions.length ? (
-                <text x={12} y={64} fontSize={9.5} fill={node.actions.includes("hangup") ? "#5abc6e" : FORK} className="data">
+                <text x={12} y={64} fontSize={9.5} fill={node.actions.includes("hangup") ? PRIMARY : FORK} className="data">
                   {truncate(node.actions.join(", "), 32)}
                 </text>
               ) : null}
@@ -281,7 +286,7 @@ function NoteGlyph({ x, y }: { x: number; y: number }) {
   return (
     <g transform={`translate(${x}, ${y})`}>
       <path d="M 0 1.5 Q 0 0 1.5 0 L 9 0 L 9 7 L 7 10 L 1.5 10 Q 0 10 0 8.5 Z" fill={NOTE} />
-      <path d="M 2.2 3.2 L 6.8 3.2 M 2.2 5.6 L 5.6 5.6" stroke="#202020" strokeWidth={0.9} strokeLinecap="round" />
+      <path d="M 2.2 3.2 L 6.8 3.2 M 2.2 5.6 L 5.6 5.6" stroke={SURFACE} strokeWidth={0.9} strokeLinecap="round" />
     </g>
   );
 }
@@ -297,15 +302,15 @@ function truncate(text: string, max: number): string {
 
 export function TreeLegend() {
   return (
-    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-slate-500">
+    <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-[11px] text-text-secondary">
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-3 w-5 rounded border border-line bg-panel" /> checkpoint
+        <span className="inline-block h-3 w-5 rounded-[4px] border border-surface-border bg-surface" /> checkpoint
       </span>
       <span className="flex items-center gap-1.5 text-indigo-400">
         <GitBranch size={11} /> fork
       </span>
       <span className="flex items-center gap-1.5">
-        <span className="inline-block h-0 w-5 border-t-2 border-dashed" style={{ borderColor: "#5abc6e" }} /> live path
+        <span className="inline-block h-0 w-5 border-t-2 border-dashed" style={{ borderColor: PRIMARY }} /> live path
       </span>
     </div>
   );

@@ -49,6 +49,11 @@ export interface RailProps {
   exportRun: { id: string; defaultName: string } | null;
 }
 
+// Console recipes, shared by the rail's controls.
+const SECONDARY_BUTTON = "focus-ring border border-surface-border bg-white/[0.03] text-white transition-colors hover:bg-white/[0.06] disabled:opacity-40";
+const RAIL_INPUT = "focus-ring rounded-[10px] bg-input px-3 text-[13px] text-white placeholder:text-white/30";
+const NEUTRAL_BADGE = "rounded border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium leading-4 text-white/60";
+
 /**
  * The right rail: everything the simulator adds on top of a plain Messages
  * window. Contact + state, the simulated clock, outbound campaign sends,
@@ -56,18 +61,18 @@ export interface RailProps {
  */
 export function SimulatorRail(props: RailProps) {
   return (
-    <aside className="flex w-[330px] shrink-0 flex-col border-l border-line" style={{ background: RAIL_BG }}>
-      <div className="flex h-[62px] shrink-0 items-center gap-2 border-b border-line px-4">
+    <aside className="flex w-[330px] shrink-0 flex-col border-l border-white/[0.06]" style={{ background: RAIL_BG }}>
+      <div className="flex h-[62px] shrink-0 items-center gap-2 border-b border-white/[0.06] px-4">
         <div className="min-w-0">
-          <div className="text-[14px] font-semibold text-bright">Simulator</div>
-          <div className="truncate text-[11.5px] text-slate-500">Clock, campaigns and branches</div>
+          <div className="font-heading text-[16px] font-bold leading-tight text-white">Simulator</div>
+          <div className="mt-0.5 truncate text-[12px] text-text-secondary">Clock, campaigns and branches</div>
         </div>
         <button
           type="button"
           onClick={props.onClose}
           aria-label="Hide simulator rail"
           title="Hide"
-          className="ml-auto flex h-8 w-8 items-center justify-center rounded-lg text-slate-500 transition hover:bg-mist hover:text-bright"
+          className="focus-ring ml-auto flex h-8 w-8 items-center justify-center rounded-full text-white/60 transition-colors hover:bg-white/[0.06] hover:text-white"
         >
           <ChevronRight size={17} />
         </button>
@@ -97,8 +102,8 @@ export function SimulatorRail(props: RailProps) {
 
 function Section({ title, aside, children }: { title: string; aside?: ReactNode; children: ReactNode }) {
   return (
-    <section className="border-b border-line px-4 py-4">
-      <div className="mb-2.5 flex items-center gap-2">
+    <section className="border-b border-white/[0.06] px-4 py-4">
+      <div className="mb-3 flex items-center gap-2">
         <Eyebrow>{title}</Eyebrow>
         {aside ? <div className="ml-auto">{aside}</div> : null}
       </div>
@@ -108,11 +113,11 @@ function Section({ title, aside, children }: { title: string; aside?: ReactNode;
 }
 
 function Hint({ children, className = "" }: { children: ReactNode; className?: string }) {
-  return <p className={`mt-2 text-[11.5px] leading-[16px] text-slate-500 ${className}`}>{children}</p>;
+  return <p className={`mt-2 text-[12px] leading-[17px] text-text-dim ${className}`}>{children}</p>;
 }
 
 function InlineError({ message }: { message: string | null }) {
-  return message ? <div className="mt-2 text-[12px] text-[#f08080]">{message}</div> : null;
+  return message ? <div className="mt-2 text-[12px] text-red-400">{message}</div> : null;
 }
 
 // ── Contact ──────────────────────────────────────────────────────────────────
@@ -137,17 +142,17 @@ function ContactSection({
       <div className="flex items-center gap-3">
         <Avatar name={contact.unknown ? "#" : contact.name} size={34} />
         <div className="min-w-0 flex-1">
-          <div className="truncate text-[14px] font-semibold text-bright">{contact.name}</div>
-          <div className="truncate text-[12px] text-slate-500">{contact.number ? formatPhone(contact.number) : "No number"}</div>
+          <div className="truncate text-[14px] font-medium text-white">{contact.name}</div>
+          <div className="truncate text-[12px] text-text-secondary">{contact.number ? formatPhone(contact.number) : "No number"}</div>
         </div>
         <ChannelBadge channel={channel} />
       </div>
-      {contactNotes ? <p className="mt-2.5 text-[12px] leading-[17px] text-slate-500">{contactNotes}</p> : null}
-      <div className="mt-3 flex items-baseline justify-between">
-        <span className="data text-[11px] text-slate-500">conversationState</span>
-        <span className="text-[10.5px] text-slate-400">{sourceLabel}</span>
+      {contactNotes ? <p className="mt-3 text-[12px] leading-[17px] text-text-secondary">{contactNotes}</p> : null}
+      <div className="mt-3 flex items-center justify-between">
+        <span className="font-mono text-[11px] text-text-secondary">conversationState</span>
+        {sourceLabel ? <span className={NEUTRAL_BADGE}>{sourceLabel}</span> : null}
       </div>
-      <pre className="console-pane data mt-1.5 max-h-[180px] overflow-auto rounded-lg border border-line px-3 py-2 text-[11.5px] leading-[17px]">{json}</pre>
+      <pre className="console-pane mt-2 max-h-[180px] overflow-auto rounded-[12px] border border-white/[0.06] bg-[#111] px-3 py-2.5 font-mono text-[12px] leading-[18px]">{json}</pre>
     </Section>
   );
 }
@@ -185,35 +190,41 @@ function ClockSection({ offsetMs, busy, onAdvance }: { offsetMs: number; busy: b
   const shifted = Math.abs(offsetMs) >= 60_000;
   return (
     <Section title="Clock">
-      <div className="rounded-xl border border-line bg-panel px-3.5 py-3">
+      <div className="rounded-[12px] border border-white/[0.06] bg-white/[0.03] px-3.5 py-3">
         <div className="flex items-center justify-between">
-          <span className="flex items-center gap-1.5 text-[12px] text-slate-500">
+          <span className="flex items-center gap-1.5 text-[12px] text-text-secondary">
             <Clock3 size={12} /> Simulated time
           </span>
-          <span className={`data rounded-md px-1.5 py-0.5 text-[11px] ${shifted ? "bg-amber-50 text-amber-300" : "text-slate-500"}`}>{formatOffset(offsetMs)}</span>
+          <span
+            className={`data rounded border px-2 py-0.5 text-[10px] font-medium leading-4 ${
+              shifted ? "border-amber-500/20 bg-amber-500/15 text-amber-400" : "border-white/[0.08] bg-white/[0.05] text-white/60"
+            }`}
+          >
+            {formatOffset(offsetMs)}
+          </span>
         </div>
-        <div className="mt-1.5 text-[16px] font-semibold text-bright">
+        <div className="mt-2 font-heading text-[18px] font-bold leading-tight text-white">
           {virtual ? virtual.toLocaleDateString([], { weekday: "short", month: "short", day: "numeric" }) : "—"}
-          <span className="data ml-2 text-[14px] font-normal text-slate-600">
+          <span className="data ml-2 font-sans text-[13px] font-normal tabular-nums text-text-subtle">
             {virtual ? virtual.toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" }) : ""}
           </span>
         </div>
       </div>
-      <div className="mt-2.5 grid grid-cols-4 gap-1.5">
+      <div className="mt-3 grid grid-cols-4 gap-1.5">
         {["1h", "1d", "7d", "10d"].map((duration) => (
           <button
             key={duration}
             type="button"
             disabled={busy || pending !== null}
             onClick={() => void advance(duration)}
-            className="data flex h-7 items-center justify-center rounded-md border border-line bg-raised text-[12px] font-medium text-slate-700 transition hover:border-slate-400 hover:text-bright disabled:opacity-40"
+            className={`data flex h-8 items-center justify-center rounded-[8px] text-[12px] font-medium active:scale-[0.96] ${SECONDARY_BUTTON}`}
           >
             {pending === duration ? <Loader2 size={12} className="animate-spin" /> : `+${duration}`}
           </button>
         ))}
       </div>
       <form
-        className="mt-1.5 flex gap-1.5"
+        className="mt-2 flex gap-1.5"
         onSubmit={(event) => {
           event.preventDefault();
           void advance(custom);
@@ -224,12 +235,12 @@ function ClockSection({ offsetMs, busy, onAdvance }: { offsetMs: number; busy: b
           onChange={(event) => setCustom(event.target.value)}
           placeholder="2d"
           aria-label="Advance the clock by"
-          className="data h-8 min-w-0 flex-1 rounded-md border border-line bg-raised px-2.5 text-[12.5px] text-bright outline-none placeholder:text-slate-400 focus:border-fern"
+          className={`data h-8 min-w-0 flex-1 ${RAIL_INPUT}`}
         />
         <button
           type="submit"
           disabled={busy || pending !== null || !custom.trim()}
-          className="h-8 rounded-md border border-line bg-raised px-3 text-[12.5px] font-semibold text-bright transition hover:border-slate-400 disabled:opacity-40"
+          className={`h-8 rounded-[8px] px-3.5 text-[13px] font-medium active:scale-[0.96] ${SECONDARY_BUTTON}`}
         >
           Go
         </button>
@@ -301,7 +312,7 @@ function SeedSection({
         }}
         rows={3}
         placeholder="Write an outbound message…"
-        className="w-full resize-none rounded-xl border border-line bg-raised px-3 py-2 text-[13px] leading-[18px] text-bright outline-none placeholder:text-slate-400 focus:border-fern"
+        className={`block w-full resize-none py-2 leading-[18px] ${RAIL_INPUT}`}
       />
       <div className="mt-2 flex flex-wrap gap-1.5">
         {presets.map((preset) => (
@@ -309,7 +320,7 @@ function SeedSection({
             key={preset.label}
             type="button"
             onClick={() => setText(preset.text)}
-            className="rounded-full border border-line bg-raised px-2.5 py-1 text-[11.5px] text-slate-700 transition hover:border-slate-400 hover:text-bright"
+            className={`rounded-[8px] px-2.5 py-1 text-[12px] active:scale-[0.96] ${SECONDARY_BUTTON}`}
           >
             {preset.label}
           </button>
@@ -319,14 +330,14 @@ function SeedSection({
         type="button"
         onClick={() => void send()}
         disabled={!enabled || busy || sending || !text.trim()}
-        className="mt-3 inline-flex h-8 w-full items-center justify-center gap-2 rounded-lg bg-[#3a3a38] text-[13px] font-semibold text-bright transition hover:bg-[#474744] disabled:opacity-40"
+        className="focus-ring mt-3 inline-flex h-9 w-full items-center justify-center gap-2 rounded-[10px] bg-primary text-[13px] font-medium text-primary-foreground-strong transition-[filter,transform] hover:brightness-110 active:scale-[0.98] disabled:opacity-50 disabled:hover:brightness-100"
       >
         {sending ? <Loader2 size={13} className="animate-spin" /> : <Megaphone size={13} />}
         Send as business
-        <span className="text-[11px] font-normal text-slate-500">via {CHANNELS[channel].label}</span>
+        <span className="text-[11px] font-normal text-primary-foreground-strong/60">via {CHANNELS[channel].label}</span>
       </button>
       <InlineError message={error} />
-      {!enabled && hint ? <Hint className="text-caution">{hint}</Hint> : null}
+      {!enabled && hint ? <Hint className="!text-amber-400">{hint}</Hint> : null}
       <Hint>Outbound sends go through the API, not the webhook. This seeds the conversation history so the customer&apos;s reply hits your handler with the real context.</Hint>
     </Section>
   );
@@ -374,27 +385,27 @@ function QuickRepliesSection({
   }
 
   return (
-    <Section title="Quick replies" aside={<span className="text-[10.5px] text-slate-400">{direct ? "sends here" : "each one forks"}</span>}>
-      <p className="text-[12px] leading-[17px] text-slate-500">
+    <Section title="Quick replies" aside={<span className={NEUTRAL_BADGE}>{direct ? "sends here" : "each one forks"}</span>}>
+      <p className="text-[12px] leading-[17px] text-text-secondary">
         {direct
           ? `Reply as ${contact && !contact.unknown ? firstName(contact.name) : "the customer"} on this thread.`
           : "Each reply branches from the opener, so one campaign send fans out into customer archetypes."}
       </p>
-      <div className="mt-2 line-clamp-2 border-l-2 border-line pl-2 text-[11.5px] italic leading-[16px] text-slate-500">“{opener.text}”</div>
-      <div className="mt-2.5 space-y-0.5">
+      <div className="mt-2 line-clamp-2 border-l-2 border-white/[0.08] pl-2 text-[12px] italic leading-[17px] text-text-dim">“{opener.text}”</div>
+      <div className="mt-3 space-y-1.5">
         {ARCHETYPES.map((archetype) => (
           <button
             key={archetype.key}
             type="button"
             disabled={busy || pending !== null}
             onClick={() => void run(archetype.key, archetype.text, archetype.advance)}
-            className="group flex w-full items-center gap-2 rounded-lg px-2 py-1.5 text-left transition hover:bg-mist disabled:opacity-50"
+            className={`group flex w-full items-center gap-2 rounded-[8px] px-2.5 py-1.5 text-left active:scale-[0.98] ${SECONDARY_BUTTON}`}
           >
-            <span className="min-w-0 flex-1 truncate text-[12.5px] text-slate-700 group-hover:text-bright">{archetype.label}</span>
+            <span className="min-w-0 flex-1 truncate text-[13px] text-white/80 group-hover:text-white">{archetype.label}</span>
             <span className="max-w-[150px] truncate rounded-[14px] px-2.5 py-[3px] text-[12px] text-white" style={{ background: style.bubble }}>
               {archetype.text}
             </span>
-            <span className="flex w-4 shrink-0 justify-center text-slate-500">
+            <span className="flex w-4 shrink-0 justify-center text-text-secondary">
               {pending === archetype.key ? (
                 <Loader2 size={13} className="animate-spin" />
               ) : direct ? (
@@ -422,12 +433,12 @@ function BranchesSection({
   onSelectRun
 }: NonNullable<RailProps["family"]>) {
   return (
-    <Section title="Branches" aside={<span className="text-[10.5px] text-slate-400">{rows.length === 1 ? "1 run" : `${rows.length} runs`}</span>}>
-      <div className="tree-canvas h-[260px] overflow-hidden rounded-xl border border-line">
+    <Section title="Branches" aside={<span className={NEUTRAL_BADGE}>{rows.length === 1 ? "1 run" : `${rows.length} runs`}</span>}>
+      <div className="tree-canvas h-[260px] overflow-hidden rounded-[12px] border border-white/[0.06]">
         {roots.length ? (
           <ConversationTree roots={roots} liveSessionId={liveSessionId} selectedKey={selectedKey} onSelect={onSelectNode} />
         ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-[17px] text-slate-500">
+          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-[17px] text-text-secondary">
             The tree grows one checkpoint per customer message. Branches you fork appear beside the original.
           </div>
         )}
@@ -441,15 +452,15 @@ function BranchesSection({
             key={row.id}
             type="button"
             onClick={() => onSelectRun(row.id)}
-            className={`flex w-full items-center gap-2.5 rounded-lg px-2 py-1.5 text-left transition ${row.selected ? "bg-mist" : "hover:bg-white/[0.035]"}`}
+            className={`focus-ring flex w-full items-center gap-2.5 rounded-[8px] px-2 py-1.5 text-left transition-colors ${row.selected ? "bg-white/[0.06]" : "hover:bg-white/[0.035]"}`}
           >
-            {row.forked ? <GitBranch size={13} className="shrink-0 text-indigo-400" /> : <MessageCircle size={13} className="shrink-0 text-slate-500" />}
+            {row.forked ? <GitBranch size={13} className="shrink-0 text-indigo-400" /> : <MessageCircle size={13} className="shrink-0 text-text-secondary" />}
             <span className="min-w-0 flex-1">
-              <span className="block truncate text-[12.5px] font-medium text-bright">{row.title}</span>
-              <span className="block truncate text-[11px] text-slate-500">{row.subtitle}</span>
+              <span className="block truncate text-[12.5px] font-medium text-white">{row.title}</span>
+              <span className="block truncate text-[11px] text-text-secondary">{row.subtitle}</span>
             </span>
-            {row.live ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-[#34c759]" title="Live" /> : null}
-            <span className="data shrink-0 text-[11px] text-slate-500" title="Customer messages">
+            {row.live ? <span className="h-1.5 w-1.5 shrink-0 rounded-full bg-primary" title="Live" /> : null}
+            <span className="data shrink-0 text-[11px] text-text-secondary" title="Customer messages">
               {row.turns}
             </span>
             <StatusDot ok={row.status} className="shrink-0" />
@@ -468,13 +479,13 @@ function ChecksSection({ results, turnNumber, scenario }: { results?: StepExpect
     <Section title="Checks">
       {results?.length ? (
         <div>
-          <div className="mb-1.5 text-[11.5px] text-slate-500">Expectations on message {turnNumber}</div>
+          <div className="mb-1.5 text-[12px] text-text-secondary">Expectations on message {turnNumber}</div>
           <ul className="space-y-1">
             {results.map((result) => (
               <li key={result.action} className="flex items-center gap-2 text-[12.5px]">
                 <StatusDot ok={result.passed} />
-                <span className="data min-w-0 flex-1 truncate text-slate-700">{result.action}</span>
-                <span className="shrink-0 text-[11px] text-slate-500">{result.passed ? "passed" : `saw ${result.observed.join(", ") || "none"}`}</span>
+                <span className="data min-w-0 flex-1 truncate text-white/80">{result.action}</span>
+                <span className="shrink-0 text-[11px] text-text-secondary">{result.passed ? "passed" : `saw ${result.observed.join(", ") || "none"}`}</span>
               </li>
             ))}
           </ul>
@@ -482,17 +493,17 @@ function ChecksSection({ results, turnNumber, scenario }: { results?: StepExpect
       ) : null}
       {scenario ? (
         <div className={results?.length ? "mt-3" : ""}>
-          <div className="flex items-center gap-2 rounded-lg border border-line bg-panel px-3 py-2 text-[12.5px]">
+          <div className="flex items-center gap-2 rounded-[10px] border border-white/[0.06] bg-white/[0.03] px-3 py-2 text-[12.5px]">
             <StatusDot ok={scenario.passed} />
-            <span className="font-medium text-bright">Scenario {scenario.passed ? "passed" : "failed"}</span>
-            <span className="ml-auto text-[11.5px] text-slate-500">
+            <span className="font-medium text-white">Scenario {scenario.passed ? "passed" : "failed"}</span>
+            <span className="ml-auto text-[11.5px] text-text-secondary">
               {scenario.passedCount} passed · {scenario.failedCount} failed
             </span>
           </div>
           {failing.length ? (
             <ul className="mt-1.5 space-y-1">
               {failing.map((assertion, index) => (
-                <li key={index} className="text-[11.5px] leading-[16px] text-[#f08080]">
+                <li key={index} className="text-[12px] leading-[17px] text-red-400">
                   {assertion.message}
                 </li>
               ))}
@@ -550,7 +561,7 @@ function ExportSection({ id, defaultName }: { id: string; defaultName: string })
         <a
           href={serverUrl(`/api/history/${encodeURIComponent(id)}/scenario.yaml?assertions=1`)}
           download
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-[12.5px] font-semibold text-bright transition hover:border-slate-400"
+          className={`inline-flex h-9 items-center justify-center gap-1.5 rounded-[8px] text-[13px] font-medium active:scale-[0.96] ${SECONDARY_BUTTON}`}
         >
           <Download size={13} /> Download YAML
         </a>
@@ -561,7 +572,7 @@ function ExportSection({ id, defaultName }: { id: string; defaultName: string })
             setError(null);
             setOpen(true);
           }}
-          className="inline-flex h-8 items-center justify-center gap-1.5 rounded-lg border border-line bg-raised text-[12.5px] font-semibold text-bright transition hover:border-slate-400"
+          className="focus-ring inline-flex h-9 items-center justify-center gap-1.5 rounded-[8px] bg-primary text-[13px] font-medium text-white transition-[background-color,transform] hover:bg-primary/90 active:scale-[0.96]"
         >
           <Save size={13} /> Save as scenario
         </button>

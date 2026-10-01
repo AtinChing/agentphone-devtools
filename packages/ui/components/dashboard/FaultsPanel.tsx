@@ -1,11 +1,11 @@
 "use client";
 
 import { useState, type ReactNode } from "react";
-import { Info, ShieldAlert, ShieldCheck, TriangleAlert, Zap } from "lucide-react";
+import { BracketsCurly, Copy, Info, Lightning, ShieldCheck, ShieldWarning, Timer, Warning, type Icon as PhosphorIcon } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { DeliveryFault, InspectorDelivery } from "@/lib/types";
-import { Badge, Button, Card, Cell, Notice, Row, Table, formatDateTime } from "@/components/dashboard/ui";
+import { Badge, Button, Cell, Eyebrow, Notice, Row, Table, formatDateTime } from "@/components/dashboard/ui";
 
 type FaultKind = "security" | "malformed" | "duplicate" | "timeout";
 
@@ -108,10 +108,17 @@ function verdictFor(kind: FaultKind, delivery: InspectorDelivery): Verdict {
 }
 
 const VERDICT_BADGE: Record<VerdictTone, { tone: "green" | "red" | "amber" | "blue"; icon: ReactNode }> = {
-  good: { tone: "green", icon: <ShieldCheck size={13} /> },
-  bad: { tone: "red", icon: <ShieldAlert size={13} /> },
-  warn: { tone: "amber", icon: <TriangleAlert size={13} /> },
-  info: { tone: "blue", icon: <Info size={13} /> }
+  good: { tone: "green", icon: <ShieldCheck size={12} weight="bold" /> },
+  bad: { tone: "red", icon: <ShieldWarning size={12} weight="bold" /> },
+  warn: { tone: "amber", icon: <Warning size={12} weight="bold" /> },
+  info: { tone: "blue", icon: <Info size={12} weight="bold" /> }
+};
+
+const KIND_ICON: Record<FaultKind, PhosphorIcon> = {
+  security: ShieldWarning,
+  malformed: BracketsCurly,
+  duplicate: Copy,
+  timeout: Timer
 };
 
 function VerdictBadge({ verdict }: { verdict: Verdict }) {
@@ -169,49 +176,56 @@ export function FaultsPanel() {
   }
 
   return (
-    <Card
-      title="Fault injection"
-      subtitle="Send a deliberately broken delivery to your handler and check it fails safely."
-      padded={false}
-    >
-      <div className="space-y-3 px-6 pb-4">
-        <Notice>
-          Each probe is a real delivery: it adds a caller turn to the live {session ? <span className="data">{session.channel}</span> : null}{" "}
-          session against <span className="data">{session?.targetUrl ?? "your target"}</span> and appears in the Inspector.
-        </Notice>
-        {error ? <Notice tone="error">{error}</Notice> : null}
+    <section className="overflow-hidden rounded-[18px] bg-card shadow-card backdrop-blur-[2px]">
+      <div className="border-b border-surface-border px-6 py-4">
+        <h2 className="text-lg font-semibold text-text">Fault injection</h2>
+        <p className="text-sm text-text-dim">Send a deliberately broken delivery to your handler and check it fails safely.</p>
       </div>
-      <ul className="border-t border-line">
+      <div className="space-y-1 p-4">
+        <div className="space-y-2 px-2 pb-3">
+          <p className="text-xs text-text-dim">
+            Each probe is a real delivery: it adds a caller turn to the live{" "}
+            {session ? <span className="font-mono text-text-secondary">{session.channel}</span> : null} session against{" "}
+            <span className="font-mono text-text-secondary">{session?.targetUrl ?? "your target"}</span> and appears in the Inspector.
+          </p>
+          {error ? <Notice tone="error">{error}</Notice> : null}
+        </div>
         {FAULTS.map((spec) => {
           const latest = latestBySpec.get(spec.id);
+          const KindIcon = KIND_ICON[spec.kind];
           return (
-            <li key={spec.id} className="flex flex-wrap items-start gap-4 border-b border-line/70 px-6 py-4 last:border-b-0">
-              <div className="min-w-0 flex-1">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="text-[15px] font-semibold text-bright">{spec.label}</span>
-                  <code className="data rounded bg-raised px-1.5 py-0.5 text-[12px] text-slate-600">
-                    {spec.id}: {String(spec.fault[spec.id])}
-                  </code>
+            <div key={spec.id} className="flex items-start justify-between gap-4 rounded-[12px] px-4 py-3 transition-colors hover:bg-card-hover">
+              <div className="flex min-w-0 items-start gap-3">
+                <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-white/[0.06] text-white/50">
+                  <KindIcon size={16} />
                 </div>
-                <p className="mt-1 text-[14px] text-slate-500">{spec.description}</p>
-                {latest ? (
-                  <div className="mt-2.5 flex flex-wrap items-center gap-2 text-[13px] text-slate-600">
-                    <VerdictBadge verdict={verdictFor(spec.kind, latest)} />
-                    <span className="data">{statusLabel(latest)}</span>
-                    <span className="text-slate-400">·</span>
-                    <span className="data">{latest.latencyMs} ms</span>
-                    {latest.retries ? (
-                      <>
-                        <span className="text-slate-400">·</span>
-                        <span>{latest.retries} retries</span>
-                      </>
-                    ) : null}
-                    <span className="text-slate-400">·</span>
-                    {(latest.faults ?? []).map((fault) => (
-                      <Badge key={fault}>{fault}</Badge>
-                    ))}
+                <div className="min-w-0">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-sm font-medium text-white">{spec.label}</span>
+                    <code className="rounded bg-white/[0.05] px-1.5 py-0.5 font-mono text-[11px] text-text-secondary">
+                      {spec.id}: {String(spec.fault[spec.id])}
+                    </code>
                   </div>
-                ) : null}
+                  <p className="mt-0.5 text-xs text-text-dim">{spec.description}</p>
+                  {latest ? (
+                    <div className="mt-2 flex flex-wrap items-center gap-2 text-xs text-text-secondary">
+                      <VerdictBadge verdict={verdictFor(spec.kind, latest)} />
+                      <span className="font-mono">{statusLabel(latest)}</span>
+                      <span className="text-[#3a3a4a]">·</span>
+                      <span className="font-mono">{latest.latencyMs} ms</span>
+                      {latest.retries ? (
+                        <>
+                          <span className="text-[#3a3a4a]">·</span>
+                          <span>{latest.retries} retries</span>
+                        </>
+                      ) : null}
+                      <span className="text-[#3a3a4a]">·</span>
+                      {(latest.faults ?? []).map((fault) => (
+                        <Badge key={fault}>{fault}</Badge>
+                      ))}
+                    </div>
+                  ) : null}
+                </div>
               </div>
               <Button
                 variant="secondary"
@@ -220,32 +234,36 @@ export function FaultsPanel() {
                 busy={firing === spec.id}
                 disabled={!session || (firing !== null && firing !== spec.id)}
               >
-                {firing === spec.id ? null : <Zap size={14} />}
+                {firing === spec.id ? null : <Lightning size={14} weight="bold" />}
                 Fire
               </Button>
-            </li>
+            </div>
           );
         })}
-      </ul>
+      </div>
       {probes.length ? (
-        <div className="border-t border-line pt-2">
-          <div className="px-6 pb-1 pt-3 text-[11px] font-semibold uppercase tracking-[0.08em] text-slate-500">Recent probes · this session</div>
+        <div className="border-t border-surface-border">
+          <Eyebrow className="px-6 pb-1 pt-4">Recent probes · this session</Eyebrow>
           <Table head={["Time", "Fault", "Result", "Latency", "Retries", "Verdict", ""]}>
             {probes.slice(0, 8).map((delivery) => {
               const spec = specFor(delivery);
               if (!spec) return null;
               return (
                 <Row key={delivery.id}>
-                  <Cell className="whitespace-nowrap text-slate-500">{formatDateTime(delivery.timestamp)}</Cell>
+                  <Cell className="whitespace-nowrap text-text-secondary">{formatDateTime(delivery.timestamp)}</Cell>
                   <Cell>{spec.label}</Cell>
                   <Cell mono>{statusLabel(delivery)}</Cell>
-                  <Cell mono>{delivery.latencyMs} ms</Cell>
-                  <Cell mono>{delivery.retries}</Cell>
+                  <Cell mono className="text-text-secondary">
+                    {delivery.latencyMs} ms
+                  </Cell>
+                  <Cell mono className="text-text-secondary">
+                    {delivery.retries}
+                  </Cell>
                   <Cell>
                     <VerdictBadge verdict={verdictFor(spec.kind, delivery)} />
                   </Cell>
                   <Cell className="text-right">
-                    <Button variant="ghost" size="sm" href={`/devtools?session=${session?.id ?? ""}`}>
+                    <Button variant="ghost" size="sm" className="!h-7 !px-2" href={`/devtools?session=${session?.id ?? ""}`}>
                       Inspect
                     </Button>
                   </Cell>
@@ -255,6 +273,6 @@ export function FaultsPanel() {
           </Table>
         </div>
       ) : null}
-    </Card>
+    </section>
   );
 }

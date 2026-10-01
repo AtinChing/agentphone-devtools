@@ -70,10 +70,10 @@ export function ContactEditor({ contact, onClose }: { contact?: Contact; onClose
       width="max-w-xl"
       footer={
         <>
-          <Button variant="secondary" onClick={onClose}>
+          <Button variant="ghost" onClick={onClose}>
             Cancel
           </Button>
-          <Button onClick={save} busy={saving} disabled={!parsed.ok || !name.trim() || !number.trim()}>
+          <Button variant="submit" onClick={save} busy={saving} disabled={!parsed.ok || !name.trim() || !number.trim()}>
             {contact ? "Save changes" : "Create contact"}
           </Button>
         </>
@@ -85,7 +85,7 @@ export function ContactEditor({ contact, onClose }: { contact?: Contact; onClose
             <input className={inputClass} value={name} onChange={(event) => setName(event.target.value)} placeholder="Maya Chen" autoFocus />
           </Field>
           <Field label="Number" hint="E.164, e.g. +15559876543">
-            <input className={`${inputClass} data`} value={number} onChange={(event) => setNumber(event.target.value)} placeholder="+15559876543" />
+            <input className={`${inputClass} font-mono text-[13px]`} value={number} onChange={(event) => setNumber(event.target.value)} placeholder="+15559876543" />
           </Field>
         </div>
         <Field label="Channel" hint="The default channel when a conversation with this contact starts.">
@@ -102,14 +102,14 @@ export function ContactEditor({ contact, onClose }: { contact?: Contact; onClose
           hint={parsed.ok ? "JSON object sent as the webhook envelope's conversationState in this contact's conversations. Leave empty for null." : undefined}
         >
           <textarea
-            className={`${textareaClass} data min-h-[120px] text-[13px] ${parsed.ok ? "" : "border-danger focus:border-danger"}`}
+            className={`${textareaClass} min-h-[120px] font-mono text-[13px] ${parsed.ok ? "" : "ring-1 ring-red-500/50"}`}
             value={stateText}
             onChange={(event) => setStateText(event.target.value)}
             placeholder={'{\n  "customerName": "Maya Chen",\n  "tier": "gold"\n}'}
             spellCheck={false}
           />
         </Field>
-        {!parsed.ok ? <div className="-mt-2 text-[13px] text-danger">{parsed.message}</div> : null}
+        {!parsed.ok ? <div className="-mt-2 text-[13px] text-red-400">{parsed.message}</div> : null}
         <Field label="Notes">
           <textarea
             className={`${textareaClass} min-h-[72px]`}

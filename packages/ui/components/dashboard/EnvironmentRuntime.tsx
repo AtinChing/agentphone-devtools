@@ -123,10 +123,15 @@ export function TimeoutField({ form }: { form: RuntimeForm }) {
   );
 }
 
+const RANGE_CLASS =
+  "h-2 flex-1 cursor-pointer appearance-none rounded-[10px] bg-white/[0.05] accent-primary " +
+  "[&::-webkit-slider-thumb]:h-4 [&::-webkit-slider-thumb]:w-4 [&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-primary [&::-webkit-slider-thumb]:shadow-[0_0_0_3px_rgba(38,182,90,0.2)] " +
+  "[&::-moz-range-thumb]:h-4 [&::-moz-range-thumb]:w-4 [&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:border-0 [&::-moz-range-thumb]:bg-primary";
+
 export function ContextLimitField({ form, slider }: { form: RuntimeForm; slider?: boolean }) {
   const hint = (
     <>
-      Number of recent messages to include in <code className="data text-slate-700">recentHistory</code>. Set to 0 to disable.
+      Number of recent messages to include in <code className="text-primary">recentHistory</code>. Set to 0 to disable.
     </>
   );
   if (!slider) {
@@ -144,44 +149,45 @@ export function ContextLimitField({ form, slider }: { form: RuntimeForm; slider?
       </Field>
     );
   }
+  // The console's slider row: track, then the value in mono on the right.
   return (
-    <Field
-      label={
-        <span className="flex items-center justify-between">
-          <span>Context Limit</span>
-          <span className="data text-[14px] text-bright">{form.contextLimit}</span>
-        </span>
-      }
-      hint={hint}
-    >
-      <input
-        type="range"
-        min={0}
-        max={50}
-        step={1}
-        value={form.contextLimit}
-        onChange={(event) => form.setContextLimit(Number(event.target.value))}
-        className="h-2 w-full cursor-pointer accent-[#5abc6e]"
-      />
-    </Field>
+    <div>
+      <label htmlFor="context-limit" className="mb-2 block text-sm text-text-dim">
+        Context Limit
+      </label>
+      <div className="flex items-center gap-3">
+        <input
+          id="context-limit"
+          type="range"
+          min={0}
+          max={50}
+          step={1}
+          value={form.contextLimit}
+          onChange={(event) => form.setContextLimit(Number(event.target.value))}
+          className={RANGE_CLASS}
+        />
+        <span className="w-8 text-right font-mono text-sm text-text">{form.contextLimit}</span>
+      </div>
+      <p className="mt-2 text-xs text-text-dim">{hint}</p>
+    </div>
   );
 }
 
 export function RetryField({ form }: { form: RuntimeForm }) {
   return (
     <div>
-      <div className="mb-1.5 flex items-center gap-2 text-[14px] text-slate-600">
+      <div className="mb-2 flex items-center gap-2 text-sm text-text-dim">
         Retry on non-200
         {form.retryOnNon200 === null ? <Badge>CLI setting</Badge> : null}
       </div>
-      <div className="flex h-11 items-center">
+      <div className="flex h-10 items-center">
         <Toggle
           checked={form.retryOnNon200 ?? false}
           onChange={form.setRetryOnNon200}
           label={form.retryOnNon200 === null ? "Unchanged" : form.retryOnNon200 ? "On" : "Off"}
         />
       </div>
-      <div className="mt-1.5 text-[13px] text-slate-500">
+      <div className="mt-1.5 text-xs text-text-dim">
         {form.retryOnNon200 === null
           ? "The server keeps whatever --retry-on-non-200 set; flip to choose explicitly."
           : "Failed deliveries retry up to 5 times with compressed backoff (250 ms → 5 s)."}

@@ -468,6 +468,12 @@ the local server, not mock data:
 - **Inspector** — the step debugger: queue, expectations, forks, labels with notes, scenario picker, delivery payloads.
 - **Documentation, Support, Settings** — in-app reference, diagnostics, defaults and data controls.
 
+The console look is reproduced from agentphone.ai's dashboard (its layout,
+tokens, Alte Haas Grotesk headings, Phosphor icons and wordmark) so the
+simulator feels like the product it tests. The wordmark and logo under
+`packages/ui/public/brand/` are AgentPhone's; they are here only for this
+local tool.
+
 ## License
 
 MIT.

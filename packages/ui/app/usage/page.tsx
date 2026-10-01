@@ -1,50 +1,71 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useState } from "react";
-import { MessageSquare, PhoneCall, Smartphone, Webhook } from "lucide-react";
+import { useEffect, useState, type ReactNode } from "react";
+import { CircleNotch } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { UsageStats } from "@/lib/types";
-import { Badge, Card, Notice, Page, PageHeader, StatTile, formatNumber, formatRelative } from "@/components/dashboard/ui";
+import { Card, Notice, Page, PageBody, PageHeader, StatTile, formatNumber, formatRelative } from "@/components/dashboard/ui";
 import { EnvironmentOffline, useServerOffline } from "@/components/dashboard/EnvironmentOffline";
-import { USAGE_SERIES, UsageChart } from "@/components/dashboard/UsageChart";
+import { ActivityCard } from "@/components/dashboard/UsageChart";
 
-const [MESSAGES_SERIES, CALLS_SERIES] = USAGE_SERIES;
-
-function Dot({ color }: { color: string }) {
-  return <span className="inline-block h-2 w-2 shrink-0 rounded-full" style={{ background: color }} />;
+/** The console's 24px outline icons (stroke 1.5), drawn at w-5 h-5. */
+function LineIcon({ d }: { d: string }) {
+  return (
+    <svg className="h-5 w-5" fill="none" stroke="currentColor" viewBox="0 0 24 24" aria-hidden>
+      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d={d} />
+    </svg>
+  );
 }
 
-function WindowCard({ title, counts }: { title: string; counts: { messages: number; calls: number } }) {
+const ICONS = {
+  messages:
+    "M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z",
+  calls:
+    "M3 5a2 2 0 012-2h3.28a1 1 0 01.948.684l1.498 4.493a1 1 0 01-.502 1.21l-2.257 1.13a11.042 11.042 0 005.516 5.516l1.13-2.257a1 1 0 011.21-.502l4.493 1.498a1 1 0 01.684.949V19a2 2 0 01-2 2h-1C9.716 21 3 14.284 3 6V5z",
+  webhooks: "M13.828 10.172a4 4 0 00-5.656 0l-4 4a4 4 0 105.656 5.656l1.102-1.101m-.758-4.899a4 4 0 005.656 0l4-4a4 4 0 00-5.656-5.656l-1.1 1.1",
+  numbers: "M7 20l4-16m2 16l4-16M6 9h14M4 15h14"
+};
+
+function WindowCard({ title, children }: { title: string; children: ReactNode }) {
   return (
-    <Card title={title}>
-      <div className="space-y-3 text-[14px]">
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2.5 text-slate-600">
-            <Dot color={MESSAGES_SERIES.color} />
-            Messages
-          </span>
-          <span className="text-[16px] font-bold text-bright">{formatNumber(counts.messages)}</span>
-        </div>
-        <div className="flex items-center justify-between">
-          <span className="flex items-center gap-2.5 text-slate-600">
-            <Dot color={CALLS_SERIES.color} />
-            Calls
-          </span>
-          <span className="text-[16px] font-bold text-bright">{formatNumber(counts.calls)}</span>
-        </div>
+    <div className="rounded-[18px] bg-card p-5 shadow-card backdrop-blur-[2px]">
+      <h3 className="mb-4 text-sm font-medium text-text-secondary">{title}</h3>
+      {children}
+    </div>
+  );
+}
+
+function WindowRow({ dot, label, value }: { dot: string; label: string; value: number }) {
+  return (
+    <div className="flex items-center justify-between">
+      <div className="flex items-center gap-2">
+        <span className={`h-2 w-2 rounded-full ${dot}`} />
+        <span className="text-sm text-text-secondary">{label}</span>
       </div>
-    </Card>
+      <span className="text-lg font-semibold tabular-nums text-text">{formatNumber(value)}</span>
+    </div>
+  );
+}
+
+function WindowCounts({ title, counts }: { title: string; counts: { messages: number; calls: number } }) {
+  return (
+    <WindowCard title={title}>
+      <div className="space-y-4">
+        <WindowRow dot="bg-primary" label="Messages" value={counts.messages} />
+        <WindowRow dot="bg-blue-500" label="Calls" value={counts.calls} />
+      </div>
+    </WindowCard>
   );
 }
 
 function Metric({ label, value, hint }: { label: string; value: string; hint?: string }) {
   return (
-    <div className="rounded-xl border border-line bg-raised px-4 py-3.5">
-      <div className="text-[13px] text-slate-500">{label}</div>
-      <div className="mt-1 text-[24px] font-bold leading-tight text-bright">{value}</div>
-      {hint ? <div className="mt-1 text-[12.5px] text-slate-500">{hint}</div> : null}
+    <div className="rounded-[12px] bg-white/[0.04] px-4 py-3.5">
+      <div className="text-sm text-text-secondary">{label}</div>
+      <div className="mt-1 text-2xl font-bold tracking-tight tabular-nums text-text">{value}</div>
+      {hint ? <div className="mt-1 text-xs text-text-dim">{hint}</div> : null}
     </div>
   );
 }
@@ -54,7 +75,6 @@ export default function UsagePage() {
   const offline = useServerOffline();
   const [stats, setStats] = useState<UsageStats | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [range, setRange] = useState<7 | 30>(30);
 
   // Re-aggregate whenever run history changes (SSE pushes it on every delivery).
   useEffect(() => {
@@ -79,112 +99,102 @@ export default function UsagePage() {
 
   const totals = stats?.totals;
   const health = stats?.webhookHealth;
+  const rate = health?.successRate ?? 0;
+  const rateText = rate >= 99 ? "text-primary" : rate >= 90 ? "text-amber-400" : "text-red-400";
+  const rateBar = rate >= 99 ? "bg-primary" : rate >= 90 ? "bg-amber-500" : "bg-red-500";
 
   return (
     <Page>
       <PageHeader title="Usage" subtitle="Your activity across messages, calls, and webhooks" />
 
       {offline && !stats ? (
-        <EnvironmentOffline />
+        <PageBody>
+          <EnvironmentOffline />
+        </PageBody>
       ) : !stats || !totals || !health ? (
-        error ? <Notice tone="error">Could not load usage: {error}</Notice> : <div className="text-[14px] text-slate-500">Loading…</div>
+        <PageBody>
+          {error ? (
+            <Notice tone="error">Could not load usage: {error}</Notice>
+          ) : (
+            <div className="flex items-center justify-center py-24 text-text-dim">
+              <CircleNotch size={20} className="animate-spin" />
+            </div>
+          )}
+        </PageBody>
       ) : (
-        <div className="space-y-6">
+        <PageBody>
           {error ? <Notice tone="error">Showing the last loaded numbers; refresh failed: {error}</Notice> : null}
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
             <StatTile
               label="Messages"
               value={formatNumber(totals.messages)}
-              icon={<MessageSquare size={20} />}
+              icon={<LineIcon d={ICONS.messages} />}
               hint={`${formatNumber(stats.windows.last30d.messages)} in the last 30 days`}
             />
             <StatTile
               label="Voice Calls"
               value={formatNumber(totals.calls)}
-              icon={<PhoneCall size={20} />}
+              icon={<LineIcon d={ICONS.calls} />}
               hint={`${formatNumber(stats.windows.last30d.calls)} in the last 30 days`}
             />
             <StatTile
               label="Webhook Deliveries"
               value={formatNumber(totals.deliveries)}
-              icon={<Webhook size={20} />}
-              hint={totals.deliveries === 0 ? "No deliveries yet" : `${formatNumber(totals.failedDeliveries)} failed`}
+              icon={<LineIcon d={ICONS.webhooks} />}
+              hint={totals.deliveries === 0 ? "No deliveries yet" : `${rate.toFixed(1)}% success rate`}
             />
-            <StatTile label="Phone Numbers" value={formatNumber(contacts.length + 1)} icon={<Smartphone size={20} />} hint="active numbers" />
+            <StatTile label="Phone Numbers" value={formatNumber(contacts.length + 1)} icon={<LineIcon d={ICONS.numbers} />} hint="active numbers" />
           </div>
 
-          <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-4">
-            <WindowCard title="Last 24 Hours" counts={stats.windows.last24h} />
-            <WindowCard title="Last 7 Days" counts={stats.windows.last7d} />
-            <WindowCard title="Last 30 Days" counts={stats.windows.last30d} />
-            <Card title="Webhook Health">
+          <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+            <WindowCounts title="Last 24 Hours" counts={stats.windows.last24h} />
+            <WindowCounts title="Last 7 Days" counts={stats.windows.last7d} />
+            <WindowCounts title="Last 30 Days" counts={stats.windows.last30d} />
+            <WindowCard title="Webhook Health">
               {totals.deliveries === 0 ? (
-                <div className="space-y-2 text-[14px]">
-                  <div className="text-slate-500">No deliveries yet</div>
-                  <Link href="/webhooks" className="font-medium text-fern hover:underline">
+                <div className="flex flex-col items-center justify-center py-2">
+                  <p className="text-sm text-text-dim">No deliveries yet</p>
+                  <Link href="/webhooks" className="mt-1 text-xs text-primary hover:text-primary">
                     Configure webhook →
                   </Link>
                 </div>
               ) : (
-                <div className="space-y-3 text-[14px]">
+                <div className="space-y-3">
                   <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Success rate</span>
-                    <span className={`text-[16px] font-bold ${health.successRate >= 95 ? "text-fern" : health.successRate >= 80 ? "text-caution" : "text-danger"}`}>
-                      {health.successRate}%
-                    </span>
+                    <span className="text-sm text-text-secondary">Success rate</span>
+                    <span className={`text-lg font-semibold tabular-nums ${rateText}`}>{rate.toFixed(1)}%</span>
                   </div>
-                  <div className="flex items-center justify-between">
-                    <span className="text-slate-600">Timeouts</span>
-                    <span className="text-[16px] font-bold text-bright">{formatNumber(health.timeouts)}</span>
+                  <div className="h-2 overflow-hidden rounded-full bg-white/[0.05]">
+                    <div
+                      className={`h-full rounded-full transition-all duration-500 ${rateBar}`}
+                      style={{ width: `${Math.min(100, Math.max(0, rate))}%` }}
+                    />
                   </div>
-                  <div className="flex items-center justify-between gap-2">
-                    <span className="text-slate-600">Last delivery</span>
-                    <span className="flex items-center gap-2">
-                      <span className="text-slate-500">{formatRelative(health.lastDeliveryAt)}</span>
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="text-primary">{formatNumber(totals.deliveries - totals.failedDeliveries)} succeeded</span>
+                    {totals.failedDeliveries > 0 ? <span className="text-red-400">{formatNumber(totals.failedDeliveries)} failed</span> : null}
+                  </div>
+                  <div className="flex items-center justify-between gap-2 text-xs text-text-dim">
+                    <span className="truncate" title="Last delivery">
+                      Last {formatRelative(health.lastDeliveryAt)}
                       {health.lastStatus !== undefined ? (
-                        <Badge tone={health.lastStatus >= 200 && health.lastStatus < 300 ? "green" : "red"}>
-                          {health.lastStatus || "no response"}
-                        </Badge>
+                        <span className={health.lastStatus >= 200 && health.lastStatus < 300 ? "text-text-secondary" : "text-red-400"}>
+                          {" "}
+                          · {health.lastStatus || "no response"}
+                        </span>
                       ) : null}
+                    </span>
+                    <span className="shrink-0">
+                      {formatNumber(health.timeouts)} timeout{health.timeouts === 1 ? "" : "s"}
                     </span>
                   </div>
                 </div>
               )}
-            </Card>
+            </WindowCard>
           </div>
 
-          <Card
-            title="Activity"
-            subtitle={`Daily usage over the last ${range} days`}
-            actions={
-              <div className="flex rounded-lg border border-line bg-raised p-0.5">
-                {([7, 30] as const).map((option) => (
-                  <button
-                    key={option}
-                    type="button"
-                    onClick={() => setRange(option)}
-                    aria-pressed={range === option}
-                    className={`rounded-md px-3 py-1.5 text-[13px] font-medium transition ${
-                      range === option ? "bg-panel text-bright" : "text-slate-500 hover:text-bright"
-                    }`}
-                  >
-                    {option} days
-                  </button>
-                ))}
-              </div>
-            }
-          >
-            <div className="mb-4 flex flex-wrap items-center gap-5 text-[13px] text-slate-600">
-              {USAGE_SERIES.map((series) => (
-                <span key={series.key} className="flex items-center gap-2">
-                  <Dot color={series.color} />
-                  {series.label}
-                </span>
-              ))}
-            </div>
-            <UsageChart days={stats.byDay.slice(-range)} />
-          </Card>
+          <ActivityCard days={stats.byDay} height={260} />
 
           <Card title="Scenarios" subtitle="Regression runs, branches, and compliance signals from your history.">
             <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
@@ -197,12 +207,12 @@ export default function UsagePage() {
               <Metric label="Forks" value={formatNumber(totals.forks)} hint="branches explored from a checkpoint" />
               <Metric label="Opt-outs" value={formatNumber(totals.optOuts)} hint="replies carrying the opt_out action" />
             </div>
-            <div className="mt-4 text-[13px] text-slate-500">
-              Average webhook latency <span className="data text-slate-700">{formatNumber(totals.averageLatencyMs)} ms</span> across{" "}
+            <p className="mt-4 text-sm text-text-dim">
+              Average webhook latency <span className="font-mono text-text-secondary">{formatNumber(totals.averageLatencyMs)} ms</span> across{" "}
               {formatNumber(totals.deliveries)} deliveries.
-            </div>
+            </p>
           </Card>
-        </div>
+        </PageBody>
       )}
     </Page>
   );

@@ -80,19 +80,19 @@ export function ThreadView(props: {
   return (
     <section className="flex min-w-0 flex-1 flex-col" style={{ background: THREAD_BG }}>
       {!props.connected ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-amber-200 bg-amber-50 px-5 py-2 text-[12.5px] text-amber-300">
+        <div className="flex shrink-0 items-center gap-2 border-b border-amber-500/20 bg-amber-500/10 px-5 py-2 text-[12.5px] text-amber-400">
           <CircleAlert size={14} />
           Devtools server offline. Start <code className="data rounded bg-black/30 px-1.5 py-0.5 text-[11.5px]">npx agentphone-devtools</code>
         </div>
       ) : null}
       {props.banner ? (
-        <div className="flex shrink-0 items-center gap-2 border-b border-[#6b2a2a] bg-red-50 px-5 py-2 text-[12.5px] text-[#f08080]" role="alert">
+        <div className="flex shrink-0 items-center gap-2 border-b border-red-500/20 bg-red-500/10 px-5 py-2 text-[12.5px] text-red-400" role="alert">
           <CircleAlert size={14} className="shrink-0" />
           <span className="min-w-0 flex-1 truncate" title={props.banner}>
             {props.banner}
           </span>
           {props.onDismissBanner ? (
-            <button type="button" onClick={props.onDismissBanner} aria-label="Dismiss" className="shrink-0 text-[#f08080]/80 hover:text-[#f08080]">
+            <button type="button" onClick={props.onDismissBanner} aria-label="Dismiss" className="shrink-0 text-red-400/80 hover:text-red-400">
               <X size={14} />
             </button>
           ) : null}
@@ -102,7 +102,7 @@ export function ThreadView(props: {
       {mode === "empty" || mode === "missing" ? (
         <EmptyThread missing={mode === "missing"} onNewMessage={props.onNewMessage} />
       ) : mode === "loading" ? (
-        <div className="flex flex-1 items-center justify-center text-slate-500">
+        <div className="flex flex-1 items-center justify-center text-text-secondary">
           <Loader2 size={20} className="animate-spin" />
         </div>
       ) : mode === "draft" && props.draft ? (
@@ -149,7 +149,7 @@ export function ThreadView(props: {
               onSkipQueued={props.stepLive ? props.onSkipQueued : undefined}
             />
           ) : !props.ended ? (
-            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-line px-5 py-3.5 text-[12.5px] text-slate-500">
+            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-white/[0.06] px-5 py-3.5 text-[12.5px] text-text-secondary">
               <Lock size={13} className="shrink-0" />
               <span>
                 Read-only · this run is saved. Fork from a message to branch it (hover a bubble, then <GitBranch size={12} className="inline -translate-y-px text-indigo-400" />).
@@ -191,18 +191,18 @@ function ThreadHeader({
   const [error, setError] = useState<string | null>(null);
   const name = contact?.name ?? "Unknown number";
   return (
-    <header className="flex h-[62px] shrink-0 items-center gap-3 border-b border-line px-5">
+    <header className="flex h-[62px] shrink-0 items-center gap-3 border-b border-white/[0.06] px-5">
       <Avatar name={contact?.unknown ? "#" : name} size={38} />
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="truncate text-[15px] font-semibold text-bright">{name}</span>
+          <span className="truncate font-heading text-[16px] font-bold leading-tight text-white">{name}</span>
           <ChannelBadge channel={channel} />
         </div>
-        <div className="flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-slate-500">
+        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-text-secondary">
           {contact?.number && !contact.unknown ? <span className="whitespace-nowrap">{formatPhone(contact.number)}</span> : <span>Not in contacts</span>}
           {session.forkedFrom ? (
             <>
-              <span className="text-slate-300">·</span>
+              <span className="text-text-dim">·</span>
               <button type="button" onClick={() => onSelectRun(session.forkedFrom!.sessionId)} className="inline-flex items-center gap-1 whitespace-nowrap text-indigo-400 hover:text-indigo-700" title="Open the run this branch was forked from">
                 <GitBranch size={11} />
                 Branch {forkLabel(session.forkedFrom)}
@@ -213,19 +213,19 @@ function ThreadHeader({
       </div>
       <div className="ml-auto flex shrink-0 items-center gap-2">
         {error ? (
-          <span className="max-w-[220px] truncate text-[12px] text-[#f08080]" title={error}>
+          <span className="max-w-[220px] truncate text-[12px] text-red-400" title={error}>
             {error}
           </span>
         ) : null}
         {live && !ended ? (
-          <span className="inline-flex items-center gap-1.5 rounded-full border border-[#2e5a37] bg-[#173322] px-2.5 py-1 text-[11.5px] font-semibold text-fern">
-            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-[#34c759]" />
+          <span className="inline-flex items-center gap-1.5 rounded border border-primary/20 bg-primary/15 px-2 py-0.5 text-[10px] font-medium leading-4 text-primary">
+            <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
             Live
           </span>
         ) : ended ? (
-          <span className="rounded-full border border-line bg-raised px-2.5 py-1 text-[11.5px] font-medium text-slate-500">Ended</span>
+          <span className="rounded border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium leading-4 text-white/60">Ended</span>
         ) : (
-          <span className="rounded-full border border-line bg-raised px-2.5 py-1 text-[11.5px] font-medium text-slate-500">Saved run</span>
+          <span className="rounded border border-white/[0.08] bg-white/[0.05] px-2 py-0.5 text-[10px] font-medium leading-4 text-white/60">Saved run</span>
         )}
         {live && !ended ? (
           <button
@@ -242,7 +242,7 @@ function ThreadHeader({
                 setEnding(false);
               }
             }}
-            className="inline-flex h-8 items-center gap-1.5 rounded-lg border border-line bg-raised px-3 text-[12.5px] font-medium text-slate-700 transition hover:border-[#6b2a2a] hover:text-[#f08080] disabled:opacity-50"
+            className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-surface-border bg-white/[0.03] px-3 text-[13px] font-medium text-white transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 active:scale-[0.96] disabled:opacity-50"
           >
             {ending ? <Loader2 size={13} className="animate-spin" /> : null}
             End conversation
@@ -253,8 +253,8 @@ function ThreadHeader({
           onClick={onToggleRail}
           aria-pressed={railOpen}
           title={railOpen ? "Hide the simulator rail" : "Show branches, clock and campaign tools"}
-          className={`inline-flex h-8 items-center gap-1.5 rounded-lg border px-2.5 text-[12.5px] font-medium transition ${
-            railOpen ? "border-[#5a3b8a] bg-[#2a1f40] text-badgepurple" : "border-line bg-raised text-slate-700 hover:border-slate-400"
+          className={`focus-ring inline-flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-[13px] font-medium transition-colors active:scale-[0.96] ${
+            railOpen ? "border-purple-500/20 bg-purple-500/15 text-purple-400 hover:bg-purple-500/20" : "border border-surface-border bg-white/[0.03] text-white hover:bg-white/[0.06]"
           }`}
         >
           <GitBranch size={13} />
@@ -452,7 +452,7 @@ function MessageList({
     <div ref={scrollRef} className="min-h-0 flex-1 overflow-y-auto px-6 pb-4 pt-2">
       <div className="mx-auto flex max-w-[880px] flex-col">
         {bubbles.length === 0 && !optimistic ? (
-          <div className="py-16 text-center text-[13px] text-slate-500">
+          <div className="py-16 text-center text-[13px] text-text-secondary">
             No messages yet. Say something as the customer, or send a campaign opener from the rail.
           </div>
         ) : null}
@@ -504,7 +504,7 @@ function AgentRow({
   return (
     <div className={`group flex flex-col items-start ${grouped && !showCaption ? "mt-[3px]" : "mt-3"}`}>
       {showCaption ? (
-        <div className="mb-1 ml-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-slate-400">
+        <div className="mb-1 ml-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
           <Megaphone size={11} />
           Sent by business · via API
         </div>
@@ -515,7 +515,7 @@ function AgentRow({
         </BubbleShape>
         {canFork ? <ForkButton active={forkOpen} onClick={onToggleFork} label={bubble.callersBefore === 0 ? "Fork from the opener" : "Fork from here"} /> : null}
         {showMeta && bubble.delivery ? (
-          <span className="data shrink-0 text-[10.5px] text-slate-400 opacity-0 transition group-hover:opacity-100">
+          <span className="data shrink-0 text-[10.5px] text-text-secondary opacity-0 transition group-hover:opacity-100">
             {bubble.delivery.latencyMs}ms · HTTP {bubble.delivery.response.status}
             {bubble.delivery.inheritedFrom ? " · inherited" : ""}
           </span>
@@ -534,7 +534,7 @@ function EndedNote({ name, onStartNew }: { name?: string; onStartNew: () => Prom
   const [error, setError] = useState<string | null>(null);
   return (
     <div className="mt-8 flex flex-col items-center gap-2.5 pb-2 text-center">
-      <div className="text-[12px] text-slate-500">Conversation ended · fork from any message to continue</div>
+      <div className="text-[12px] text-text-secondary">Conversation ended · fork from any message to continue</div>
       <button
         type="button"
         disabled={busy}
@@ -549,12 +549,12 @@ function EndedNote({ name, onStartNew }: { name?: string; onStartNew: () => Prom
             setBusy(false);
           }
         }}
-        className="inline-flex items-center gap-1.5 rounded-full border border-line bg-raised px-3.5 py-1.5 text-[12.5px] font-medium text-bright transition hover:border-slate-400 disabled:opacity-50"
+        className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-surface-border bg-white/[0.03] text-white hover:bg-white/[0.06] px-3 text-[13px] font-medium transition-colors active:scale-[0.96] disabled:opacity-50"
       >
         {busy ? <Loader2 size={13} className="animate-spin" /> : <SquarePen size={13} />}
         Start new conversation with {name ? firstName(name) : "this number"}
       </button>
-      {error ? <div className="text-[12px] text-[#f08080]">{error}</div> : null}
+      {error ? <div className="text-[12px] text-red-400">{error}</div> : null}
     </div>
   );
 }
@@ -562,9 +562,9 @@ function EndedNote({ name, onStartNew }: { name?: string; onStartNew: () => Prom
 function EmptyThread({ missing, onNewMessage }: { missing: boolean; onNewMessage: () => void }) {
   return (
     <div className="flex flex-1 flex-col items-center justify-center px-6 text-center">
-      <MessageCircle size={64} strokeWidth={1.2} className="text-slate-300" />
-      <div className="mt-4 text-[19px] font-semibold text-slate-700">{missing ? "Conversation Not Found" : "No Conversation Selected"}</div>
-      <div className="mt-1.5 text-[14px] text-slate-500">{missing ? "This run was deleted or never existed." : "Pick a thread or start a new message."}</div>
+      <MessageCircle size={64} strokeWidth={1.2} className="text-text-dim" />
+      <div className="mt-4 font-heading text-[20px] font-bold text-white">{missing ? "Conversation Not Found" : "No Conversation Selected"}</div>
+      <div className="mt-1.5 text-[14px] text-text-secondary">{missing ? "This run was deleted or never existed." : "Pick a thread or start a new message."}</div>
       <button
         type="button"
         onClick={onNewMessage}
@@ -613,7 +613,7 @@ function DraftThread(props: {
 
   return (
     <>
-      <header className="relative flex h-[62px] shrink-0 items-center gap-3 border-b border-line px-5">
+      <header className="relative flex h-[62px] shrink-0 items-center gap-3 border-b border-white/[0.06] px-5">
         {draft.compose ? (
           <RecipientField
             contacts={contacts}
@@ -626,13 +626,13 @@ function DraftThread(props: {
           <>
             <Avatar name={contact?.name ?? "?"} size={38} />
             <div className="min-w-0">
-              <div className="truncate text-[15px] font-semibold text-bright">{contact?.name}</div>
-              <div className="truncate text-[12px] text-slate-500">{contact?.number ? formatPhone(contact.number) : ""}</div>
+              <div className="truncate font-heading text-[16px] font-bold leading-tight text-white">{contact?.name}</div>
+              <div className="mt-0.5 truncate text-[12px] text-text-secondary">{contact?.number ? formatPhone(contact.number) : ""}</div>
             </div>
           </>
         )}
         <div className="ml-auto flex shrink-0 items-center gap-2">
-          <div className="flex rounded-lg bg-raised p-0.5" role="radiogroup" aria-label="Channel">
+          <div className="flex gap-1 rounded-[10px] bg-white/[0.04] p-1" role="radiogroup" aria-label="Channel">
             {CHANNEL_ORDER.map((option) => (
               <button
                 key={option}
@@ -640,7 +640,7 @@ function DraftThread(props: {
                 role="radio"
                 aria-checked={channel === option}
                 onClick={() => props.onDraftChange({ ...draft, channel: option })}
-                className={`rounded-md px-2.5 py-1 text-[12px] font-medium transition ${channel === option ? "text-white shadow-sm" : "text-slate-500 hover:text-bright"}`}
+                className={`rounded-[6px] px-3 py-1.5 text-[13px] leading-none transition-colors ${channel === option ? "font-medium text-white" : "text-white/50 hover:text-white/80"}`}
                 style={channel === option ? { background: CHANNELS[option].accent } : undefined}
               >
                 {CHANNELS[option].label}
@@ -652,8 +652,8 @@ function DraftThread(props: {
             onClick={props.onToggleRail}
             aria-pressed={props.railOpen}
             title={props.railOpen ? "Hide the simulator rail" : "Show the simulator rail"}
-            className={`flex h-8 w-8 items-center justify-center rounded-lg border transition ${
-              props.railOpen ? "border-[#5a3b8a] bg-[#2a1f40] text-badgepurple" : "border-line bg-raised text-slate-600 hover:text-bright"
+            className={`focus-ring flex h-8 w-8 items-center justify-center rounded-[8px] border transition-colors ${
+              props.railOpen ? "border-purple-500/20 bg-purple-500/15 text-purple-400 hover:bg-purple-500/20" : "border-white/[0.08] text-white/60 hover:bg-white/[0.06] hover:text-white"
             }`}
           >
             {props.railOpen ? <PanelRightClose size={15} /> : <PanelRightOpen size={15} />}
@@ -665,17 +665,17 @@ function DraftThread(props: {
         {picked || contact ? (
           <>
             <Avatar name={(picked?.name ?? contact?.name) || "?"} size={72} />
-            <div className="mt-3 text-[18px] font-semibold text-bright">{picked?.name ?? contact?.name}</div>
-            <div className="mt-0.5 text-[13px] text-slate-500">
+            <div className="mt-3 font-heading text-[20px] font-bold text-white">{picked?.name ?? contact?.name}</div>
+            <div className="mt-0.5 text-[13px] text-text-secondary">
               {formatPhone((picked?.number ?? contact?.number) || "")} · {CHANNELS[channel].label}
             </div>
-            <div className="mt-5 max-w-[380px] text-[13px] leading-5 text-slate-500">
+            <div className="mt-5 max-w-[380px] text-[13px] leading-5 text-text-secondary">
               No messages yet. Type below to message the business as {firstName(picked?.name ?? contact?.name)}, or open with a campaign from{" "}
-              <span className="text-slate-700">Send as business</span> in the rail.
+              <span className="font-medium text-white/80">Send as business</span> in the rail.
             </div>
           </>
         ) : (
-          <div className="max-w-[360px] text-[13px] leading-5 text-slate-500">
+          <div className="max-w-[360px] text-[13px] leading-5 text-text-secondary">
             {contacts.length
               ? "Choose who the simulated customer is. Each contact brings their number and conversation state."
               : "No contacts yet. Add some on the Contacts page, or start a conversation from an unknown number."}
@@ -693,7 +693,7 @@ function DraftThread(props: {
             {picked || contact ? "Start conversation" : "Start with an unknown number"}
           </button>
         ) : null}
-        {error ? <div className="mt-3 text-[12.5px] text-[#f08080]">{error}</div> : null}
+        {error ? <div className="mt-3 text-[12.5px] text-red-400">{error}</div> : null}
       </div>
 
       <ComposeBar
@@ -735,21 +735,21 @@ function RecipientField({ contacts, picked, onPick }: { contacts: Contact[]; pic
   if (picked) {
     return (
       <div className="flex min-w-0 items-center gap-2">
-        <span className="text-[14px] text-slate-500">To:</span>
+        <span className="text-[14px] text-text-secondary">To:</span>
         <span className="inline-flex max-w-[260px] items-center gap-1.5 rounded-md bg-[#1f8fff]/20 py-0.5 pl-2 pr-1 text-[14px] font-medium text-[#5aa9ff]">
           <span className="truncate">{picked.name}</span>
           <button type="button" aria-label="Remove recipient" onClick={() => onPick(null)} className="rounded p-0.5 hover:bg-[#1f8fff]/30">
             <X size={12} />
           </button>
         </span>
-        <span className="truncate text-[12.5px] text-slate-500">{formatPhone(picked.number)}</span>
+        <span className="truncate text-[12.5px] text-text-secondary">{formatPhone(picked.number)}</span>
       </div>
     );
   }
 
   return (
     <div className="relative flex min-w-0 flex-1 items-center gap-2">
-      <span className="text-[14px] text-slate-500">To:</span>
+      <span className="text-[14px] text-text-secondary">To:</span>
       <input
         ref={inputRef}
         value={query}
@@ -776,10 +776,10 @@ function RecipientField({ contacts, picked, onPick }: { contacts: Contact[]; pic
         }}
         placeholder={contacts.length ? "Name or number" : "No contacts yet"}
         aria-label="Recipient"
-        className="h-8 min-w-0 flex-1 bg-transparent text-[14px] text-bright outline-none placeholder:text-slate-400"
+        className="h-8 min-w-0 flex-1 bg-transparent text-[14px] text-white outline-none placeholder:text-white/40"
       />
       {open && matches.length ? (
-        <div className="absolute left-7 top-[calc(100%+10px)] z-30 max-h-[320px] w-[340px] overflow-y-auto rounded-xl border border-line bg-panel p-1 shadow-soft">
+        <div className="absolute left-7 top-[calc(100%+10px)] z-30 max-h-[320px] w-[340px] overflow-y-auto rounded-[12px] border border-surface-border bg-surface p-1 shadow-modal">
           {matches.map((candidate, index) => {
             const style = CHANNELS[preferredChannel(candidate.channel)];
             return (
@@ -789,12 +789,12 @@ function RecipientField({ contacts, picked, onPick }: { contacts: Contact[]; pic
                 onMouseDown={(event) => event.preventDefault()}
                 onClick={() => onPick(candidate)}
                 onMouseEnter={() => setCursor(index)}
-                className={`flex w-full items-center gap-3 rounded-lg px-2.5 py-2 text-left ${index === cursor ? "bg-[#1f8fff]/25" : ""}`}
+                className={`flex w-full items-center gap-3 rounded-[8px] px-2.5 py-2 text-left ${index === cursor ? "bg-[#1f8fff]/25" : ""}`}
               >
                 <Avatar name={candidate.name} size={30} />
                 <span className="min-w-0 flex-1">
-                  <span className="block truncate text-[13.5px] font-medium text-bright">{candidate.name}</span>
-                  <span className="block truncate text-[12px] text-slate-500">{formatPhone(candidate.number)}</span>
+                  <span className="block truncate text-[13.5px] font-medium text-white">{candidate.name}</span>
+                  <span className="block truncate text-[12px] text-text-secondary">{formatPhone(candidate.number)}</span>
                 </span>
                 <span className="shrink-0 text-[11px] font-semibold" style={{ color: style.text }}>
                   {candidate.channel === "voice" ? "Voice → iMessage" : style.label}

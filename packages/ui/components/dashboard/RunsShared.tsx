@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { CircleCheck, CircleX, GitBranch, Search, ServerOff } from "lucide-react";
+import { CheckCircle, CloudSlash, GitBranch, MagnifyingGlass, XCircle } from "@phosphor-icons/react";
 import { api } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { InspectorDelivery, InspectorSession, InspectorSessionSummary, SessionChannel } from "@/lib/types";
@@ -84,33 +84,85 @@ export function runMatches(run: InspectorSessionSummary, query: string): boolean
   );
 }
 
-export function RunsSearch({ value, onChange, placeholder }: { value: string; onChange: (value: string) => void; placeholder: string }) {
+/** Search box with the console's magnifier; `className` replaces the default max-w-xs width cap. */
+export function RunsSearch({
+  value,
+  onChange,
+  placeholder,
+  className = "max-w-xs"
+}: {
+  value: string;
+  onChange: (value: string) => void;
+  placeholder: string;
+  className?: string;
+}) {
   return (
-    <div className="relative w-full max-w-xs">
-      <Search size={15} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
-      <input className={`${inputClass} h-9 pl-9`} value={value} onChange={(event) => onChange(event.target.value)} placeholder={placeholder} />
+    <div className={`relative w-full ${className}`}>
+      <MagnifyingGlass size={16} className="pointer-events-none absolute left-3 top-1/2 -translate-y-1/2 text-white/30" />
+      <input
+        aria-label={placeholder}
+        className={`${inputClass} pl-9`}
+        value={value}
+        onChange={(event) => onChange(event.target.value)}
+        placeholder={placeholder}
+      />
+    </div>
+  );
+}
+
+/** Console pill group (Activity range / channel filters). */
+export function PillGroup<T extends string>({
+  options,
+  value,
+  onChange,
+  className = ""
+}: {
+  options: { id: T; label: string; count?: number }[];
+  value: T;
+  onChange: (value: T) => void;
+  className?: string;
+}) {
+  return (
+    <div className={`flex gap-1 rounded-[10px] bg-white/[0.04] p-1 ${className}`} role="group">
+      {options.map((option) => {
+        const active = option.id === value;
+        return (
+          <button
+            key={option.id}
+            type="button"
+            onClick={() => onChange(option.id)}
+            aria-pressed={active}
+            className={`focus-ring rounded-[6px] px-3 py-1.5 text-[13px] leading-none transition-[transform,background-color,color] duration-150 active:scale-[0.96] ${
+              active ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"
+            }`}
+          >
+            {option.label}
+            {option.count !== undefined ? <span className={`ml-1.5 tabular-nums ${active ? "text-white/60" : "text-white/30"}`}>{option.count}</span> : null}
+          </button>
+        );
+      })}
     </div>
   );
 }
 
 export function ActionChip({ action }: { action: string }) {
-  return <span className="data rounded-md border border-line bg-raised px-1.5 py-0.5 text-[11.5px] text-slate-700">{action}</span>;
+  return <span className="rounded bg-white/[0.05] px-2 py-0.5 font-mono text-[11px] text-text-secondary">{action}</span>;
 }
 
 export function RunContact({ run }: { run: InspectorSessionSummary }) {
   const name = run.contact?.name ?? "Caller";
   return (
     <div className="flex min-w-0 items-center gap-3">
-      <Avatar name={name} size={32} />
+      <Avatar name={name} size={36} plain />
       <div className="min-w-0">
-        <div className="truncate font-medium text-bright">{name}</div>
-        <div className="truncate text-[12px] text-slate-500">
-          {run.contact ? formatPhone(run.contact.number) : <span className="data">{run.id}</span>}
+        <div className="truncate text-sm font-medium text-white">{name}</div>
+        <div className="truncate text-xs text-text-dim">
+          {run.contact ? <span className="tabular-nums">{formatPhone(run.contact.number)}</span> : <span className="font-mono">{run.id}</span>}
         </div>
         {run.forkedFrom ? (
           <Badge tone="purple" className="mt-1">
-            <GitBranch size={11} />
-            branch of <span className="data">{run.forkedFrom.sessionId}</span>
+            <GitBranch size={11} weight="bold" />
+            branch of <span className="font-mono">{run.forkedFrom.sessionId}</span>
           </Badge>
         ) : null}
       </div>
@@ -122,14 +174,14 @@ export function RunContact({ run }: { run: InspectorSessionSummary }) {
 export function RunStatus({ run }: { run: InspectorSessionSummary }) {
   const running = run.status === "running";
   return (
-    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px]">
+    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[13px] text-text-secondary">
       <span className="inline-flex items-center gap-1.5">
         <StatusDot ok={running ? true : null} className={running ? "animate-pulse" : ""} />
         {running ? "Running" : run.status === "ended" ? "Ended" : "Idle"}
       </span>
       {run.scenarioPassed !== undefined ? (
         <span
-          className={`inline-flex items-center gap-1.5 ${run.scenarioPassed ? "text-fern" : "text-danger"}`}
+          className={`inline-flex items-center gap-1.5 ${run.scenarioPassed ? "text-primary" : "text-red-400"}`}
           title={run.scenarioPassed ? "Scenario assertions passed" : "Scenario assertions failed"}
         >
           <StatusDot ok={run.scenarioPassed} />
@@ -141,21 +193,21 @@ export function RunStatus({ run }: { run: InspectorSessionSummary }) {
 }
 
 export function SentimentBadge({ sentiment }: { sentiment?: string }) {
-  if (!sentiment) return <span className="text-slate-500">—</span>;
+  if (!sentiment) return <span className="text-text-dim">—</span>;
   const value = sentiment.toLowerCase();
   const tone = value.includes("pos") ? "green" : value.includes("neg") ? "red" : "neutral";
   return <Badge tone={tone}>{sentiment}</Badge>;
 }
 
 export function SuccessMark({ value }: { value?: boolean }) {
-  if (value === undefined) return <span className="text-slate-500">—</span>;
+  if (value === undefined) return <span className="text-text-dim">—</span>;
   return value ? (
-    <span className="inline-flex items-center gap-1.5 text-fern">
-      <CircleCheck size={15} /> Yes
+    <span className="inline-flex items-center gap-1.5 text-primary">
+      <CheckCircle size={16} weight="fill" /> Yes
     </span>
   ) : (
-    <span className="inline-flex items-center gap-1.5 text-danger">
-      <CircleX size={15} /> No
+    <span className="inline-flex items-center gap-1.5 text-red-400">
+      <XCircle size={16} weight="fill" /> No
     </span>
   );
 }
@@ -181,11 +233,11 @@ export function useServerOffline(): boolean {
 export function ServerOffline() {
   return (
     <EmptyState
-      icon={<ServerOff size={26} />}
+      icon={<CloudSlash size={24} />}
       title="Devtools server offline"
       description={
         <>
-          Start the simulator with <code className="rounded bg-raised px-1.5 py-0.5 text-[13px] text-bright">npx agentphone-devtools</code> and this
+          Start the simulator with <code className="rounded bg-white/[0.06] px-1.5 py-0.5 font-mono text-[12px] text-text">npx agentphone-devtools</code> and this
           page reconnects on its own.
         </>
       }

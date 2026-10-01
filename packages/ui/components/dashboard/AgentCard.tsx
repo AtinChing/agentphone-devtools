@@ -1,9 +1,9 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Bot, MessageCircle, Power, Trash2, Wrench } from "lucide-react";
+import { ChatCircle, Key, Power, Trash, WebhooksLogo, Wrench } from "@phosphor-icons/react";
 import type { InspectorSession, InspectorSessionSummary, SessionChannel } from "@/lib/types";
-import { Badge, Button, Card, ChannelBadge, Eyebrow, formatNumber, formatRelative } from "./ui";
+import { Badge, Button, Eyebrow, formatNumber, formatRelative } from "./ui";
 import { ActionChip, deliveryActions, formatLatency, isFailedDelivery } from "./RunsShared";
 
 /** A webhook handler the simulator knows about: the live target or a saved environment. */
@@ -18,11 +18,13 @@ export interface AgentProfile {
   environmentId?: string;
 }
 
+const CHANNEL_LABEL: Record<SessionChannel, string> = { imessage: "iMessage", sms: "SMS", whatsapp: "WhatsApp", voice: "Voice" };
+
 function Metric({ label, children }: { label: string; children: ReactNode }) {
   return (
-    <div className="rounded-xl bg-raised px-3.5 py-3">
-      <Eyebrow>{label}</Eyebrow>
-      <div className="mt-1.5 flex items-center gap-2 text-[16px] font-semibold text-bright">{children}</div>
+    <div className="min-w-0 rounded-[12px] bg-white/[0.04] p-3">
+      <div className="text-xs text-text-dim">{label}</div>
+      <div className="mt-1 flex min-w-0 items-center gap-2 text-lg font-semibold tabular-nums text-text">{children}</div>
     </div>
   );
 }
@@ -72,22 +74,35 @@ export function AgentCard({
   const sampledRuns = targetRuns.filter((run) => details.has(run.id)).length;
 
   return (
-    <Card>
-      <div className="flex items-start gap-4">
-        <span className={`flex h-11 w-11 shrink-0 items-center justify-center rounded-xl ${agent.active ? "bg-[#173322] text-fern" : "bg-raised text-slate-600"}`}>
-          <Bot size={22} />
-        </span>
+    <article className="rounded-[18px] bg-card p-6 shadow-card backdrop-blur-[2px]">
+      <div className="flex items-start gap-3.5">
+        <div className="grid size-[42px] shrink-0 place-items-center rounded-[12px] bg-primary/15 text-[14px] font-semibold text-primary">
+          {agent.name.slice(0, 2).toUpperCase()}
+        </div>
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-[19px] font-semibold text-bright">{agent.name}</h2>
+            <h2 className="font-heading text-[19px] font-semibold tracking-[-0.2px] text-white">{agent.name}</h2>
             {agent.active ? <Badge tone="green">Active</Badge> : null}
-            {agent.channel ? <ChannelBadge channel={agent.channel} /> : null}
           </div>
-          <div className="data mt-1 break-all text-[13px] text-slate-600">{agent.targetUrl}</div>
-          <div className="mt-0.5 text-[12.5px] text-slate-500">
-            {agent.description} · secret <span className="data">{agent.secretPreview}</span>
-          </div>
+          <p className="mt-1 text-[13px] leading-relaxed text-text-secondary">{agent.description}</p>
         </div>
+      </div>
+
+      <div className="mt-3.5 flex flex-wrap items-center gap-x-6 gap-y-2 text-xs text-text-secondary sm:ml-14">
+        <span className="flex min-w-0 items-center gap-[7px]">
+          <WebhooksLogo size={16} className="shrink-0 text-primary" />
+          Webhook: <span className="break-all font-mono text-text">{agent.targetUrl}</span>
+        </span>
+        {agent.channel ? (
+          <span className="flex items-center gap-[7px]">
+            <ChatCircle size={16} className="shrink-0" />
+            Default channel: <span className="text-text">{CHANNEL_LABEL[agent.channel]}</span>
+          </span>
+        ) : null}
+        <span className="flex items-center gap-[7px]">
+          <Key size={15} className="shrink-0" />
+          Secret <span className="font-mono text-text">{agent.secretPreview}</span>
+        </span>
       </div>
 
       <div className="mt-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
@@ -99,14 +114,14 @@ export function AgentCard({
               <Badge tone={isFailedDelivery(lastDelivery) ? "red" : "green"}>
                 {lastDelivery.timedOut ? "timeout" : lastDelivery.response.status || "no response"}
               </Badge>
-              <span className="truncate text-[13px] font-normal text-slate-500">{formatRelative(lastDelivery.timestamp)}</span>
+              <span className="truncate text-[13px] font-normal text-text-secondary">{formatRelative(lastDelivery.timestamp)}</span>
             </>
           ) : (
-            <span className="text-slate-500">{detailsLoading ? "…" : "—"}</span>
+            <span className="text-text-dim">{detailsLoading ? "…" : "—"}</span>
           )}
         </Metric>
         <Metric label="Failed">
-          <span className={failed ? "text-danger" : ""}>{sampledRuns || !detailsLoading ? formatNumber(failed) : "…"}</span>
+          <span className={failed ? "text-red-400" : ""}>{sampledRuns || !detailsLoading ? formatNumber(failed) : "…"}</span>
         </Metric>
       </div>
 
@@ -119,19 +134,19 @@ export function AgentCard({
             ))}
           </div>
         ) : (
-          <p className="text-[13px] text-slate-500">
+          <p className="text-sm text-text-dim">
             {detailsLoading ? "Loading…" : "No actions observed yet. Send this handler a message to see what it can do."}
           </p>
         )}
         {!detailsLoading && sampledRuns < targetRuns.length ? (
-          <p className="mt-2 text-[12px] text-slate-500">Delivery health and capabilities are from the {sampledRuns} most recent runs.</p>
+          <p className="mt-2 text-xs text-text-dim">Delivery health and capabilities are from the {sampledRuns} most recent runs.</p>
         ) : null}
       </div>
 
-      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-line pt-4">
+      <div className="mt-5 flex flex-wrap items-center gap-2 border-t border-white/[0.06] pt-4">
         {agent.active ? null : (
           <Button size="sm" onClick={onActivate} busy={busy}>
-            <Power size={14} /> Activate
+            <Power size={14} weight="bold" /> Activate
           </Button>
         )}
         <Button
@@ -141,7 +156,7 @@ export function AgentCard({
           disabled={busy}
           title={agent.active ? undefined : "Activates this agent, then opens iMessage"}
         >
-          <MessageCircle size={14} /> Test in iMessage
+          <ChatCircle size={14} weight="bold" /> Test in iMessage
         </Button>
         <Button
           size="sm"
@@ -160,10 +175,10 @@ export function AgentCard({
             disabled={busy}
             onClick={() => (confirmingRemove ? onRemove() : setConfirmingRemove(true))}
           >
-            <Trash2 size={14} /> {confirmingRemove ? "Confirm remove" : "Remove"}
+            <Trash size={14} /> {confirmingRemove ? "Confirm remove" : "Remove"}
           </Button>
         ) : null}
       </div>
-    </Card>
+    </article>
   );
 }

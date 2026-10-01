@@ -1,20 +1,14 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { Clock, Save, Trash2 } from "lucide-react";
+import { ClockCounterClockwise, Trash } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { ClockState, SessionChannel } from "@/lib/types";
-import { Button, Card, Field, Modal, Notice, Page, PageHeader, Toggle, inputClass } from "@/components/dashboard/ui";
+import { Button, Card, Field, Modal, Notice, Page, PageBody, PageHeader, Toggle, inputClass } from "@/components/dashboard/ui";
 import { EnvironmentOffline, useServerOffline } from "@/components/dashboard/EnvironmentOffline";
 import { AppearancePreferences, useAppearance } from "@/components/dashboard/EnvironmentPreferences";
-import {
-  ContextLimitField,
-  RetryField,
-  RuntimeResultNotice,
-  TimeoutField,
-  useRuntimeSettings
-} from "@/components/dashboard/EnvironmentRuntime";
+import { ContextLimitField, RetryField, RuntimeResultNotice, TimeoutField, useRuntimeSettings } from "@/components/dashboard/EnvironmentRuntime";
 
 const CHANNELS: { value: SessionChannel; label: string }[] = [
   { value: "sms", label: "SMS" },
@@ -38,10 +32,10 @@ function describeOffset(offsetMs: number): string {
 
 function SettingRow({ title, description, children }: { title: string; description: ReactNode; children?: ReactNode }) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-line/70 py-4 first:pt-0 last:border-b-0 last:pb-0">
+    <div className="flex flex-wrap items-center justify-between gap-4 border-b border-white/[0.06] py-3 first:pt-0 last:border-b-0 last:pb-0">
       <div className="min-w-0 max-w-xl">
-        <div className="text-[15px] font-medium text-bright">{title}</div>
-        <div className="mt-0.5 text-[13.5px] text-slate-500">{description}</div>
+        <div className="text-sm font-medium text-text">{title}</div>
+        <div className="mt-0.5 text-xs leading-relaxed text-text-dim">{description}</div>
       </div>
       {children ? <div className="shrink-0">{children}</div> : null}
     </div>
@@ -114,9 +108,11 @@ export default function SettingsPage() {
       <PageHeader title="Settings" subtitle="Simulator defaults and data." />
 
       {offline ? (
-        <EnvironmentOffline />
+        <PageBody>
+          <EnvironmentOffline />
+        </PageBody>
       ) : (
-        <div className="space-y-6">
+        <PageBody className="!gap-6">
           <Card title="Defaults" subtitle="Applied to the live simulator and every conversation after it.">
             <div className="grid gap-5 md:grid-cols-2">
               <Field label="Default channel" hint="Channel for new conversations that don't pick their own.">
@@ -139,14 +135,20 @@ export default function SettingsPage() {
               <ContextLimitField form={form} />
               <RetryField form={form} />
             </div>
-            <div className="mt-6 space-y-3">
-              <Notice>Saving starts a fresh session with these defaults; the current conversation stays in history.</Notice>
+            <div className="mt-6 space-y-4">
               <RuntimeResultNotice result={form.result} />
-              <div className="flex justify-end">
-                <Button onClick={() => void form.save({ channel })} busy={form.saving} disabled={!session}>
-                  {form.saving ? null : <Save size={15} />}
-                  Save defaults
-                </Button>
+              <div className="flex flex-wrap items-center gap-3">
+                <button
+                  type="button"
+                  onClick={() => void form.save({ channel })}
+                  disabled={form.saving || !session}
+                  className="focus-ring rounded-[10px] bg-primary px-4 py-2 text-sm font-medium text-primary-foreground-strong transition-colors hover:bg-primary/90 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {form.saving ? "Saving..." : "Save defaults"}
+                </button>
+                <span className="text-xs text-text-dim">
+                  Saving starts a fresh session with these defaults; the current conversation stays in history.
+                </span>
               </div>
             </div>
           </Card>
@@ -170,8 +172,8 @@ export default function SettingsPage() {
               title="Clear run history"
               description={`Delete ${savedRuns} saved run${savedRuns === 1 ? "" : "s"}, including baselines and forks. The live session is kept.`}
             >
-              <Button variant="danger" onClick={() => setConfirmClear(true)} disabled={savedRuns === 0}>
-                <Trash2 size={15} />
+              <Button variant="danger" size="sm" onClick={() => setConfirmClear(true)} disabled={savedRuns === 0}>
+                <Trash size={14} weight="bold" />
                 Clear run history
               </Button>
             </SettingRow>
@@ -179,13 +181,13 @@ export default function SettingsPage() {
               title="Reset simulated clock"
               description={
                 <>
-                  Currently: <span className="data text-slate-700">{clock ? describeOffset(clock.offsetMs) : "unknown"}</span>. Warps and scenario{" "}
-                  <span className="data">startAt</span> move it; resetting pins it to now.
+                  Currently: <span className="font-mono text-text-secondary">{clock ? describeOffset(clock.offsetMs) : "unknown"}</span>. Warps and
+                  scenario <span className="font-mono text-text-secondary">startAt</span> move it; resetting pins it to now.
                 </>
               }
             >
-              <Button variant="secondary" onClick={() => void resetClock()} busy={clockBusy}>
-                {clockBusy ? null : <Clock size={15} />}
+              <Button variant="secondary" size="sm" onClick={() => void resetClock()} busy={clockBusy}>
+                {clockBusy ? null : <ClockCounterClockwise size={14} weight="bold" />}
                 Reset clock
               </Button>
             </SettingRow>
@@ -193,15 +195,15 @@ export default function SettingsPage() {
               title="Where data lives"
               description={
                 <>
-                  Runs are saved to <span className="data text-slate-700">.agentphone-devtools/history.json</span> in the directory the CLI was
-                  started from (override with <span className="data">--history-path</span>). Contacts and sub-accounts sit beside it in{" "}
-                  <span className="data">contacts.json</span> and <span className="data">environments.json</span>. Signing secrets are never
-                  written to history.
+                  Runs are saved to <span className="font-mono text-text-secondary">.agentphone-devtools/history.json</span> in the directory the CLI
+                  was started from (override with <span className="font-mono text-text-secondary">--history-path</span>). Contacts and sub-accounts
+                  sit beside it in <span className="font-mono text-text-secondary">contacts.json</span> and{" "}
+                  <span className="font-mono text-text-secondary">environments.json</span>. Signing secrets are never written to history.
                 </>
               }
             />
           </Card>
-        </div>
+        </PageBody>
       )}
 
       {confirmClear ? (
@@ -210,7 +212,7 @@ export default function SettingsPage() {
           onClose={() => setConfirmClear(false)}
           footer={
             <>
-              <Button variant="secondary" onClick={() => setConfirmClear(false)}>
+              <Button variant="ghost" onClick={() => setConfirmClear(false)}>
                 Cancel
               </Button>
               <Button variant="danger" onClick={() => void clearHistory()} busy={clearing}>
@@ -219,7 +221,7 @@ export default function SettingsPage() {
             </>
           }
         >
-          <p className="text-[14px] text-slate-600">
+          <p className="text-sm text-text-secondary">
             This permanently deletes every saved run except the live session, including baselines, labels, and forks. Exported scenario files are not
             touched.
           </p>

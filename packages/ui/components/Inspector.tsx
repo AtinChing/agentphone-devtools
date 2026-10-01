@@ -28,6 +28,26 @@ const CHANNEL_OPTIONS: Array<{ value: SessionChannel; label: string }> = [
 
 const DEFAULT_SCENARIO = "examples/scenarios/appointment-cancellation.yaml";
 
+// AgentPhone console recipes (see the dashboard's ui.tsx), local so the
+// Inspector's dense controls can size them per use.
+const PANEL = "rounded-[18px] bg-card shadow-card";
+const INPUT = "focus-ring rounded-[10px] bg-input px-3 text-[13px] text-white placeholder:text-white/30";
+const PRIMARY_BUTTON =
+  "focus-ring inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[8px] bg-primary font-medium leading-none text-white transition-[background-color,transform] duration-200 hover:bg-primary/90 active:scale-[0.96] disabled:opacity-50";
+const SUBMIT_BUTTON =
+  "focus-ring inline-flex shrink-0 items-center justify-center gap-1.5 rounded-[10px] bg-primary font-medium leading-none text-primary-foreground-strong transition-[filter,transform] duration-200 hover:brightness-110 active:scale-[0.96] disabled:opacity-50 disabled:hover:brightness-100";
+const SECONDARY_BUTTON =
+  "focus-ring inline-flex shrink-0 items-center justify-center rounded-[8px] border border-surface-border bg-white/[0.03] font-medium leading-none text-white transition-[background-color,color,transform] duration-200 hover:bg-white/[0.06] active:scale-[0.96] disabled:opacity-40";
+const ICON_BUTTON =
+  "focus-ring grid h-8 w-8 place-items-center rounded-[8px] border transition-colors duration-200 disabled:cursor-not-allowed disabled:opacity-40";
+const ICON_IDLE = "border-white/[0.08] text-white/60 hover:bg-white/[0.06] hover:text-white";
+const ICON_ACTIVE = "border-primary text-primary hover:bg-primary/10";
+const BADGE = "rounded border px-2 py-0.5 text-[10px] font-medium leading-4";
+const BADGE_GREEN = `${BADGE} border-primary/20 bg-primary/15 text-primary`;
+const BADGE_RED = `${BADGE} border-red-500/20 bg-red-500/15 text-red-400`;
+const BADGE_AMBER = `${BADGE} border-amber-500/20 bg-amber-500/15 text-amber-400`;
+const BADGE_NEUTRAL = `${BADGE} border-white/[0.08] bg-white/[0.05] text-white/60`;
+
 export function Inspector() {
   const [session, setSession] = useState<InspectorSession | null>(null);
   const [liveSession, setLiveSession] = useState<InspectorSession | null>(null);
@@ -767,36 +787,36 @@ export function Inspector() {
   // scroll internally (stacked, with one outer scroll, below xl).
   return (
     <div className="flex h-full min-h-0 flex-col">
-      <header className="shrink-0 border-b border-line bg-[#111110] text-white">
-        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-2 px-5 py-3">
-          <div className="flex min-w-0 items-center gap-3">
-            <div className="grid h-8 w-8 shrink-0 place-items-center rounded bg-fern text-white">
-              <Activity size={16} aria-hidden="true" />
+      <header className="shrink-0 border-b border-white/[0.06] text-white">
+        <div className="flex flex-wrap items-center justify-between gap-x-4 gap-y-3 px-5 py-4">
+          <div className="flex min-w-0 flex-1 basis-[320px] items-center gap-3">
+            <div className="grid h-9 w-9 shrink-0 place-items-center rounded-[10px] bg-primary/15 text-primary">
+              <Activity size={17} aria-hidden="true" />
             </div>
-            <div className="min-w-0">
-              <h1 className="flex items-baseline gap-2 truncate text-sm font-semibold text-white">
+            <div className="min-w-0 flex-1">
+              <h1 className="flex items-baseline gap-2 truncate font-heading text-[18px] font-bold leading-tight text-white">
                 Inspector
-                <span className="micro font-normal text-emerald-300">step debugger</span>
+                <span className="micro font-normal text-primary">step debugger</span>
               </h1>
-              <div className="data mt-0.5 flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-[11px] text-slate-300">
-                <span className="truncate rounded bg-panel/10 px-1.5 py-px">{session?.targetUrl ?? "waiting for simulator"}</span>
-                <span className="rounded bg-panel/10 px-1.5 py-px">{session?.secretPreview ?? ""}</span>
+              <div className="mt-1 flex min-w-0 items-center gap-x-3 overflow-hidden whitespace-nowrap font-mono text-[12px] text-text-secondary">
+                <span className="min-w-0 truncate">{session?.targetUrl ?? "waiting for simulator"}</span>
+                {session?.secretPreview ? <span className="shrink-0 text-text-dim">{session.secretPreview}</span> : null}
                 {session?.contact ? (
-                  <span className="truncate rounded bg-panel/10 px-1.5 py-px text-slate-600" title={session.contact.number}>
+                  <span className="min-w-0 shrink-[4] truncate text-text-subtle" title={session.contact.number}>
                     Contact: {session.contact.name} · {formatPhone(session.contact.number)}
                   </span>
                 ) : null}
-                <span className={`flex items-center gap-1 ${connected ? "text-emerald-300" : "text-amber-300"}`}>
-                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-emerald-300" : "bg-amber-300"}`} />
+                <span className={`flex shrink-0 items-center gap-1.5 ${connected ? "text-primary" : "text-amber-400"}`}>
+                  <span className={`inline-block h-1.5 w-1.5 rounded-full ${connected ? "bg-primary" : "bg-amber-400"}`} />
                   {connected ? "live" : "offline"}
                 </span>
               </div>
             </div>
           </div>
 
-          <div className="flex flex-wrap items-center justify-end gap-1.5">
+          <div className="flex shrink-0 flex-wrap items-center justify-end gap-1.5">
             <div
-              className="flex h-8 items-center rounded border border-white/20 p-0.5"
+              className="flex gap-1 rounded-[10px] bg-white/[0.04] p-1"
               role="radiogroup"
               aria-label="Channel"
               title={channelLocked ? `This conversation is on ${channel}. Reset to start one on another channel.` : undefined}
@@ -808,9 +828,9 @@ export function Inspector() {
                   aria-checked={channel === option.value}
                   disabled={channelLocked && channel !== option.value}
                   onClick={() => setChannel(option.value)}
-                  className={`h-full rounded-sm px-2 text-[11px] font-medium ${
-                    channel === option.value ? "bg-fern/20 text-emerald-300" : "text-slate-600 hover:text-white"
-                  } disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-slate-600`}
+                  className={`rounded-[6px] px-3 py-1.5 text-[13px] leading-none transition-colors ${
+                    channel === option.value ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"
+                  } disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-white/50`}
                   title={
                     channelLocked && channel !== option.value
                       ? `Conversation is on ${channel} — reset to start a ${option.label} one`
@@ -823,13 +843,13 @@ export function Inspector() {
                 </button>
               ))}
             </div>
-            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-white/[0.08]" aria-hidden="true" />
             <button
               onClick={() => {
                 setStepError(null);
                 setStepStripOpen((open) => !open);
               }}
-              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white ${stepState?.active ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
+              className={`${ICON_BUTTON} ${stepState?.active || stepStripOpen ? ICON_ACTIVE : ICON_IDLE}`}
               title={stepState?.active ? "Step session active" : "Step through a scenario"}
               aria-label="Step through a scenario"
             >
@@ -838,7 +858,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("json")}
               disabled={!session}
-              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${ICON_BUTTON} ${ICON_IDLE}`}
               title="Export JSON report"
               aria-label="Export JSON report"
             >
@@ -847,7 +867,7 @@ export function Inspector() {
             <button
               onClick={() => exportRun("md")}
               disabled={!session}
-              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${ICON_BUTTON} ${ICON_IDLE}`}
               title="Export Markdown report"
               aria-label="Export Markdown report"
             >
@@ -856,27 +876,27 @@ export function Inspector() {
             <button
               onClick={exportScenario}
               disabled={!session || !session.transcript.some((turn) => turn.role === "user")}
-              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${ICON_BUTTON} ${ICON_IDLE}`}
               title="Export scenario YAML"
               aria-label="Export scenario YAML"
             >
               <FileCode2 size={16} />
             </button>
-            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-white/[0.08]" aria-hidden="true" />
             <button
               onClick={() => void toggleBaseline()}
               disabled={!session}
-              className={`grid h-8 w-8 place-items-center rounded border hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40 ${session?.baseline ? "border-emerald-300 text-emerald-300" : "border-white/20 text-slate-300"}`}
+              className={`${ICON_BUTTON} ${session?.baseline ? ICON_ACTIVE : ICON_IDLE}`}
               title={session?.baseline ? "Remove baseline" : "Save as baseline"}
               aria-label={session?.baseline ? "Remove baseline" : "Save as baseline"}
             >
               <Bookmark size={16} fill={session?.baseline ? "currentColor" : "none"} />
             </button>
-            <span className="mx-1 h-5 w-px bg-panel/15" aria-hidden="true" />
+            <span className="mx-1 h-5 w-px bg-white/[0.08]" aria-hidden="true" />
             <button
               onClick={reset}
               disabled={!viewingLive}
-              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${ICON_BUTTON} ${ICON_IDLE}`}
               title="Reset session"
               aria-label="Reset session"
             >
@@ -886,7 +906,7 @@ export function Inspector() {
             <button
               onClick={endCall}
               disabled={!viewingLive}
-              className="grid h-8 w-8 place-items-center rounded border border-white/20 text-slate-300 hover:border-white/50 hover:text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className={`${ICON_BUTTON} ${ICON_IDLE}`}
               title={isVoice ? "End call" : "End conversation"}
               aria-label={isVoice ? "End call" : "End conversation"}
             >
@@ -895,11 +915,11 @@ export function Inspector() {
           </div>
         </div>
         {stepStripOpen ? (
-          <div className="border-t border-white/10 bg-[#161614]">
-            <div className="flex flex-wrap items-end gap-3 px-5 pb-2 pt-3">
+          <div className="mx-5 mb-4 overflow-hidden rounded-[16px] border border-primary/20 bg-primary/10">
+            <div className="flex flex-wrap items-end gap-2.5 px-4 pb-2.5 pt-3.5">
               <div className="min-w-[280px] flex-1">
-                <div className="mb-1 flex items-center justify-between gap-2">
-                  <span className="micro text-slate-400">
+                <div className="mb-1.5 flex items-center justify-between gap-2">
+                  <span className="text-xs font-semibold uppercase tracking-wider text-text-secondary">
                     {stepScenarioAdvanced ? "Scenario path (relative to the CLI's working directory, or absolute)" : "Scenario"}
                   </span>
                   <button
@@ -908,7 +928,7 @@ export function Inspector() {
                       if (!stepScenarioAdvanced && !stepScenarioCustomPath) setStepScenarioCustomPath(stepScenarioPath);
                       setStepScenarioAdvanced((advanced) => !advanced);
                     }}
-                    className="micro text-slate-400 hover:text-white"
+                    className="text-[12px] text-text-secondary underline-offset-2 transition-colors hover:text-white hover:underline"
                   >
                     {stepScenarioAdvanced ? "pick from list" : "advanced: path"}
                   </button>
@@ -920,7 +940,7 @@ export function Inspector() {
                     onKeyDown={(event) => {
                       if (event.key === "Enter") void startStepScenario();
                     }}
-                    className="config-input"
+                    className={`h-9 w-full ${INPUT}`}
                     placeholder="examples/scenarios/appointment-cancellation.yaml"
                     aria-label="Scenario path"
                     autoFocus
@@ -932,7 +952,7 @@ export function Inspector() {
                       setStepError(null);
                       setStepScenarioPath(event.target.value);
                     }}
-                    className="config-input"
+                    className={`h-9 w-full ${INPUT}`}
                     aria-label="Scenario"
                   >
                     {!selectedListing ? <option value="">{scenarios === null && !scenariosError ? "Loading scenarios…" : "Select a scenario"}</option> : null}
@@ -951,28 +971,29 @@ export function Inspector() {
               </div>
               <button
                 onClick={() => void startStepScenario()}
-                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110"
+                className={`h-9 px-3.5 text-[14px] ${PRIMARY_BUTTON}`}
               >
+                <StepForward size={15} />
                 Start stepping
               </button>
               {stepState?.active ? (
                 <button
                   onClick={() => void endStep()}
-                  className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
+                  className={`h-9 px-3.5 text-[13px] ${SECONDARY_BUTTON}`}
                 >
                   End current step session
                 </button>
               ) : null}
               <button
                 onClick={() => setStepStripOpen(false)}
-                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white"
+                className={`h-9 px-3.5 text-[13px] ${SECONDARY_BUTTON}`}
               >
                 Close
               </button>
               {!stepScenarioAdvanced && selectedListing ? (
-                <div className="w-full truncate text-xs text-slate-400" title={selectedListing.description}>
+                <div className="w-full truncate text-[12px] text-text-secondary" title={selectedListing.description}>
                   {selectedListing.description ? `${selectedListing.description} · ` : ""}
-                  <span className="data text-[11px]">
+                  <span className="data text-[11px] text-text-dim">
                     {selectedListing.turns} turn{selectedListing.turns === 1 ? "" : "s"}
                     {selectedListing.callerTurns < selectedListing.turns ? ` (${selectedListing.turns - selectedListing.callerTurns} outbound)` : ""}
                     {selectedListing.hasAssertions ? " · assertions" : ""}
@@ -980,20 +1001,18 @@ export function Inspector() {
                 </div>
               ) : null}
               {scenariosError && !stepScenarioAdvanced ? (
-                <div className="w-full text-xs text-amber-300">Could not list scenarios ({scenariosError}) — use advanced: path.</div>
+                <div className="w-full text-[12px] text-amber-400">Could not list scenarios ({scenariosError}) — use advanced: path.</div>
               ) : null}
             </div>
             {/* Simulated clock + outbound queue: one compact row. */}
-            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-white/5 px-5 py-2.5">
+            <div className="flex flex-wrap items-center gap-x-4 gap-y-2 border-t border-primary/15 px-4 py-2.5">
               <span
-                className="flex items-center gap-1.5 text-xs text-slate-600"
+                className="flex items-center gap-1.5 text-[12px] text-text-subtle"
                 title="Simulated clock — stamps payload timestamps and recentHistory, never the signing header"
               >
-                <Clock3 size={13} className="text-slate-400" />
+                <Clock3 size={13} className="text-text-secondary" />
                 <span className="data">{stepState ? formatClock(stepState.virtualNow) : "—"}</span>
-                <span
-                  className={`data rounded px-1.5 py-px text-[10px] ${stepState?.clockOffsetMs ? "bg-amber-50 text-amber-300" : "bg-panel/10 text-slate-400"}`}
-                >
+                <span className={`data ${stepState?.clockOffsetMs ? BADGE_AMBER : BADGE_NEUTRAL}`}>
                   {formatOffset(stepState?.clockOffsetMs ?? 0)}
                 </span>
               </span>
@@ -1007,7 +1026,7 @@ export function Inspector() {
                 <input
                   value={warpInput}
                   onChange={(event) => setWarpInput(event.target.value)}
-                  className="config-input h-8 w-16"
+                  className={`h-8 w-16 ${INPUT}`}
                   placeholder="2d"
                   aria-label="Warp the simulated clock by"
                   title="Duration: 90s, 45m, 3h, 2d, 1h30m"
@@ -1015,14 +1034,14 @@ export function Inspector() {
                 <button
                   type="submit"
                   disabled={stepState?.sending}
-                  className="flex h-8 items-center gap-1 rounded-md border border-white/20 px-2.5 text-xs font-medium text-slate-600 hover:border-white/50 hover:text-white disabled:opacity-40"
+                  className={`h-8 gap-1 px-2.5 text-[12px] ${SECONDARY_BUTTON}`}
                   title="Advance the simulated clock without sending anything"
                 >
                   <FastForward size={13} />
                   Warp
                 </button>
               </form>
-              <span className="h-5 w-px bg-panel/15" aria-hidden="true" />
+              <span className="h-5 w-px bg-primary/20" aria-hidden="true" />
               <form
                 className="flex min-w-[260px] flex-1 items-center gap-1.5"
                 onSubmit={(event) => {
@@ -1030,12 +1049,12 @@ export function Inspector() {
                   void queueOutbound();
                 }}
               >
-                <Megaphone size={13} className="shrink-0 text-amber-300" aria-hidden="true" />
+                <Megaphone size={13} className="shrink-0 text-amber-400" aria-hidden="true" />
                 <input
                   value={outboundText}
                   onChange={(event) => setOutboundText(event.target.value)}
                   disabled={!stepState?.active}
-                  className="config-input h-8 min-w-0 flex-1 disabled:opacity-50"
+                  className={`h-8 min-w-0 flex-1 disabled:opacity-50 ${INPUT}`}
                   placeholder={stepState?.active ? "Outbound business message to queue" : "Start stepping to queue outbound messages"}
                   aria-label="Outbound message"
                 />
@@ -1043,7 +1062,7 @@ export function Inspector() {
                   value={outboundAfter}
                   onChange={(event) => setOutboundAfter(event.target.value)}
                   disabled={!stepState?.active}
-                  className="config-input h-8 w-16 disabled:opacity-50"
+                  className={`h-8 w-16 disabled:opacity-50 ${INPUT}`}
                   placeholder="after"
                   aria-label="Delay before the outbound message"
                   title="Optional: advance the clock this much before it is sent, e.g. 2h"
@@ -1051,32 +1070,32 @@ export function Inspector() {
                 <button
                   type="submit"
                   disabled={!stepState?.active || !outboundText.trim()}
-                  className="h-8 rounded-md border border-white/20 px-2.5 text-xs font-medium text-slate-600 hover:border-white/50 hover:text-white disabled:opacity-40"
+                  className={`h-8 px-3 text-[12px] ${SECONDARY_BUTTON}`}
                   title="Queue a business message — seeded into history, no webhook delivery"
                 >
                   Queue
                 </button>
               </form>
             </div>
-            <div className="px-5 pb-3 text-xs text-slate-400">
+            <div className="border-t border-primary/15 px-4 py-2.5 text-[12px] leading-[18px] text-text-secondary">
               Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
               Tip: the Runs tab can step-replay any saved run.
-              {stepError ? <div className="mt-1 text-danger">{stepError}</div> : null}
+              {stepError ? <div className="mt-1 text-red-400">{stepError}</div> : null}
             </div>
           </div>
         ) : null}
         {baselineEditorOpen ? (
-          <div className="border-t border-white/10 bg-[#161614]">
-            <div className="flex flex-wrap items-end gap-3 px-5 py-4">
+          <div className={`mx-5 mb-4 border border-white/[0.06] ${PANEL}`}>
+            <div className="flex flex-wrap items-end gap-2.5 px-4 py-3.5">
               <label className="min-w-[260px] flex-1">
-                <span className="micro mb-1 block text-slate-400">Baseline name</span>
+                <span className="mb-1.5 block text-xs font-semibold uppercase tracking-wider text-text-secondary">Baseline name</span>
                 <input
                   value={baselineName}
                   onChange={(event) => setBaselineName(event.target.value)}
                   onKeyDown={(event) => {
                     if (event.key === "Enter") void saveBaseline();
                   }}
-                  className="config-input"
+                  className={`h-9 w-full ${INPUT}`}
                   aria-label="Baseline name"
                   autoFocus
                 />
@@ -1084,33 +1103,35 @@ export function Inspector() {
               <button
                 onClick={() => void saveBaseline()}
                 disabled={baselineSaving}
-                className="h-9 rounded-md bg-fern px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
+                className={`h-9 px-3.5 text-[14px] ${PRIMARY_BUTTON}`}
               >
                 {baselineSaving ? "Saving…" : "Save baseline"}
               </button>
               <button
                 onClick={() => setBaselineEditorOpen(false)}
                 disabled={baselineSaving}
-                className="h-9 rounded-md border border-white/20 px-4 text-xs font-medium text-slate-300 hover:border-white/50 hover:text-white disabled:opacity-50"
+                className={`h-9 px-3.5 text-[13px] ${SECONDARY_BUTTON}`}
               >
                 Cancel
               </button>
-              {baselineError ? <div className="w-full text-xs text-danger">{baselineError}</div> : null}
+              {baselineError ? <div className="w-full text-[12px] text-red-400">{baselineError}</div> : null}
             </div>
           </div>
         ) : null}
       </header>
 
       <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-auto p-4 xl:grid-cols-[272px_minmax(0,1fr)_360px] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden 2xl:grid-cols-[320px_minmax(0,1fr)_420px]">
-        <section className="flex h-[440px] min-h-0 flex-col rounded-lg border border-line bg-panel xl:h-auto">
+        <section className={`flex h-[440px] min-h-0 flex-col overflow-hidden ${PANEL} xl:h-auto`}>
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
             title={leftView === "timeline" ? "Timeline" : "Runs"}
             meta={leftView === "timeline" ? `${session?.deliveries.length ?? 0} deliveries` : `${runs.length} saved`}
           />
-          <div className="grid grid-cols-2 border-b border-line p-2">
-            <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
-            <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
+          <div className="border-b border-white/[0.06] px-3 py-2.5">
+            <div className="grid grid-cols-2 gap-1 rounded-[10px] bg-white/[0.04] p-1">
+              <ViewTab active={leftView === "timeline"} onClick={() => setLeftView("timeline")} icon={<Clock3 size={14} />} label="Timeline" />
+              <ViewTab active={leftView === "runs"} onClick={() => setLeftView("runs")} icon={<History size={14} />} label="Runs" />
+            </div>
           </div>
           <div className="min-h-0 flex-1 overflow-auto px-3 py-3">
             {leftView === "timeline" && session?.deliveries.length ? (
@@ -1118,20 +1139,20 @@ export function Inspector() {
                 <button
                   key={delivery.id}
                   onClick={() => setSelectedId(delivery.id)}
-                  className={`mb-2 grid w-full grid-cols-[1fr_auto] gap-2 rounded-md border px-3 py-2 text-left transition ${
-                    selected?.id === delivery.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"
+                  className={`focus-ring mb-2 grid w-full grid-cols-[1fr_auto] gap-2 rounded-[12px] border px-3 py-2.5 text-left transition-colors ${
+                    selected?.id === delivery.id ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05]"
                   }`}
                 >
                   <span className="min-w-0">
-                    <span className="block truncate text-sm font-medium text-bright">
+                    <span className="block truncate text-sm font-medium text-text">
                       {delivery.event}
-                      {delivery.inheritedFrom ? <span className="ml-2 rounded bg-indigo-50 px-1.5 py-0.5 text-[10px] font-medium text-indigo-600">inherited</span> : null}
+                      {delivery.inheritedFrom ? <span className="ml-2 rounded border border-purple-500/20 bg-purple-500/15 px-1.5 py-0.5 text-[10px] font-medium text-purple-400">inherited</span> : null}
                     </span>
-                    <span className="data mt-1 block truncate text-xs text-slate-500">
+                    <span className="data mt-1 block truncate text-xs text-text-secondary">
                       {channelLabel(delivery.channel)} / {delivery.webhookId}
                     </span>
                   </span>
-                  <span className={`data self-center text-xs font-medium ${delivery.timedOut || !delivery.ok ? "text-danger" : "text-fern"}`}>
+                  <span className={`data self-center text-xs font-medium ${delivery.timedOut || !delivery.ok ? "text-red-400" : "text-primary"}`}>
                     {delivery.latencyMs}ms
                   </span>
                 </button>
@@ -1140,18 +1161,18 @@ export function Inspector() {
               <EmptyLine label="No deliveries yet" />
             ) : runs.length ? (
               runs.map((run) => (
-                <div key={run.id} className={`group mb-2 flex items-center rounded-md border ${session?.id === run.id ? "border-fern bg-emerald-50" : "border-line bg-panel hover:border-slate-400"}`}>
-                  <button onClick={() => void openRun(run)} className="min-w-0 flex-1 px-3 py-2 text-left">
-                    <span className="flex items-center gap-2 text-sm font-medium text-bright">
-                      {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-fern" /> : null}
+                <div key={run.id} className={`group mb-2 flex items-center rounded-[12px] border transition-colors ${session?.id === run.id ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05]"}`}>
+                  <button onClick={() => void openRun(run)} className="focus-ring min-w-0 flex-1 rounded-[12px] px-3 py-2.5 text-left">
+                    <span className="flex items-center gap-2 text-sm font-medium text-text">
+                      {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-primary" /> : null}
                       {run.contact ? <span className="truncate" title={run.contact.number}>{run.contact.name}</span> : null}
-                      <span className={`truncate ${run.contact ? "shrink-0 text-xs font-normal text-slate-500" : ""}`}>{formatRunDate(run.startedAt)}</span>
+                      <span className={`truncate ${run.contact ? "shrink-0 text-xs font-normal text-text-secondary" : ""}`}>{formatRunDate(run.startedAt)}</span>
                     </span>
-                    <span className="data mt-1 block truncate text-xs text-slate-500">
+                    <span className="data mt-1 block truncate text-xs text-text-secondary">
                       {channelLabel(run.channel)} / {run.transcriptTurns} turns / {run.deliveries} deliveries
                     </span>
-                    <span className="mt-1 block truncate text-xs text-slate-500">{run.status}</span>
-                    {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-fern">Baseline: {run.baselineName}</span> : null}
+                    <span className="mt-1 block truncate text-xs text-text-dim">{run.status}</span>
+                    {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-primary">Baseline: {run.baselineName}</span> : null}
                     {run.forkedFrom ? (
                       <span className="mt-1 flex items-center gap-1 truncate text-xs font-medium text-indigo-600">
                         <GitBranch size={11} className="shrink-0" />
@@ -1162,7 +1183,7 @@ export function Inspector() {
                   {run.transcriptTurns > 0 ? (
                     <button
                       onClick={() => void startStepReplay(run)}
-                      className="grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-fern"
+                      className="grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-text-secondary transition-colors hover:bg-white/[0.06] hover:text-primary"
                       title="Step-replay this run turn by turn"
                       aria-label="Step-replay this run"
                     >
@@ -1170,7 +1191,7 @@ export function Inspector() {
                     </button>
                   ) : null}
                   {run.id !== liveSession?.id ? (
-                    <button onClick={() => void deleteRun(run)} className="mr-2 grid h-8 w-8 shrink-0 place-items-center text-slate-400 hover:text-danger" title="Delete run" aria-label="Delete run">
+                    <button onClick={() => void deleteRun(run)} className="mr-2 grid h-8 w-8 shrink-0 place-items-center rounded-[8px] text-text-secondary transition-colors hover:bg-red-500/10 hover:text-red-400" title="Delete run" aria-label="Delete run">
                       <Trash2 size={15} />
                     </button>
                   ) : null}
@@ -1182,21 +1203,23 @@ export function Inspector() {
           </div>
         </section>
 
-        <section className="flex h-[78vh] min-h-[560px] flex-col overflow-hidden rounded-lg border border-line bg-panel shadow-soft xl:h-auto xl:min-h-0">
+        <section className={`flex h-[78vh] min-h-[560px] flex-col overflow-hidden ${PANEL} xl:h-auto xl:min-h-0`}>
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
             title={centerView === "transcript" ? "Transcript" : "Conversation Tree"}
             meta={viewingLive ? session?.status ?? "idle" : "saved run"}
           />
-          <div className="grid grid-cols-2 border-b border-line p-2">
-            <ViewTab active={centerView === "transcript"} onClick={() => setCenterView("transcript")} icon={<Play size={14} />} label="Transcript" />
-            <ViewTab active={centerView === "tree"} onClick={() => setCenterView("tree")} icon={<GitBranch size={14} />} label="Tree" />
+          <div className="border-b border-white/[0.06] px-3 py-2.5">
+            <div className="grid grid-cols-2 gap-1 rounded-[10px] bg-white/[0.04] p-1">
+              <ViewTab active={centerView === "transcript"} onClick={() => setCenterView("transcript")} icon={<Play size={14} />} label="Transcript" />
+              <ViewTab active={centerView === "tree"} onClick={() => setCenterView("tree")} icon={<GitBranch size={14} />} label="Tree" />
+            </div>
           </div>
           {centerView === "tree" ? (
             <>
-              <div className="flex shrink-0 items-center justify-between border-b border-line px-4 py-2">
+              <div className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-white/[0.06] px-4 py-2.5">
                 <TreeLegend />
-                <span className="data text-[11px] text-slate-500">
+                <span className="data text-[11px] text-text-dim">
                   {familySessions.length} run(s) · every node is a frozen checkpoint
                 </span>
               </div>
@@ -1212,19 +1235,19 @@ export function Inspector() {
                 />
               </div>
               {selectedNode ? (
-                <div className="shrink-0 border-t border-line bg-mist/60 px-4 py-3">
+                <div className="shrink-0 border-t border-white/[0.06] bg-white/[0.02] px-4 py-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="min-w-0">
-                      <div className="data text-[11px] text-slate-500">
+                      <div className="data text-[11px] text-text-secondary">
                         checkpoint · turn {selectedNode.turnNumber}
                         {selectedNode.latencyMs !== undefined ? ` · ${selectedNode.latencyMs}ms` : ""}
                         {` · state: ${selectedNode.turnNumber * 2} history turn(s)`}
                         {selectedNode.actions.length ? ` · ${selectedNode.actions.join(", ")}` : ""}
                       </div>
-                      <div className="mt-1 truncate text-sm font-medium text-bright">{selectedNode.caller}</div>
-                      <div className="mt-0.5 truncate text-sm text-slate-600">{selectedNode.agentReply ?? "(no reply)"}</div>
+                      <div className="mt-1 truncate text-sm font-medium text-text">{selectedNode.caller}</div>
+                      <div className="mt-0.5 truncate text-sm text-text-subtle">{selectedNode.agentReply ?? "(no reply)"}</div>
                       {selectedNode.label?.note ? (
-                        <div className="mt-1.5 flex items-start gap-1.5 rounded border border-amber-200 bg-amber-50 px-2 py-1 text-xs leading-5 text-amber-300">
+                        <div className="mt-1.5 flex items-start gap-1.5 rounded-[8px] border border-amber-500/20 bg-amber-500/10 px-2 py-1 text-xs leading-5 text-amber-300">
                           <StickyNote size={12} className="mt-1 shrink-0" aria-hidden="true" />
                           <span className="max-h-24 overflow-auto whitespace-pre-wrap break-words">{selectedNode.label.note}</span>
                         </div>
@@ -1233,7 +1256,7 @@ export function Inspector() {
                     <div className="relative flex shrink-0 items-center gap-1">
                       <button
                         onClick={() => void labelTurn(selectedNode.turnNumber, { verdict: "good" }, selectedNode.label, selectedNode.runId)}
-                        className={`grid h-7 w-7 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${selectedNode.label?.verdict === "good" ? "text-fern" : "text-slate-400"}`}
+                        className={`grid h-7 w-7 place-items-center rounded-[6px] transition-colors hover:bg-primary/15 hover:text-primary ${selectedNode.label?.verdict === "good" ? "text-primary" : "text-text-secondary"}`}
                         title="Label good"
                         aria-label="Label this checkpoint good"
                       >
@@ -1241,7 +1264,7 @@ export function Inspector() {
                       </button>
                       <button
                         onClick={() => void labelTurn(selectedNode.turnNumber, { verdict: "bad" }, selectedNode.label, selectedNode.runId)}
-                        className={`grid h-7 w-7 place-items-center rounded hover:bg-red-50 hover:text-danger ${selectedNode.label?.verdict === "bad" ? "text-danger" : "text-slate-400"}`}
+                        className={`grid h-7 w-7 place-items-center rounded-[6px] transition-colors hover:bg-red-500/15 hover:text-red-400 ${selectedNode.label?.verdict === "bad" ? "text-red-400" : "text-text-secondary"}`}
                         title="Label bad"
                         aria-label="Label this checkpoint bad"
                       >
@@ -1249,7 +1272,7 @@ export function Inspector() {
                       </button>
                       <button
                         onClick={() => toggleNoteEditor(`tree:${selectedNode.key}`)}
-                        className={`grid h-7 w-7 place-items-center rounded hover:bg-amber-50 hover:text-amber-300 ${selectedNode.label?.note ? "text-amber-300" : "text-slate-400"}`}
+                        className={`grid h-7 w-7 place-items-center rounded-[6px] transition-colors hover:bg-amber-500/15 hover:text-amber-300 ${selectedNode.label?.note ? "text-amber-300" : "text-text-secondary"}`}
                         title={selectedNode.label?.note ? `Note: ${selectedNode.label.note}` : "Add a note"}
                         aria-label="Edit this checkpoint's note"
                       >
@@ -1272,7 +1295,7 @@ export function Inspector() {
                             const run = runs.find((item) => item.id === selectedNode.runId);
                             if (run) void openRun(run);
                           }}
-                          className="ml-1 h-7 rounded border border-line bg-panel px-2 text-[11px] font-medium text-slate-600 hover:border-slate-400"
+                          className={`ml-1 h-7 px-2.5 text-[11px] ${SECONDARY_BUTTON}`}
                         >
                           open run
                         </button>
@@ -1286,7 +1309,7 @@ export function Inspector() {
                       onKeyDown={(event) => {
                         if (event.key === "Enter") void forkFromNode(selectedNode);
                       }}
-                      className="h-9 min-w-0 flex-1 rounded-md border border-line bg-panel px-3 text-sm outline-none focus:border-fern"
+                      className={`h-9 min-w-0 flex-1 ${INPUT}`}
                       placeholder="Fork from this state — what does the caller say instead?"
                       aria-label="Caller text for the new branch"
                     />
@@ -1300,16 +1323,16 @@ export function Inspector() {
                     <button
                       onClick={() => void forkFromNode(selectedNode)}
                       disabled={treeForkBusy}
-                      className="h-9 rounded-md bg-cta px-4 text-xs font-medium text-white hover:brightness-110 disabled:opacity-50"
+                      className={`h-9 px-3.5 text-[13px] ${SUBMIT_BUTTON}`}
                     >
                       {treeForkBusy ? "Forking…" : "Fork from here"}
                     </button>
                   </div>
-                  {treeForkError ? <div className="mt-1 text-xs text-danger">{treeForkError}</div> : null}
-                  {voiceError && voiceTarget === "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
+                  {treeForkError ? <div className="mt-1 text-xs text-red-400">{treeForkError}</div> : null}
+                  {voiceError && voiceTarget === "fork" ? <div className="mt-1 text-xs text-red-400">{voiceError}</div> : null}
                 </div>
               ) : (
-                <div className="border-t border-line px-4 py-2.5 text-xs text-slate-400">
+                <div className="border-t border-white/[0.06] px-4 py-2.5 text-xs text-text-secondary">
                   Click a checkpoint to inspect its state, label it, or fork the conversation from that exact point.
                 </div>
               )}
@@ -1317,7 +1340,7 @@ export function Inspector() {
           ) : null}
           <div ref={transcriptRef} className={`${centerView === "tree" ? "hidden" : ""} min-h-0 flex-1 overflow-auto px-4 py-4`}>
             {session?.forkedFrom ? (
-              <div className="mb-3 flex items-center gap-2 rounded-md border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
+              <div className="mb-3 flex items-center gap-2 rounded-[10px] border border-indigo-200 bg-indigo-50 px-3 py-2 text-xs text-indigo-700">
                 <GitBranch size={13} className="shrink-0" />
                 <span className="truncate">
                   Forked from run {session.forkedFrom.sessionId} after turn {session.forkedFrom.turnIndex}
@@ -1333,18 +1356,18 @@ export function Inspector() {
                   const at = session.turnTimes?.[index];
                   const noteKey = `transcript:${session.id}:${ordinal}`;
                   return (
-                    <div key={`${turn.role}-${index}`} className="group relative border-b border-line/60">
+                    <div key={`${turn.role}-${index}`} className="group relative border-b border-white/[0.04]">
                       <div className="flex items-start gap-3 py-2.5">
                         <span
-                          className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-slate-400" : "text-fern"}`}
+                          className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-text-secondary" : "text-primary"}`}
                           title={at ? formatClock(at) : undefined}
                         >
                           {turn.role === "agent" ? "agent" : "caller"}
                         </span>
-                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-slate-600" : "font-medium text-bright"}`}>
+                        <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-text-subtle" : "font-medium text-text"}`}>
                           {outbound ? (
                             <span
-                              className="micro mr-2 inline-flex items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 align-[1px] text-amber-300"
+                              className="micro mr-2 inline-flex items-center gap-1 rounded border border-amber-500/20 bg-amber-500/15 px-1.5 py-0.5 align-[1px] text-amber-400"
                               title="Outbound business message — seeded into history, no webhook delivery"
                             >
                               <Megaphone size={10} aria-hidden="true" />
@@ -1355,11 +1378,11 @@ export function Inspector() {
                         </div>
                       </div>
                       {ordinal !== null ? (
-                        <div className="flex items-center gap-1 pb-1.5 pl-[60px] text-[11px] text-slate-400 opacity-60 transition group-hover:opacity-100">
+                        <div className="flex items-center gap-1 pb-1.5 pl-[60px] text-[11px] text-text-secondary opacity-60 transition group-hover:opacity-100">
                           {label?.verdict ? (
                             <span
                               title={label.note}
-                              className={`rounded-full px-2 py-0.5 font-medium ${label.verdict === "good" ? "bg-emerald-50 text-fern" : "bg-red-50 text-danger"}`}
+                              className={label.verdict === "good" ? BADGE_GREEN : BADGE_RED}
                             >
                               {label.verdict}
                             </span>
@@ -1367,7 +1390,7 @@ export function Inspector() {
                           <span className="data mr-1">t{ordinal}</span>
                           <button
                             onClick={() => void labelTurn(ordinal, { verdict: "good" }, label)}
-                            className={`grid h-6 w-6 place-items-center rounded hover:bg-emerald-50 hover:text-fern ${label?.verdict === "good" ? "text-fern" : ""}`}
+                            className={`grid h-6 w-6 place-items-center rounded-[6px] transition-colors hover:bg-primary/15 hover:text-primary ${label?.verdict === "good" ? "text-primary" : ""}`}
                             title="Label this turn good"
                             aria-label={`Label turn ${ordinal} good`}
                           >
@@ -1375,7 +1398,7 @@ export function Inspector() {
                           </button>
                           <button
                             onClick={() => void labelTurn(ordinal, { verdict: "bad" }, label)}
-                            className={`grid h-6 w-6 place-items-center rounded hover:bg-red-50 hover:text-danger ${label?.verdict === "bad" ? "text-danger" : ""}`}
+                            className={`grid h-6 w-6 place-items-center rounded-[6px] transition-colors hover:bg-red-500/15 hover:text-red-400 ${label?.verdict === "bad" ? "text-red-400" : ""}`}
                             title="Label this turn bad"
                             aria-label={`Label turn ${ordinal} bad`}
                           >
@@ -1383,7 +1406,7 @@ export function Inspector() {
                           </button>
                           <button
                             onClick={() => toggleNoteEditor(noteKey)}
-                            className={`grid h-6 w-6 place-items-center rounded hover:bg-amber-50 hover:text-amber-300 ${label?.note || noteEditorKey === noteKey ? "text-amber-300" : ""}`}
+                            className={`grid h-6 w-6 place-items-center rounded-[6px] transition-colors hover:bg-amber-500/15 hover:text-amber-300 ${label?.note || noteEditorKey === noteKey ? "text-amber-300" : ""}`}
                             title={label?.note ? `Note: ${label.note}` : "Add a note to this turn"}
                             aria-label={`Edit the note on turn ${ordinal}`}
                           >
@@ -1395,7 +1418,7 @@ export function Inspector() {
                               setForkText("");
                               setForkTurn((current) => (current === ordinal ? null : ordinal));
                             }}
-                            className={`grid h-6 w-6 place-items-center rounded hover:bg-indigo-50 hover:text-indigo-600 ${forkTurn === ordinal ? "text-indigo-600" : ""}`}
+                            className={`grid h-6 w-6 place-items-center rounded-[6px] transition-colors hover:bg-indigo-50 hover:text-indigo-600 ${forkTurn === ordinal ? "text-indigo-600" : ""}`}
                             title={`Fork the conversation from turn ${ordinal}`}
                             aria-label={`Fork from turn ${ordinal}`}
                           >
@@ -1415,7 +1438,7 @@ export function Inspector() {
                         />
                       ) : null}
                       {forkTurn === ordinal && ordinal !== null ? (
-                        <div className="mb-2 ml-[60px] rounded-md border border-indigo-200 bg-indigo-50 p-3">
+                        <div className="mb-2 ml-[60px] rounded-[12px] border border-indigo-200 bg-indigo-50 p-3">
                           <div className="mb-2 text-xs font-medium text-indigo-700">
                             New branch from the checkpoint after turn {ordinal} — same history and state, different next line:
                           </div>
@@ -1426,7 +1449,7 @@ export function Inspector() {
                               onKeyDown={(event) => {
                                 if (event.key === "Enter") void submitFork();
                               }}
-                              className="h-9 min-w-0 flex-1 rounded-md border border-indigo-200 bg-panel px-3 text-sm outline-none focus:border-indigo-400"
+                              className="h-9 min-w-0 flex-1 rounded-[10px] border border-indigo-200 bg-input px-3 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-indigo-400"
                               placeholder="What does the caller say instead?"
                               aria-label="Caller text for the new branch"
                               autoFocus
@@ -1434,12 +1457,12 @@ export function Inspector() {
                             <button
                               onClick={() => void submitFork()}
                               disabled={forkBusy}
-                              className="h-9 rounded-md bg-indigo-600 px-4 text-xs font-medium text-white hover:bg-indigo-500 disabled:opacity-50"
+                              className="h-9 rounded-[8px] bg-[#5b46c9] px-3.5 text-[13px] font-medium text-white transition-[background-color,transform] hover:bg-[#6a55d8] active:scale-[0.96] disabled:opacity-50"
                             >
                               {forkBusy ? "Forking…" : "Fork"}
                             </button>
                           </div>
-                          {forkError ? <div className="mt-2 text-xs text-danger">{forkError}</div> : null}
+                          {forkError ? <div className="mt-2 text-xs text-red-400">{forkError}</div> : null}
                         </div>
                       ) : null}
                     </div>
@@ -1452,18 +1475,18 @@ export function Inspector() {
           </div>
 
           {stepState?.active && viewingLive && centerView === "transcript" ? (
-            <div className="shrink-0 border-t border-line bg-skyglass px-3 py-2">
+            <div className="shrink-0 border-t border-primary/20 bg-primary/10 px-4 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
-                <span className="flex items-center gap-1.5 font-medium text-fern">
+                <span className="flex items-center gap-1.5 font-medium text-primary">
                   <StepForward size={13} />
                   Stepping{stepState.scenarioName ? `: ${stepState.scenarioName}` : ""}
                 </span>
-                <span className="text-slate-500">
+                <span className="text-text-secondary">
                   turn {stepState.completedTurns + 1}
                   {stepState.queue.length ? ` · ${stepState.queue.length} queued` : " · queue empty (type to add)"}
                 </span>
                 {stepState.checkpoint ? (
-                  <span className="text-slate-500">
+                  <span className="text-text-secondary">
                     checkpoint: {stepState.checkpoint.recentHistoryTurns} history turn(s)
                     {stepState.checkpoint.conversationState ? " + state" : ""}
                   </span>
@@ -1473,18 +1496,18 @@ export function Inspector() {
                     setStepError(null);
                     setStepStripOpen(true);
                   }}
-                  className="data flex items-center gap-1 text-[11px] text-slate-500 hover:text-bright"
+                  className="data flex items-center gap-1 text-[11px] text-text-secondary transition-colors hover:text-white"
                   title="Simulated clock — open the step strip to warp it or queue an outbound message"
                 >
                   <Clock3 size={12} />
                   {formatClock(stepState.virtualNow)}
-                  <span className={stepState.clockOffsetMs ? "text-amber-300" : ""}>· {formatOffset(stepState.clockOffsetMs)}</span>
+                  <span className={stepState.clockOffsetMs ? "text-amber-400" : ""}>· {formatOffset(stepState.clockOffsetMs)}</span>
                 </button>
                 {/* Absent after an outbound seed: nothing was delivered, so nothing to check. */}
                 {stepState.lastResult?.expectResults.map((expectation, index) => (
                   <span
                     key={`${expectation.action}-${index}`}
-                    className={`rounded-full px-2 py-0.5 font-medium ${expectation.passed ? "bg-emerald-50 text-fern" : "bg-red-50 text-danger"}`}
+                    className={expectation.passed ? BADGE_GREEN : BADGE_RED}
                     title={expectation.passed ? undefined : `observed: ${expectation.observed.join(", ") || "none"}`}
                   >
                     {expectation.passed ? "PASS" : "FAIL"} {expectation.action}
@@ -1492,7 +1515,7 @@ export function Inspector() {
                 ))}
                 <button
                   onClick={() => void endStep()}
-                  className="ml-auto rounded-md border border-line bg-panel px-2.5 py-1 font-medium text-slate-600 hover:border-slate-400"
+                  className={`ml-auto h-7 px-2.5 text-[12px] ${SECONDARY_BUTTON}`}
                 >
                   End step
                 </button>
@@ -1501,14 +1524,14 @@ export function Inspector() {
                 <div className={`mt-1.5 space-y-1 ${queueExpanded ? "max-h-32 overflow-auto" : ""}`}>
                   {(queueExpanded ? stepState.queue : stepState.queue.slice(0, 1)).map((turn, index) => (
                     <div key={index} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
-                      <span className="micro w-9 shrink-0 text-slate-400">{index === 0 ? "next" : `#${index + 1}`}</span>
+                      <span className="micro w-9 shrink-0 text-text-secondary">{index === 0 ? "next" : `#${index + 1}`}</span>
                       <QueuedTurn turn={turn} />
                       {index === 0 ? (
                         <>
                           <button
                             onClick={() => void dropQueueHead()}
                             disabled={stepState.sending}
-                            className="flex h-6 shrink-0 items-center gap-1 rounded px-1.5 text-[11px] text-slate-400 hover:bg-red-50 hover:text-danger disabled:opacity-40"
+                            className={`h-6 gap-1 px-2 text-[11px] hover:border-red-500/30 hover:text-red-400 ${SECONDARY_BUTTON}`}
                             title="Drop this queued turn without sending it"
                             aria-label="Drop the next queued turn"
                           >
@@ -1516,7 +1539,7 @@ export function Inspector() {
                             Drop
                           </button>
                           {stepState.queue.length > 1 ? (
-                            <button onClick={() => setQueueExpanded((open) => !open)} className="micro shrink-0 text-slate-400 hover:text-bright">
+                            <button onClick={() => setQueueExpanded((open) => !open)} className="micro shrink-0 text-text-secondary transition-colors hover:text-white">
                               {queueExpanded ? "hide queue" : `+${stepState.queue.length - 1} more`}
                             </button>
                           ) : null}
@@ -1526,10 +1549,10 @@ export function Inspector() {
                   ))}
                 </div>
               ) : null}
-              {stepError ? <div className="mt-1 text-xs text-danger">{stepError}</div> : null}
+              {stepError ? <div className="mt-1 text-xs text-red-400">{stepError}</div> : null}
             </div>
           ) : null}
-          <div className={`${centerView === "tree" ? "hidden" : ""} shrink-0 border-t border-line p-3`}>
+          <div className={`${centerView === "tree" ? "hidden" : ""} shrink-0 border-t border-white/[0.06] p-3`}>
             <div className="flex gap-2">
               <input
                 ref={callerInputRef}
@@ -1540,8 +1563,10 @@ export function Inspector() {
                 onKeyDown={(event) => {
                   if (event.key === "Enter") void sendTurn();
                 }}
-                className={`h-10 min-w-0 flex-1 rounded-md border px-3 text-sm outline-none disabled:bg-mist disabled:text-slate-500 ${
-                  headIsAgent ? "border-amber-200 bg-amber-50 text-amber-300 focus:border-amber-300" : "border-line bg-panel focus:border-fern"
+                className={`focus-ring h-10 min-w-0 flex-1 rounded-[10px] border px-3 text-sm disabled:cursor-not-allowed disabled:text-text-secondary ${
+                  headIsAgent
+                    ? "border-amber-500/30 bg-amber-500/10 text-amber-300 placeholder:text-amber-300/50"
+                    : "border-transparent bg-input text-white placeholder:text-white/30 disabled:bg-white/[0.04]"
                 }`}
                 placeholder={
                   !viewingLive
@@ -1563,7 +1588,7 @@ export function Inspector() {
               <button
                 onClick={sendTurn}
                 disabled={!viewingLive || (stepState?.active && stepState.sending)}
-                className="grid h-10 w-10 place-items-center rounded-md bg-cta text-white hover:brightness-110 disabled:cursor-not-allowed disabled:opacity-40"
+                className="focus-ring grid h-10 w-10 shrink-0 place-items-center rounded-[10px] bg-primary text-white transition-[background-color,transform] hover:bg-primary/90 active:scale-[0.96] disabled:cursor-not-allowed disabled:opacity-40"
                 title={headIsAgent ? "Seed the outbound message" : stepState?.active ? "Send next step" : "Send turn"}
                 aria-label={headIsAgent ? "Seed the outbound message" : stepState?.active ? "Send next step" : "Send turn"}
               >
@@ -1571,7 +1596,7 @@ export function Inspector() {
               </button>
             </div>
             {headIsAgent ? (
-              <div className="micro mt-1.5 flex items-center gap-2 text-amber-300">
+              <div className="micro mt-1.5 flex items-center gap-2 text-amber-400">
                 <Megaphone size={11} aria-hidden="true" />
                 outbound message — press Send to seed it
                 {!agentHeadEditable ? (
@@ -1580,16 +1605,16 @@ export function Inspector() {
                       setAgentHeadEditable(true);
                       callerInputRef.current?.focus();
                     }}
-                    className="micro text-slate-400 underline-offset-2 hover:text-bright hover:underline"
+                    className="micro text-text-secondary underline-offset-2 hover:text-white hover:underline"
                   >
                     edit
                   </button>
                 ) : null}
               </div>
             ) : null}
-            {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-danger">{voiceError}</div> : null}
+            {voiceError && voiceTarget !== "fork" ? <div className="mt-1 text-xs text-red-400">{voiceError}</div> : null}
             {voiceAvailable && viewingLive && !voiceError && !headIsAgent ? (
-              <div className={`micro mt-1.5 ${voiceState === "recording" ? "text-danger" : voiceState === "transcribing" ? "text-fern" : "text-slate-500"}`}>
+              <div className={`micro mt-1.5 ${voiceState === "recording" ? "text-red-400" : voiceState === "transcribing" ? "text-primary" : "text-text-dim"}`}>
                 {voiceState === "recording"
                   ? "recording — release space (or click stop) to send"
                   : voiceState === "transcribing"
@@ -1601,14 +1626,14 @@ export function Inspector() {
         </section>
 
         <aside className="space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1">
-          <section className="overflow-hidden rounded-lg border border-line bg-panel">
+          <section className={`overflow-hidden ${PANEL}`}>
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
             <PayloadBlock value={selected ? { headers: selected.request.headers, body: selected.request.body } : null} />
             {selected ? (
-              <div className="border-t border-line p-3">
+              <div className="border-t border-white/[0.06] p-3">
                 <button
                   onClick={() => setReplayOpen((open) => !open)}
-                  className="flex h-9 w-full items-center justify-center gap-2 rounded-md border border-line bg-panel text-sm font-medium text-slate-700 hover:border-slate-400"
+                  className={`h-9 w-full gap-2 text-[13px] ${SECONDARY_BUTTON}`}
                 >
                   <RefreshCw size={15} />
                   Edit and replay
@@ -1618,23 +1643,23 @@ export function Inspector() {
                     <textarea
                       value={replayBody}
                       onChange={(event) => setReplayBody(event.target.value)}
-                      className="h-48 w-full resize-y rounded-md border border-line bg-mist p-3 font-mono text-xs leading-5 text-slate-700 outline-none focus:border-fern"
+                      className="focus-ring h-48 w-full resize-y rounded-[12px] border border-white/[0.06] bg-[#111] p-3 font-mono text-[12px] leading-5 text-text"
                       aria-label="Replay request body"
                       spellCheck={false}
                     />
-                    <label className="flex items-center gap-2 text-xs text-slate-600">
-                      <input type="checkbox" checked={preserveWebhookId} onChange={(event) => setPreserveWebhookId(event.target.checked)} />
+                    <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+                      <input type="checkbox" className="accent-[#26b65a]" checked={preserveWebhookId} onChange={(event) => setPreserveWebhookId(event.target.checked)} />
                       Preserve webhook ID
                     </label>
-                    <label className="flex items-center gap-2 text-xs text-slate-600">
-                      <input type="checkbox" checked={preserveTimestamp} onChange={(event) => setPreserveTimestamp(event.target.checked)} />
+                    <label className="flex items-center gap-2 text-[12px] text-text-secondary">
+                      <input type="checkbox" className="accent-[#26b65a]" checked={preserveTimestamp} onChange={(event) => setPreserveTimestamp(event.target.checked)} />
                       Preserve timestamp
                     </label>
-                    {replayError ? <div className="text-xs text-danger">{replayError}</div> : null}
+                    {replayError ? <div className="text-xs text-red-400">{replayError}</div> : null}
                     <button
                       onClick={() => void replayDelivery()}
                       disabled={replayBusy}
-                      className="h-9 w-full rounded-md bg-cta text-sm font-medium text-white hover:brightness-110 disabled:opacity-50"
+                      className={`h-9 w-full text-sm ${SUBMIT_BUTTON}`}
                     >
                       {replayBusy ? "Replaying…" : "Send replay"}
                     </button>
@@ -1644,15 +1669,15 @@ export function Inspector() {
             ) : null}
           </section>
 
-          <section className="overflow-hidden rounded-lg border border-line bg-panel">
+          <section className={`overflow-hidden ${PANEL}`}>
             <PanelHeader icon={<CheckCircle2 size={16} />} title="Response" meta={selected ? String(selected.response.status) : ""} />
             <PayloadBlock value={selected ? { status: selected.response.status, headers: selected.response.headers, parsed: selected.response.parsed, rawBody: selected.response.rawBody } : null} />
           </section>
 
           {session?.callEnded && session.channel === "voice" ? (
-            <section className="rounded-lg border border-line bg-panel">
+            <section className={`overflow-hidden ${PANEL}`}>
               <PanelHeader icon={<PhoneOff size={16} />} title="Call Ended" meta={`${session.callEnded.durationSeconds}s`} />
-              <div className="space-y-2 px-4 pb-4 text-sm">
+              <div className="space-y-2 p-4 text-sm">
                 <KeyValue name="summary" value={session.callEnded.summary} />
                 <KeyValue name="sentiment" value={session.callEnded.userSentiment} />
                 <KeyValue name="successful" value={String(session.callEnded.callSuccessful)} />
@@ -1675,9 +1700,9 @@ export function Inspector() {
           ) : null}
 
           {session?.warnings.length ? (
-            <section className="rounded-lg border border-amber-200 bg-amber-50">
+            <section className="overflow-hidden rounded-[18px] border border-amber-500/20 bg-amber-500/10">
               <PanelHeader icon={<AlertTriangle size={16} />} title="Warnings" meta={String(session.warnings.length)} />
-              <ul className="space-y-2 px-4 pb-4 text-sm text-caution">
+              <ul className="space-y-2 p-4 text-sm text-amber-300">
                 {session.warnings.map((warning, index) => (
                   <li key={`${warning}-${index}`}>{warning}</li>
                 ))}
@@ -1686,9 +1711,9 @@ export function Inspector() {
           ) : null}
 
           {session?.logs?.length ? (
-            <section className="rounded-lg border border-slate-200 bg-panel">
+            <section className={`overflow-hidden ${PANEL}`}>
               <PanelHeader icon={<Clock3 size={16} />} title="Run log" meta={String(session.logs.length)} />
-              <ul className="space-y-2 px-4 pb-4 text-sm text-slate-600">
+              <ul className="space-y-2 p-4 text-sm text-text-subtle">
                 {session.logs.map((entry, index) => (
                   <li key={`${entry}-${index}`}>{entry}</li>
                 ))}
@@ -1703,12 +1728,12 @@ export function Inspector() {
 
 function PanelHeader({ icon, title, meta }: { icon: React.ReactNode; title: string; meta?: string }) {
   return (
-    <div className="flex h-9 items-center justify-between border-b border-line px-3">
-      <div className="micro flex items-center gap-1.5 text-slate-500">
-        <span className="[&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
+    <div className="flex items-center justify-between gap-3 border-b border-white/[0.06] px-4 py-3">
+      <div className="micro flex items-center gap-2 text-text-secondary">
+        <span className="text-text-dim [&>svg]:h-3.5 [&>svg]:w-3.5">{icon}</span>
         {title}
       </div>
-      {meta ? <span className="data max-w-[180px] truncate text-[10px] text-slate-400">{meta}</span> : null}
+      {meta ? <span className="data max-w-[180px] truncate text-[11px] text-text-dim">{meta}</span> : null}
     </div>
   );
 }
@@ -1717,7 +1742,7 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
   return (
     <button
       onClick={onClick}
-      className={`flex h-8 items-center justify-center gap-2 border-b-2 text-xs font-medium ${active ? "border-fern text-fern" : "border-transparent text-slate-500 hover:text-bright"}`}
+      className={`focus-ring flex items-center justify-center gap-2 rounded-[6px] px-3 py-1.5 text-[13px] leading-none transition-colors [&>svg]:h-3.5 [&>svg]:w-3.5 ${active ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"}`}
     >
       {icon}
       {label}
@@ -1727,7 +1752,7 @@ function ViewTab({ active, onClick, icon, label }: { active: boolean; onClick: (
 
 function PayloadBlock({ value }: { value: unknown | null }) {
   return (
-    <pre className="console-pane max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-xs leading-5">
+    <pre className="console-pane max-h-[270px] min-h-[150px] overflow-auto px-4 py-3 text-[12px] leading-5">
       {tokenizeJson(value ? JSON.stringify(value, null, 2) : "null")}
     </pre>
   );
@@ -1760,17 +1785,17 @@ function tokenizeJson(json: string): React.ReactNode[] {
 
 function ScenarioCard({ result }: { result: NonNullable<InspectorSession["scenarioResult"]> }) {
   return (
-    <section className="rounded-lg border border-line bg-panel">
+    <section className={`overflow-hidden ${PANEL}`}>
       <PanelHeader
         icon={result.passed ? <CheckCircle2 size={16} /> : <AlertTriangle size={16} />}
         title="Scenario"
         meta={result.passed ? "passed" : `${result.failedCount} failed`}
       />
-      <ul className="space-y-2 px-4 pb-4 text-xs leading-5">
+      <ul className="space-y-2 p-4 text-xs leading-5">
         {result.assertions.map((assertion, index) => (
           <li key={`${assertion.kind}-${assertion.turnIndex ?? "final"}-${index}`} className="flex gap-2">
-            <span className={assertion.passed ? "text-fern" : "text-danger"}>{assertion.passed ? "PASS" : "FAIL"}</span>
-            <span className="text-slate-600">{assertion.message}</span>
+            <span className={`data shrink-0 font-medium ${assertion.passed ? "text-primary" : "text-red-400"}`}>{assertion.passed ? "PASS" : "FAIL"}</span>
+            <span className="text-text-subtle">{assertion.message}</span>
           </li>
         ))}
       </ul>
@@ -1794,13 +1819,13 @@ function ComparisonCard({
   comparison: RunComparison | null;
 }) {
   return (
-    <section className="rounded-lg border border-line bg-panel">
+    <section className={`overflow-hidden ${PANEL}`}>
       <PanelHeader icon={<Scale size={16} />} title="Baseline" meta={comparison ? (comparison.passed ? "passed" : "regressed") : session.baseline?.name} />
-      <div className="space-y-3 px-4 pb-4 text-sm">
+      <div className="space-y-3 p-4 text-sm">
         <select
           value={baselineId}
           onChange={(event) => onBaselineChange(event.target.value)}
-          className="h-9 w-full rounded-md border border-line bg-panel px-2 text-xs text-bright outline-none focus:border-fern"
+          className={`h-9 w-full ${INPUT}`}
           aria-label="Comparison baseline"
         >
           <option value="">Select saved baseline</option>
@@ -1813,13 +1838,13 @@ function ComparisonCard({
         <button
           onClick={onCompare}
           disabled={!baselineId}
-          className="h-9 w-full rounded-md bg-cta text-xs font-medium text-white hover:brightness-110 disabled:opacity-40"
+          className={`h-9 w-full text-sm ${SUBMIT_BUTTON}`}
         >
           Compare current run
         </button>
         {comparison ? (
           <div className="space-y-2">
-            <div className={`font-semibold ${comparison.passed ? "text-fern" : "text-danger"}`}>
+            <div className={`font-semibold ${comparison.passed ? "text-primary" : "text-red-400"}`}>
               {comparison.passed ? "No regressions" : `${comparison.regressions.length} regression(s)`}
             </div>
             <div className="grid grid-cols-2 gap-2">
@@ -1829,7 +1854,7 @@ function ComparisonCard({
               <KeyValue name="new warnings" value={String(comparison.warnings.added.length)} />
             </div>
             {comparison.regressions.length ? (
-              <ul className="space-y-1 text-xs leading-5 text-danger">
+              <ul className="space-y-1 text-xs leading-5 text-red-400">
                 {comparison.regressions.map((regression) => <li key={regression}>{regression}</li>)}
               </ul>
             ) : null}
@@ -1847,10 +1872,10 @@ function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "t
     <button
       onClick={onClick}
       disabled={state === "transcribing"}
-      className={`grid ${size} shrink-0 place-items-center rounded-md border ${
+      className={`focus-ring grid ${size} shrink-0 place-items-center rounded-[10px] border transition-colors ${
         state === "recording"
-          ? "border-danger bg-red-50 text-danger"
-          : "border-line bg-panel text-slate-600 hover:border-slate-400"
+          ? "border-red-500/30 bg-red-500/15 text-red-400"
+          : "border-surface-border bg-white/[0.03] text-white/70 hover:bg-white/[0.06] hover:text-white"
       } disabled:opacity-60`}
       title={state === "recording" ? "Stop recording" : state === "transcribing" ? "Transcribing…" : "Dictate this turn (local transcription)"}
       aria-label={state === "recording" ? "Stop recording" : "Dictate caller turn"}
@@ -1868,21 +1893,21 @@ function QueuedTurn({ turn }: { turn: StepQueueTurn }) {
     <>
       {outbound ? (
         <span
-          className="micro flex shrink-0 items-center gap-1 rounded bg-amber-50 px-1.5 py-0.5 text-amber-300"
+          className="micro flex shrink-0 items-center gap-1 rounded border border-amber-500/20 bg-amber-500/15 px-1.5 py-0.5 text-amber-400"
           title="Outbound business message — seeded into history, no webhook delivery"
         >
           <Megaphone size={10} aria-hidden="true" />
           outbound
         </span>
       ) : (
-        <span className="micro shrink-0 text-fern">caller</span>
+        <span className="micro shrink-0 text-primary">caller</span>
       )}
-      <span className={`min-w-[8rem] flex-1 truncate ${outbound ? "text-amber-300" : "text-bright"}`} title={content}>
+      <span className={`min-w-[8rem] flex-1 truncate ${outbound ? "text-amber-300" : "text-text"}`} title={content}>
         {content}
       </span>
-      {turn.edited ? <span className="micro shrink-0 text-slate-400">edited</span> : null}
+      {turn.edited ? <span className="micro shrink-0 text-text-secondary">edited</span> : null}
       {turn.after !== undefined ? (
-        <span className="data shrink-0 rounded bg-mist px-1.5 py-0.5 text-[10px] text-slate-600" title="The simulated clock advances this much before the turn is sent">
+        <span className="data shrink-0 rounded bg-white/[0.06] px-1.5 py-0.5 text-[10px] text-text-subtle" title="The simulated clock advances this much before the turn is sent">
           after {formatAfter(turn.after)}
         </span>
       ) : null}
@@ -1897,17 +1922,17 @@ function ExpectChips({ expect }: { expect: StepExpect }) {
   return (
     <>
       {(expect.actions ?? []).map((action) => (
-        <span key={`a-${action}`} className={`${chip} bg-emerald-50 text-fern`} title="Expected action">
+        <span key={`a-${action}`} className={`${chip} bg-primary/15 text-primary`} title="Expected action">
           {action}
         </span>
       ))}
       {(expect.forbiddenActions ?? []).map((action) => (
-        <span key={`f-${action}`} className={`${chip} bg-red-50 text-danger`} title="Forbidden action">
+        <span key={`f-${action}`} className={`${chip} bg-red-500/15 text-red-400`} title="Forbidden action">
           no {action}
         </span>
       ))}
       {expect.replyMatches !== undefined ? (
-        <span className={`${chip} max-w-[12rem] truncate bg-mist text-slate-600`} title={`Reply must match /${expect.replyMatches}/i`}>
+        <span className={`${chip} max-w-[12rem] truncate bg-white/[0.06] text-text-subtle`} title={`Reply must match /${expect.replyMatches}/i`}>
           /{expect.replyMatches}/
         </span>
       ) : null}
@@ -1936,7 +1961,7 @@ function NotePopover({
     <div
       role="dialog"
       aria-label="Turn note"
-      className={`absolute z-20 w-72 rounded-md border border-amber-200 bg-panel p-2.5 shadow-soft ${className}`}
+      className={`absolute z-20 w-72 rounded-[12px] border border-surface-border bg-surface p-3 shadow-modal ${className}`}
       onKeyDown={(event) => {
         if (event.key === "Escape") {
           event.preventDefault();
@@ -1951,21 +1976,21 @@ function NotePopover({
       <textarea
         value={draft}
         onChange={(event) => setDraft(event.target.value)}
-        className="h-20 w-full resize-y rounded border border-line bg-mist p-2 text-xs leading-5 text-bright outline-none focus:border-amber-300"
+        className="focus-ring h-20 w-full resize-y rounded-[10px] bg-input p-2.5 text-xs leading-5 text-white placeholder:text-white/30"
         placeholder="Why is this turn good or bad? (empty clears the note)"
         aria-label="Note"
         autoFocus
       />
-      {error ? <div className="mt-1 text-[11px] text-danger">{error}</div> : null}
+      {error ? <div className="mt-1 text-[11px] text-red-400">{error}</div> : null}
       <div className="mt-2 flex items-center justify-end gap-1.5">
-        <span className="micro mr-auto text-slate-400">esc to close</span>
-        <button onClick={onCancel} className="h-7 rounded border border-line px-2.5 text-[11px] font-medium text-slate-600 hover:border-slate-400">
+        <span className="micro mr-auto text-text-dim">esc to close</span>
+        <button onClick={onCancel} className="h-7 rounded-[8px] px-2.5 text-[12px] text-text-dim transition-colors hover:text-white">
           Cancel
         </button>
         <button
           onClick={() => onSave(draft)}
           disabled={busy}
-          className="h-7 rounded bg-cta px-2.5 text-[11px] font-medium text-white hover:brightness-110 disabled:opacity-50"
+          className={`h-7 px-3 text-[12px] ${SUBMIT_BUTTON}`}
         >
           {busy ? "Saving…" : "Save"}
         </button>
@@ -1976,15 +2001,15 @@ function NotePopover({
 
 function KeyValue({ name, value }: { name: string; value: string }) {
   return (
-    <div className="min-w-0 rounded-md border border-line bg-mist px-3 py-2">
-      <div className="text-[11px] uppercase text-slate-500">{name}</div>
-      <div className="mt-1 break-words text-sm text-bright">{value}</div>
+    <div className="min-w-0 rounded-[10px] border border-white/[0.06] bg-white/[0.04] px-3 py-2">
+      <div className="text-[11px] uppercase tracking-wider text-text-secondary">{name}</div>
+      <div className="mt-1 break-words text-sm text-text">{value}</div>
     </div>
   );
 }
 
 function EmptyLine({ label }: { label: string }) {
-  return <div className="grid min-h-[160px] place-items-center text-sm text-slate-400">{label}</div>;
+  return <div className="grid min-h-[160px] place-items-center text-sm text-text-secondary">{label}</div>;
 }
 
 function formatRunDate(timestamp: string): string {

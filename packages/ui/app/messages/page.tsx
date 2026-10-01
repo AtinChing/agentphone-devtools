@@ -1,12 +1,13 @@
 "use client";
 
 import { useMemo, useState } from "react";
-import { MessageCircle } from "lucide-react";
+import { ChatCircle } from "@phosphor-icons/react";
 import { useLive } from "@/lib/live";
 import type { SessionChannel } from "@/lib/types";
-import { Button, Card, Cell, ChannelBadge, EmptyState, Page, PageHeader, Row, Table, formatRelative } from "@/components/dashboard/ui";
+import { Button, Card, Cell, ChannelBadge, EmptyState, Page, PageBody, PageHeader, Row, Table, formatRelative } from "@/components/dashboard/ui";
 import { RunsDrawer } from "@/components/dashboard/RunsDrawer";
 import {
+  PillGroup,
   RunContact,
   RunStatus,
   RunsSearch,
@@ -47,14 +48,18 @@ export default function MessagesPage() {
 
   let body;
   if (!runs.length && offline) body = <ServerOffline />;
-  else if (!runs.length && !connected) body = <p className="px-6 py-10 text-center text-[14px] text-slate-500">Loading…</p>;
+  else if (!runs.length && !connected) body = <p className="px-6 py-10 text-center text-sm text-text-dim">Loading…</p>;
   else if (!threads.length)
     body = (
       <EmptyState
-        icon={<MessageCircle size={26} />}
+        icon={<ChatCircle size={24} />}
         title="No conversations yet"
         description="Text your agent from the iMessage tab or run a messaging scenario; every thread shows up here with its deliveries."
-        action={<Button href="/imessage">Open iMessage</Button>}
+        action={
+          <Button href="/imessage">
+            <ChatCircle size={16} weight="bold" /> Open iMessage
+          </Button>
+        }
       />
     );
   else if (!visible.length) body = <EmptyState title="No matching conversations" description="Try another channel or search term." />;
@@ -62,7 +67,7 @@ export default function MessagesPage() {
     body = (
       <Table head={["Contact", "Channel", "Last message", "Turns", "Deliveries", "Avg latency", "Status", "Started"]}>
         {visible.map((run) => (
-          <Row key={run.id} onClick={() => select(run.id)} className={run.id === selected ? "bg-mist" : ""}>
+          <Row key={run.id} onClick={() => select(run.id)} className={run.id === selected ? "bg-white/[0.04]" : ""}>
             <Cell className="min-w-[200px]">
               <RunContact run={run} />
             </Cell>
@@ -70,19 +75,19 @@ export default function MessagesPage() {
               <ChannelBadge channel={run.channel} />
             </Cell>
             <Cell className="max-w-[320px]">
-              <div className="truncate text-slate-600" title={run.lastMessage}>
+              <div className="truncate text-text-secondary" title={run.lastMessage}>
                 {run.lastMessage ?? "—"}
               </div>
             </Cell>
-            <Cell mono>{run.transcriptTurns}</Cell>
-            <Cell mono>{run.deliveries}</Cell>
-            <Cell mono className="whitespace-nowrap">
+            <Cell className="tabular-nums">{run.transcriptTurns}</Cell>
+            <Cell className="tabular-nums">{run.deliveries}</Cell>
+            <Cell mono className="whitespace-nowrap text-text-secondary">
               {formatLatency(run.averageLatencyMs)}
             </Cell>
             <Cell>
               <RunStatus run={run} />
             </Cell>
-            <Cell className="whitespace-nowrap text-slate-500">{formatRelative(run.startedAt)}</Cell>
+            <Cell className="whitespace-nowrap text-text-secondary">{formatRelative(run.startedAt)}</Cell>
           </Row>
         ))}
       </Table>
@@ -90,28 +95,16 @@ export default function MessagesPage() {
 
   return (
     <Page>
-      <PageHeader title="Messages" subtitle="Every simulated SMS, iMessage and WhatsApp conversation." />
-      <Card padded={false}>
-        <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line px-5 py-4">
-          <div className="flex flex-wrap gap-1.5">
-            {FILTERS.map((option) => (
-              <button
-                key={option.id}
-                type="button"
-                onClick={() => setFilter(option.id)}
-                className={`rounded-full border px-3 py-1 text-[13px] transition ${
-                  filter === option.id ? "border-[#2e5a37] bg-[#173322] text-fern" : "border-line text-slate-600 hover:text-bright"
-                }`}
-              >
-                {option.label}
-                <span className="ml-1.5 text-[12px] opacity-70">{counts[option.id]}</span>
-              </button>
-            ))}
+      <PageHeader title="Messages" subtitle={`${threads.length} ${threads.length === 1 ? "conversation" : "conversations"} across SMS, iMessage and WhatsApp`} />
+      <PageBody>
+        <div className="flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <PillGroup options={FILTERS.map((option) => ({ ...option, count: counts[option.id] }))} value={filter} onChange={setFilter} />
+            <RunsSearch value={query} onChange={setQuery} placeholder="Search contact or message" />
           </div>
-          <RunsSearch value={query} onChange={setQuery} placeholder="Search contact or message" />
+          <Card padded={false}>{body}</Card>
         </div>
-        {body}
-      </Card>
+      </PageBody>
       {selected ? <RunsDrawer runId={selected} run={runs.find((run) => run.id === selected)} onClose={() => select(null)} onOpenRun={select} /> : null}
     </Page>
   );
