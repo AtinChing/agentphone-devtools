@@ -473,7 +473,9 @@ export class DevtoolsRuntime {
   setClock(iso: string): InspectorSession {
     const target = Date.parse(iso);
     if (Number.isNaN(target)) throw new Error(`Invalid clock time: ${iso}`);
-    this.clockOffsetMs = target - Date.now();
+    // Pinning to "now" means exactly real time, not a few milliseconds off.
+    const offset = target - Date.now();
+    this.clockOffsetMs = Math.abs(offset) < 1000 ? 0 : offset;
     this.session.clockOffsetMs = this.clockOffsetMs;
     this.publishState();
     return this.getState();

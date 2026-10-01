@@ -202,7 +202,7 @@ cp "$HANDLER_SRC" "$BACKUP"
 # is invisible to anyone reading it.
 perl -ni -e 'print unless /^\s*hangup: true,$/ || /^\s*action: "hangup"$/' "$HANDLER_SRC"
 
-if grep -q "hangup" "$HANDLER_SRC"; then
+if grep -q 'action: "hangup"' "$HANDLER_SRC"; then
   red "Could not apply the demo break to ${HANDLER_SRC}."
   exit 1
 fi
