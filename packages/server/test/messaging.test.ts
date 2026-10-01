@@ -91,6 +91,24 @@ describe("scenario caller identity", () => {
   });
 });
 
+describe("one channel per conversation", () => {
+  it("locks the channel after the first turn until the session is reset", async () => {
+    const { app, runtime } = await server();
+    await runtime.sendCallerTurn("hello", "voice");
+    expect(runtime.getState().channel).toBe("voice");
+
+    await expect(runtime.sendCallerTurn("and now a text", "imessage")).rejects.toThrow(/on voice; reset/);
+    expect(() => runtime.seedAgentMessage("opener", "sms")).toThrow(/on voice; reset/);
+    const viaApi = await app.inject({ method: "POST", url: "/api/send", payload: { text: "text", channel: "sms" } });
+    expect(viaApi.statusCode).toBe(409);
+    expect(runtime.getState().transcript).toHaveLength(2);
+
+    runtime.reset();
+    await expect(runtime.sendCallerTurn("fresh thread", "imessage")).resolves.toMatchObject({ channel: "imessage" });
+    expect(runtime.getState().channel).toBe("imessage");
+  });
+});
+
 describe("whatsapp channel", () => {
   it("delivers agent.message events on whatsapp like sms", async () => {
     const captured = await capturingTarget();

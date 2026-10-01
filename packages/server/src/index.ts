@@ -261,6 +261,16 @@ type SseClient = {
 
 type HistoryTurn = TranscriptTurn & { at: string; channel: SessionChannel };
 
+export class ChannelLockedError extends Error {
+  constructor(
+    public readonly current: SessionChannel,
+    public readonly requested: SessionChannel
+  ) {
+    super(`This conversation is on ${current}; reset to start one on ${requested}`);
+    this.name = "ChannelLockedError";
+  }
+}
+
 export class DevtoolsRuntime {
   private readonly clients = new Set<SseClient>();
   private readonly history: HistoryTurn[] = [];
@@ -430,6 +440,16 @@ export class DevtoolsRuntime {
     this.contactResolver = resolver;
   }
 
+  /**
+   * A conversation lives on one channel: a call cannot continue as a text.
+   * The first turn fixes it; anything else needs a fresh session.
+   */
+  private assertChannel(channel: SessionChannel): void {
+    if (this.session.transcript.length > 0 && channel !== this.session.channel) {
+      throw new ChannelLockedError(this.session.channel, channel);
+    }
+  }
+
   /** Current simulated time (real time plus the virtual-clock offset). */
   now(): string {
     return isoNow(new Date(Date.now() + this.clockOffsetMs));
@@ -468,6 +488,7 @@ export class DevtoolsRuntime {
   seedAgentMessage(text: string, channel: SessionChannel = this.config.channel): InspectorSession {
     const content = text.trim();
     if (!content) throw new Error("Outbound message text must not be empty");
+    this.assertChannel(channel);
     this.session.status = "running";
     if (this.session.transcript.length === 0) this.session.channel = channel;
     this.pushTranscript({ role: "agent", content }, this.now(), channel);
@@ -487,6 +508,7 @@ export class DevtoolsRuntime {
   }
 
   async sendCallerTurn(text: string, channel: SessionChannel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
+    this.assertChannel(channel);
     this.session.status = "running";
     const timestamp = this.now();
     const recentHistory = scenarioToRecentHistory(this.history, this.config.contextLimit);
@@ -1025,7 +1047,12 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     Body: { text: string; channel?: SessionChannel; fault?: DeliveryFault };
   }>("/api/send", async (request, reply) => {
     if (!request.body?.text) return reply.code(400).send({ error: "text is required" });
-    return runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
+    try {
+      return await runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
+    } catch (error) {
+      if (error instanceof ChannelLockedError) return reply.code(409).send({ error: error.message });
+      throw error;
+    }
   });
 
   app.post<{
@@ -1226,7 +1253,8 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     try {
       return runtime.seedAgentMessage(request.body?.text ?? "", request.body?.channel);
     } catch (error) {
-      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      const status = error instanceof ChannelLockedError ? 409 : 400;
+      return reply.code(status).send({ error: error instanceof Error ? error.message : String(error) });
     }
   });
 

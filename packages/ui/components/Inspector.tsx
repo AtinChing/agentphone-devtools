@@ -756,6 +756,9 @@ export function Inspector() {
   const viewingLive = viewingSessionId === null;
   // Hangup follows the session's real channel, not the toolbar's pending pick.
   const isVoice = (session?.channel ?? channel) === "voice";
+  // A conversation has one channel. Once the live session has a turn (or a
+  // step session is running) the picker only applies to the next reset.
+  const channelLocked = Boolean(stepState?.active) || (liveSession?.transcript.length ?? 0) > 0;
   const headIsAgent = Boolean(viewingLive && queueHead && queueHead.agent !== undefined);
   const selectedListing = scenarios?.find((listing) => listing.path === stepScenarioPath);
   const scenarioGroups = groupScenarios(scenarios ?? []);
@@ -792,17 +795,29 @@ export function Inspector() {
           </div>
 
           <div className="flex flex-wrap items-center justify-end gap-1.5">
-            <div className="flex h-8 items-center rounded border border-white/20 p-0.5" role="radiogroup" aria-label="Channel">
+            <div
+              className="flex h-8 items-center rounded border border-white/20 p-0.5"
+              role="radiogroup"
+              aria-label="Channel"
+              title={channelLocked ? `This conversation is on ${channel}. Reset to start one on another channel.` : undefined}
+            >
               {CHANNEL_OPTIONS.map((option) => (
                 <button
                   key={option.value}
                   role="radio"
                   aria-checked={channel === option.value}
+                  disabled={channelLocked && channel !== option.value}
                   onClick={() => setChannel(option.value)}
                   className={`h-full rounded-sm px-2 text-[11px] font-medium ${
                     channel === option.value ? "bg-fern/20 text-emerald-300" : "text-slate-600 hover:text-white"
-                  }`}
-                  title={option.value === "voice" ? "Voice call" : `${option.label} thread — agent.message deliveries`}
+                  } disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:text-slate-600`}
+                  title={
+                    channelLocked && channel !== option.value
+                      ? `Conversation is on ${channel} — reset to start a ${option.label} one`
+                      : option.value === "voice"
+                        ? "Voice call"
+                        : `${option.label} thread — agent.message deliveries`
+                  }
                 >
                   {option.label}
                 </button>
