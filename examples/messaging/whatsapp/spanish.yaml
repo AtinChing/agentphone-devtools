@@ -3,11 +3,12 @@ description: "A customer writes in Spanish; the agent answers in Spanish, resets
 channel: whatsapp
 agentId: agt_local
 numberId: num_local
-from: "+15559876546"
+from: "+15559876553"
 to: "+15551234567"
 conversationState:
-  customerName: Sam Okafor
-  tier: standard
+  customerName: Lucía Fernández
+  tier: gold
+  language: es
 contextLimit: 10
 timeoutSeconds: 30
 turns:

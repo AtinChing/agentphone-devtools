@@ -3,10 +3,10 @@ description: "A customer asks where the station is and gets the address and a ma
 channel: whatsapp
 agentId: agt_local
 numberId: num_local
-from: "+15559876546"
+from: "+15559876554"
 to: "+15551234567"
 conversationState:
-  customerName: Sam Okafor
+  customerName: Wei Zhang
   tier: standard
 contextLimit: 10
 timeoutSeconds: 30

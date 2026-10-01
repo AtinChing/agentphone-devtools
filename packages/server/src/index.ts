@@ -12,6 +12,7 @@ import { ContactsStore, type Contact, type ContactInput } from "./contacts.js";
 import { EnvironmentsStore, type EnvironmentInput } from "./environments.js";
 import { computeUsageStats } from "./stats.js";
 import { listScenarios } from "./scenarios.js";
+import { seedSampleRuns, SAMPLE_SCENARIOS, SamplesUnavailableError } from "./samples.js";
 import { dirname, join, resolve } from "node:path";
 import { mkdirSync, writeFileSync } from "node:fs";
 
@@ -74,7 +75,8 @@ export {
   type PushToTalkRecording,
   type VoiceSupport
 } from "./voice.js";
-export { ContactsStore, type Contact, type ContactInput } from "./contacts.js";
+export { ContactsStore, DEFAULT_CONTACTS, type Contact, type ContactInput } from "./contacts.js";
+export { seedSampleRuns, SAMPLE_SCENARIOS, SamplesUnavailableError, type SampleSeedResult } from "./samples.js";
 export { EnvironmentsStore, type Environment, type EnvironmentInput, type EnvironmentView } from "./environments.js";
 export { computeUsageStats, type UsageStats, type DailyActivity } from "./stats.js";
 export { listScenarios, type ScenarioListing } from "./scenarios.js";
@@ -903,7 +905,9 @@ export class DevtoolsRuntime {
   }
 }
 
-export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; step: StepController }> {
+export async function createDevtoolsServer(
+  config: DevtoolsServerConfig
+): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; step: StepController; contacts: ContactsStore }> {
   const app = Fastify({ logger: false });
   const runtime = new DevtoolsRuntime(config);
   const step: StepController = new StepController(runtime, () => runtime.publishEvent("step", step.state()));
@@ -1350,6 +1354,20 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
 
   app.delete("/api/history", async () => ({ removed: runtime.clearHistory() }));
 
+  // ── Sample conversations: one real run per scenario, for every default contact ─
+  app.get("/api/samples", async () => ({
+    scenarios: SAMPLE_SCENARIOS.length,
+    loaded: runtime.getHistory().filter((run) => run.scenarioPassed !== undefined).length
+  }));
+  app.post("/api/samples/seed", async (_request, reply) => {
+    try {
+      return await seedSampleRuns(runtime, contacts);
+    } catch (error) {
+      if (error instanceof SamplesUnavailableError) return reply.code(502).send({ error: error.message });
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
   app.get("/api/events", async (request, reply) => {
     reply.raw.writeHead(200, {
       "Content-Type": "text/event-stream",
@@ -1377,17 +1395,25 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     request.raw.on("close", unsubscribe);
   });
 
-  return { app, runtime, step };
+  return { app, runtime, step, contacts };
 }
 
-export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; port: number; close: () => Promise<void> }> {
-  const { app, runtime } = await createDevtoolsServer(config);
+export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{
+  app: FastifyInstance;
+  runtime: DevtoolsRuntime;
+  contacts: ContactsStore;
+  url: string;
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const { app, runtime, contacts } = await createDevtoolsServer(config);
   const host = config.host ?? "127.0.0.1";
   const port = await listenWithPortFallback(app, config.port, host);
   const url = `http://${host}:${port}`;
   return {
     app,
     runtime,
+    contacts,
     url,
     port,
     close: () => app.close()

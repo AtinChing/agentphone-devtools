@@ -1,0 +1,28 @@
+name: "Recorded run sess_f1865beabae6"
+description: "Recorded from AgentPhone DevTools run sess_f1865beabae6. Forked from run sess_f43c51524ed5 after turn 3."
+channel: voice
+agentId: "agt_local"
+numberId: "num_local"
+from: "+15559876543"
+to: "+15551234567"
+conversationState:
+  null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I need to cancel my appointment."
+    expect:
+      actions:
+        - "request_confirmation_code"
+  - caller: "Yeah, my code is 4812."
+    expect:
+      actions:
+        - "request_confirmation_code"
+  - caller: "Try maybe 9999"
+    expect:
+      actions:
+        - "request_confirmation_code"
+  - caller: "Try 1234"
+    expect:
+      actions:
+        - "transfer"

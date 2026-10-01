@@ -3,12 +3,12 @@ description: "A caller moves an existing appointment: the agent asks for a day, 
 channel: voice
 agentId: agt_local
 numberId: num_local
-from: "+15559876543"
+from: "+15559876547"
 to: "+15551234567"
 conversationState:
-  customerName: Maya Chen
-  stationGroup: North Lot
+  customerName: "Grace O'Neill"
   tier: gold
+  appointment: "2026-09-18T14:00"
 contextLimit: 10
 timeoutSeconds: 30
 turns:

@@ -19,7 +19,8 @@ describe("contacts store", () => {
   it("seeds defaults once, validates numbers, and persists across instances", () => {
     const path = join(temporaryDirectory(), "contacts.json");
     const store = new ContactsStore(path);
-    expect(store.list().map((contact) => contact.name)).toEqual(["Jordan Reyes", "Maya Chen", "Priya Natarajan", "Sam Okafor"]);
+    expect(store.list()).toHaveLength(12);
+    expect(store.list().map((contact) => contact.name)).toEqual(expect.arrayContaining(["Jordan Reyes", "Maya Chen", "Priya Natarajan", "Sam Okafor"]));
 
     const added = store.upsert({ name: "Test Person", number: "+15550001111", channel: "imessage", conversationState: { tier: "gold" } });
     expect(added.id).toMatch(/^ct_/);
@@ -31,7 +32,7 @@ describe("contacts store", () => {
     expect(renamed.createdAt).toBe(added.createdAt);
 
     const reopened = new ContactsStore(path);
-    expect(reopened.list()).toHaveLength(5);
+    expect(reopened.list()).toHaveLength(13);
     expect(reopened.get(added.id)?.name).toBe("Renamed");
     expect(reopened.delete(added.id)).toBe(true);
     expect(reopened.delete(added.id)).toBe(false);

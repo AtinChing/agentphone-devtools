@@ -3,16 +3,17 @@ description: "The opener gets no reply; a follow-up goes out three days later (t
 channel: imessage
 agentId: agt_local
 numberId: num_local
-from: "+15559876544"
+from: "+15559876552"
 to: "+15551234567"
 conversationState:
-  customerName: Jordan Reyes
+  customerName: Diego Alvarez
   tier: standard
+  vehicle: Ioniq 5
 contextLimit: 10
 timeoutSeconds: 30
 startAt: "2026-09-14T16:00:00Z"
 turns:
-  - agent: "Hi Jordan, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - agent: "Hi Diego, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
   - agent: "Still interested in the fall tune-up special? Reply YES and we'll book you in."
     after: 3d
   - caller: "YES"

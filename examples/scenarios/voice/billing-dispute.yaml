@@ -3,12 +3,12 @@ description: "A caller was charged twice: the agent collects the card's last fou
 channel: voice
 agentId: agt_local
 numberId: num_local
-from: "+15559876543"
+from: "+15559876548"
 to: "+15551234567"
 conversationState:
-  customerName: Maya Chen
-  stationGroup: North Lot
-  tier: gold
+  customerName: Marcus Hill
+  tier: standard
+  cardLast4: "4242"
 contextLimit: 10
 timeoutSeconds: 30
 turns:

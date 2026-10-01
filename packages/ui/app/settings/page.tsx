@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState, type ReactNode } from "react";
-import { ClockCounterClockwise, Trash } from "@phosphor-icons/react";
+import { ChatsCircle, ClockCounterClockwise, Trash } from "@phosphor-icons/react";
 import { api, errorMessage } from "@/lib/api";
 import { useLive } from "@/lib/live";
 import type { ClockState, SessionChannel } from "@/lib/types";
@@ -54,6 +54,24 @@ export default function SettingsPage() {
   const [confirmClear, setConfirmClear] = useState(false);
   const [clearing, setClearing] = useState(false);
   const [dataNotice, setDataNotice] = useState<{ tone: "good" | "error"; text: string } | null>(null);
+  const [samplesBusy, setSamplesBusy] = useState(false);
+
+  async function loadSamples() {
+    setSamplesBusy(true);
+    setDataNotice(null);
+    try {
+      const result = await api.post<{ runs: number; passed: number; contactsAdded: number }>("/api/samples/seed");
+      await refreshRuns();
+      setDataNotice({
+        tone: "good",
+        text: `Loaded ${result.runs} sample conversations (${result.passed} passed)${result.contactsAdded ? `, restored ${result.contactsAdded} default contact${result.contactsAdded === 1 ? "" : "s"}` : ""}.`
+      });
+    } catch (error) {
+      setDataNotice({ tone: "error", text: errorMessage(error) });
+    } finally {
+      setSamplesBusy(false);
+    }
+  }
 
   const liveChannel = session?.channel;
   useEffect(() => {
@@ -168,6 +186,15 @@ export default function SettingsPage() {
                 <Notice tone={dataNotice.tone}>{dataNotice.text}</Notice>
               </div>
             ) : null}
+            <SettingRow
+              title="Load sample conversations"
+              description="Run every sample scenario against your handler: one real conversation per default contact, three contacts per channel. Loaded automatically on a first launch."
+            >
+              <Button variant="secondary" size="sm" onClick={() => void loadSamples()} busy={samplesBusy}>
+                {samplesBusy ? null : <ChatsCircle size={14} weight="bold" />}
+                Load samples
+              </Button>
+            </SettingRow>
             <SettingRow
               title="Clear run history"
               description={`Delete ${savedRuns} saved run${savedRuns === 1 ? "" : "s"}, including baselines and forks. The live session is kept.`}

@@ -3,15 +3,16 @@ description: "The customer replies YES ten days after the opener; the promo wind
 channel: imessage
 agentId: agt_local
 numberId: num_local
-from: "+15559876546"
+from: "+15559876552"
 to: "+15551234567"
 conversationState:
-  customerName: Sam Okafor
+  customerName: Diego Alvarez
   tier: standard
+  vehicle: Ioniq 5
 contextLimit: 10
 timeoutSeconds: 30
 turns:
-  - agent: "Hi Sam, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - agent: "Hi Diego, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
   - caller: "YES"
     after: 10d
     expect:

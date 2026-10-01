@@ -457,7 +457,11 @@ compliance pack.
 
 `npx agentphone-devtools` opens a local console modeled on the AgentPhone
 dashboard, so what you test looks like what you ship. Every tab is backed by
-the local server, not mock data:
+the local server, not mock data. On a first launch it loads sample
+conversations: twelve default contacts (three per channel) and one real run
+per sample scenario against your handler, so every tab has something to show
+before you type anything. Skip that with `--no-samples`, or load it later
+from Settings; the runs are ordinary history and can be cleared.
 
 - **Overview, Usage** — run/delivery/latency tiles, 30-day activity, webhook health, a one-click compliance run.
 - **Agents, Sub-accounts, Webhooks** — the handler target, secret, context limit and timeout; named environments to switch between handlers; the exact payload and signing headers of the last delivery.

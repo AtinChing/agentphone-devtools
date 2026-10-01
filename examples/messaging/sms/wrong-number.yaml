@@ -3,11 +3,9 @@ description: "Someone who never signed up gets a reminder: the agent identifies 
 channel: sms
 agentId: agt_local
 numberId: num_local
-from: "+15559876544"
+from: "+15559876551"
 to: "+15551234567"
-conversationState:
-  customerName: Jordan Reyes
-  tier: standard
+conversationState: null
 contextLimit: 10
 timeoutSeconds: 30
 turns:

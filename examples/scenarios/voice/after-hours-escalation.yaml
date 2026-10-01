@@ -3,11 +3,11 @@ description: "The same request for a person routes differently by time of day. A
 channel: voice
 agentId: agt_local
 numberId: num_local
-from: "+15559876545"
+from: "+15559876549"
 to: "+15551234567"
 conversationState:
-  customerName: Priya Natarajan
-  tier: gold
+  customerName: Hannah Park
+  tier: standard
 contextLimit: 10
 timeoutSeconds: 30
 startAt: "2026-09-15T09:30:00Z"

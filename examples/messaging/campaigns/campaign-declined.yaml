@@ -3,15 +3,16 @@ description: "A polite decline must close the thread without further selling or 
 channel: sms
 agentId: agt_local
 numberId: num_local
-from: "+15559876544"
+from: "+15559876550"
 to: "+15551234567"
 conversationState:
-  customerName: Jordan Reyes
+  customerName: Aisha Rahman
   tier: standard
+  appointment: "2026-09-17T09:00"
 contextLimit: 10
 timeoutSeconds: 30
 turns:
-  - agent: "Hi Jordan, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - agent: "Hi Aisha, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
   - caller: "No thanks, not right now."
     after: 40m
     expect:

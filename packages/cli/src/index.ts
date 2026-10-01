@@ -5,7 +5,7 @@ import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
-import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
+import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig, seedSampleRuns } from "@agentphone-devtools/server";
 import type { SessionChannel } from "@agentphone-devtools/core";
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
@@ -23,6 +23,7 @@ interface CliOptions {
   scenarios: string[];
   scenarioDirectories: string[];
   noOpen: boolean;
+  noSamples: boolean;
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
   interactive: boolean;
@@ -88,6 +89,18 @@ async function main() {
   console.log(`AgentPhone DevTools server: ${server.url}`);
   console.log(`AgentPhone DevTools inspector: ${uiUrl}`);
   console.log(`Target webhook: ${options.targetUrl}`);
+
+  // A first launch comes with conversations to look at: every sample
+  // scenario is run for real against the handler, one per default contact.
+  const hasRuns = server.runtime.getHistory().some((run) => run.transcriptTurns > 0 || run.deliveries > 0);
+  if (!options.noSamples && !hasRuns) {
+    try {
+      const seeded = await seedSampleRuns(server.runtime, server.contacts);
+      console.log(`Loaded ${seeded.runs} sample conversations across the default contacts (${seeded.passed} passed).`);
+    } catch (error) {
+      console.warn(`Sample conversations skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
 
   if (!options.noOpen) {
     await open(uiUrl);
@@ -193,6 +206,7 @@ function parseArgs(args: string[]): CliOptions {
     port: Number(process.env.AGENTPHONE_DEVTOOLS_SERVER_PORT ?? 4318),
     uiPort: Number(process.env.AGENTPHONE_DEVTOOLS_UI_PORT ?? 4319),
     noOpen: false,
+    noSamples: false,
     exitAfterScenario: false,
     retryOnNon200: false,
     interactive: true,
@@ -247,6 +261,9 @@ function parseArgs(args: string[]): CliOptions {
       case "--scenario-dir":
         options.scenarioDirectories.push(requireValue(args, ++i, arg));
         options.interactive = false;
+        break;
+      case "--no-samples":
+        options.noSamples = true;
         break;
       case "--no-open":
         options.noOpen = true;
@@ -369,6 +386,7 @@ Options:
   --history-limit <count>    Runs to retain, default 100
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
+  --no-samples               Do not load the sample conversations on an empty history
   --exit-after-scenario      Exit after scenario completes
   --ci                       Run one or more scenarios headlessly
   --report-json <path>       Write the full run report in CI mode

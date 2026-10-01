@@ -3,11 +3,12 @@ description: "The customer replies R to a reminder: the agent asks for a day, of
 channel: sms
 agentId: agt_local
 numberId: num_local
-from: "+15559876544"
+from: "+15559876550"
 to: "+15551234567"
 conversationState:
-  customerName: Jordan Reyes
+  customerName: Aisha Rahman
   tier: standard
+  appointment: "2026-09-17T09:00"
 contextLimit: 10
 timeoutSeconds: 30
 startAt: "2026-09-16T16:00:00Z"
