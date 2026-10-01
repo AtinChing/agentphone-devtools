@@ -1,0 +1,21 @@
+name: Reminder — confirm
+description: "An appointment reminder sent via the API; the customer replies C a few hours later and the booking is confirmed."
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState:
+  customerName: Jordan Reyes
+  tier: standard
+contextLimit: 10
+timeoutSeconds: 30
+startAt: "2026-09-16T16:00:00Z"
+turns:
+  - agent: "Reminder from North Lot EV Charging: your tune-up is tomorrow at 9:00 AM. Reply C to confirm or R to reschedule."
+  - caller: "C"
+    after: 3h
+    expect:
+      actions: [appointment_confirmed]
+      forbiddenActions: [opt_out]
+      replyMatches: "Confirmed"

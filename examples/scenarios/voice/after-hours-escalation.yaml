@@ -1,0 +1,21 @@
+name: After-hours escalation
+description: "The same request for a person routes differently by time of day. At 2:30 AM Pacific the front desk is closed, so the agent transfers to the on-call line instead; the handler reads the hour from the event timestamp."
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876545"
+to: "+15551234567"
+conversationState:
+  customerName: Priya Natarajan
+  tier: gold
+contextLimit: 10
+timeoutSeconds: 30
+startAt: "2026-09-15T09:30:00Z"
+turns:
+  - caller: "I think I was charged twice for my last session."
+    expect:
+      actions: [request_card_digits]
+  - caller: "Actually, can I just talk to a person about this?"
+    expect:
+      actions: [transfer, after_hours_transfer]
+      replyMatches: "on-call"

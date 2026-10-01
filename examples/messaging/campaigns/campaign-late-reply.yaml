@@ -1,5 +1,5 @@
 name: Campaign reply — after the offer expired
-description: The customer replies YES ten days after the opener; the promo window is 7 days, so the agent must not issue the expired code.
+description: "The customer replies YES ten days after the opener; the promo window is 7 days, so the agent must not issue the expired code."
 channel: imessage
 agentId: agt_local
 numberId: num_local

@@ -1,5 +1,5 @@
 name: Campaign reply — question first
-description: The customer asks what the offer covers before committing; the agent answers, then issues the code on YES.
+description: "The customer asks what the offer covers before committing; the agent answers, then issues the code on YES."
 channel: sms
 agentId: agt_local
 numberId: num_local

@@ -264,8 +264,8 @@ packages/server    Fastify simulator API and SSE stream
 packages/ui        Next.js dashboard: AgentPhone-style console, iMessage tab, Inspector
 packages/cli       npx-runnable entrypoint (GUI, --ci, --step)
 examples/handler-express   reference handler: appointments, EV support, campaigns, STOP/HELP/START
-examples/scenarios         business-logic scenarios (voice + sms)
-examples/messaging         campaign archetypes (imessage/sms, outbound opener + simulated time)
+examples/scenarios         business-logic scenarios (voice + sms; voice/ = reschedule, billing, after-hours)
+examples/messaging         campaigns/ (outbound opener + simulated time), sms/, imessage/, whatsapp/
 examples/compliance        voice + messaging compliance pack
 examples/faults            security fault injection
 ```
@@ -428,9 +428,15 @@ see the simulated moment; a promo window, a 24-hour session rule, or a
 "reply within a week" rule can be tested in seconds. In the step debugger,
 `warp 10d` does the same interactively; `say <text>` queues an outbound send.
 
-**Customer archetypes as branches.** `examples/messaging/` holds four
+**Customer archetypes as branches.** `examples/messaging/campaigns/` holds four
 scenarios that share one opener and diverge on the reply: interested,
-has a question, declines, replies ten days late. In the iMessage tab every
+has a question, declines, replies ten days late. Beside them,
+`examples/messaging/{sms,imessage,whatsapp}/` and `examples/scenarios/voice/`
+hold three scenarios per channel for the rest of the reference agent:
+reminders (confirm or reschedule by text), a wrong-number reply, booking over
+iMessage, a follow-up send after silence, station status lookups, WhatsApp
+opt-in and location, a Spanish thread, voice rescheduling, a billing dispute,
+and after-hours escalation that routes by the event's hour. In the iMessage tab every
 customer bubble has a fork button, and after a campaign opener the quick
 replies (YES / a question / no thanks / late reply / STOP) each create a
 branch off the same send. Exports keep the seeds and the gaps, so a

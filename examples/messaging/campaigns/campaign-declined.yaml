@@ -1,5 +1,5 @@
 name: Campaign reply — not interested
-description: A polite decline must close the thread without further selling or opting the customer out of everything.
+description: "A polite decline must close the thread without further selling or opting the customer out of everything."
 channel: sms
 agentId: agt_local
 numberId: num_local

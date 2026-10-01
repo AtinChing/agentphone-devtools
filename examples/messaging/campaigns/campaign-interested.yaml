@@ -1,5 +1,5 @@
 name: Campaign reply — interested
-description: A fall-promo opener sent outside the webhook; the customer replies YES within the offer window and gets a promo code.
+description: "A fall-promo opener sent outside the webhook; the customer replies YES within the offer window and gets a promo code."
 channel: imessage
 agentId: agt_local
 numberId: num_local

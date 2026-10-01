@@ -1,0 +1,24 @@
+name: Wrong number
+description: "Someone who never signed up gets a reminder: the agent identifies the business, offers STOP, and sends no marketing; STOP then opts them out."
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState:
+  customerName: Jordan Reyes
+  tier: standard
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - agent: "Reminder from North Lot EV Charging: your tune-up is tomorrow at 9:00 AM. Reply C to confirm or R to reschedule."
+  - caller: "Who is this? I never signed up for anything."
+    after: 10m
+    expect:
+      actions: [identify_business]
+      forbiddenActions: [campaign_info, issue_promo_code, appointment_confirmed]
+      replyMatches: "STOP"
+  - caller: "STOP"
+    expect:
+      actions: [opt_out]
+      replyMatches: "unsubscribed"

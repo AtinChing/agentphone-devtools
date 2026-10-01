@@ -127,7 +127,7 @@ dim "customer: YES after 2h, a question, a decline, YES ten days late."
 echo
 run "${CLI[@]}" --ci \
   --target "$TARGET_URL" --secret "$SECRET" \
-  --scenario-dir examples/messaging \
+  --scenario-dir examples/messaging/campaigns \
   --report-json "$OUT_DIR/campaign.json" \
   --report-junit "$OUT_DIR/campaign.xml"
 GREEN_EXIT=$?
@@ -150,7 +150,7 @@ dim "window still accepts the request)."
 echo
 printf 'c\nwarp 10d\nc\nq\n' | run "${CLI[@]}" --step \
   --target "$TARGET_URL" --secret "$SECRET" \
-  --scenario examples/messaging/campaign-interested.yaml
+  --scenario examples/messaging/campaigns/campaign-interested.yaml
 echo
 dim "The scripted check expected FALL20 (the 2-hour branch). Ten days later"
 dim "the same YES is promo_expired — the late-reply archetype in"
@@ -173,7 +173,7 @@ stop_handler; start_handler || exit 1
 echo
 run "${CLI[@]}" --ci \
   --target "$TARGET_URL" --secret "$SECRET" \
-  --scenario-dir examples/messaging \
+  --scenario-dir examples/messaging/campaigns \
   --report-json "$OUT_DIR/red.json" \
   --report-junit "$OUT_DIR/red.xml"
 RED_EXIT=$?
