@@ -776,6 +776,12 @@ export function Inspector() {
   const viewingLive = viewingSessionId === null;
   // Hangup follows the session's real channel, not the toolbar's pending pick.
   const isVoice = (session?.channel ?? channel) === "voice";
+  // The Inspector speaks the channel's language: a call has a caller and an
+  // agent taking turns; a thread has a customer and a business exchanging
+  // messages. Accessible names keep "turn" so they stay stable.
+  const words = isVoice
+    ? { you: "caller", them: "agent", unit: "turn", typeNext: "Type caller turn", typeBranch: "Type the next caller turn for this branch", strip: "edit the next caller line, fork from any turn" }
+    : { you: "customer", them: "business", unit: "message", typeNext: `Type the customer's ${channelLabel(session?.channel ?? channel)} message`, typeBranch: "Type the customer's next message for this branch", strip: "edit the customer's next message, fork from any message" };
   // A conversation has one channel. Once the live session has a turn (or a
   // step session is running) the picker only applies to the next reset.
   const channelLocked = Boolean(stepState?.active) || (liveSession?.transcript.length ?? 0) > 0;
@@ -1078,7 +1084,7 @@ export function Inspector() {
               </form>
             </div>
             <div className="border-t border-primary/15 px-4 py-2.5 text-[12px] leading-[18px] text-text-secondary">
-              Runs one turn at a time: review each webhook, edit the next caller line, fork from any turn, then export the path as a regression scenario.
+              Runs one {words.unit} at a time: review each webhook, {words.strip}, then export the path as a regression scenario.
               Tip: the Runs tab can step-replay any saved run.
               {stepError ? <div className="mt-1 text-red-400">{stepError}</div> : null}
             </div>
@@ -1362,7 +1368,7 @@ export function Inspector() {
                           className={`micro mt-1 w-12 shrink-0 text-right ${turn.role === "agent" ? "text-text-secondary" : "text-primary"}`}
                           title={at ? formatClock(at) : undefined}
                         >
-                          {turn.role === "agent" ? "agent" : "caller"}
+                          {turn.role === "agent" ? words.them : words.you}
                         </span>
                         <div className={`min-w-0 flex-1 text-sm leading-6 ${turn.role === "agent" ? "text-text-subtle" : "font-medium text-text"}`}>
                           {outbound ? (
@@ -1440,7 +1446,7 @@ export function Inspector() {
                       {forkTurn === ordinal && ordinal !== null ? (
                         <div className="mb-2 ml-[60px] rounded-[12px] border border-indigo-200 bg-indigo-50 p-3">
                           <div className="mb-2 text-xs font-medium text-indigo-700">
-                            New branch from the checkpoint after turn {ordinal} — same history and state, different next line:
+                            New branch from the checkpoint after {words.unit} {ordinal} — same history and state, different next line:
                           </div>
                           <div className="flex gap-2">
                             <input
@@ -1482,12 +1488,12 @@ export function Inspector() {
                   Stepping{stepState.scenarioName ? `: ${stepState.scenarioName}` : ""}
                 </span>
                 <span className="text-text-secondary">
-                  turn {stepState.completedTurns + 1}
+                  {words.unit} {stepState.completedTurns + 1}
                   {stepState.queue.length ? ` · ${stepState.queue.length} queued` : " · queue empty (type to add)"}
                 </span>
                 {stepState.checkpoint ? (
                   <span className="text-text-secondary">
-                    checkpoint: {stepState.checkpoint.recentHistoryTurns} history turn(s)
+                    checkpoint: {stepState.checkpoint.recentHistoryTurns} history {words.unit}(s)
                     {stepState.checkpoint.conversationState ? " + state" : ""}
                   </span>
                 ) : null}
@@ -1525,7 +1531,7 @@ export function Inspector() {
                   {(queueExpanded ? stepState.queue : stepState.queue.slice(0, 1)).map((turn, index) => (
                     <div key={index} className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 text-xs">
                       <span className="micro w-9 shrink-0 text-text-secondary">{index === 0 ? "next" : `#${index + 1}`}</span>
-                      <QueuedTurn turn={turn} />
+                      <QueuedTurn turn={turn} youLabel={words.you} />
                       {index === 0 ? (
                         <>
                           <button
@@ -1573,9 +1579,9 @@ export function Inspector() {
                     ? "Saved run is read-only"
                     : stepState?.active
                       ? stepState.queue.length
-                        ? "Next scripted turn — edit before sending"
-                        : "Type the next caller turn for this branch"
-                      : "Type caller turn"
+                        ? `Next scripted ${words.unit} — edit before sending`
+                        : words.typeBranch
+                      : words.typeNext
                 }
                 aria-label={headIsAgent ? "Next outbound message" : "Caller turn"}
               />
@@ -1886,7 +1892,7 @@ function MicToggle({ state, onClick, small }: { state: "idle" | "recording" | "t
 }
 
 /** One queued step: a caller line or an outbound business message, with its delay and expectations. */
-function QueuedTurn({ turn }: { turn: StepQueueTurn }) {
+function QueuedTurn({ turn, youLabel = "caller" }: { turn: StepQueueTurn; youLabel?: string }) {
   const outbound = turn.agent !== undefined;
   const content = turn.agent ?? turn.caller ?? "";
   return (
@@ -1900,7 +1906,7 @@ function QueuedTurn({ turn }: { turn: StepQueueTurn }) {
           outbound
         </span>
       ) : (
-        <span className="micro shrink-0 text-primary">caller</span>
+        <span className="micro shrink-0 text-primary">{youLabel}</span>
       )}
       <span className={`min-w-[8rem] flex-1 truncate ${outbound ? "text-amber-300" : "text-text"}`} title={content}>
         {content}
