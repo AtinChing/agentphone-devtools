@@ -780,8 +780,8 @@ export function Inspector() {
   // agent taking turns; a thread has a customer and a business exchanging
   // messages. Accessible names keep "turn" so they stay stable.
   const words = isVoice
-    ? { you: "caller", them: "agent", unit: "turn", typeNext: "Type caller turn", typeBranch: "Type the next caller turn for this branch", strip: "edit the next caller line, fork from any turn" }
-    : { you: "customer", them: "business", unit: "message", typeNext: `Type the customer's ${channelLabel(session?.channel ?? channel)} message`, typeBranch: "Type the customer's next message for this branch", strip: "edit the customer's next message, fork from any message" };
+    ? { you: "caller", them: "agent", unit: "turn", typeNext: "Type caller turn", typeBranch: "Type the next caller turn", strip: "edit the next caller line, fork from any turn" }
+    : { you: "customer", them: "business", unit: "message", typeNext: `Type the customer's ${channelLabel(session?.channel ?? channel)} message`, typeBranch: "Type the customer's next message", strip: "edit the customer's next message, fork from any message" };
   // A conversation has one channel. Once the live session has a turn (or a
   // step session is running) the picker only applies to the next reset.
   const channelLocked = Boolean(stepState?.active) || (liveSession?.transcript.length ?? 0) > 0;
@@ -1507,7 +1507,28 @@ export function Inspector() {
             )}
           </div>
 
-          {stepState?.active && viewingLive && centerView === "transcript" ? (
+          {stepState?.active && viewingLive && centerView === "transcript" && !stepState.queue.length && !stepState.lastResult?.expectResults.length ? (
+            // Free typing: nothing scripted and nothing to check, so the bar
+            // stays out of the way — just the clock and a way to end.
+            <div className="flex shrink-0 items-center gap-3 border-t border-white/[0.06] px-4 py-1.5 text-[11px] text-text-secondary">
+              <button
+                onClick={() => {
+                  setStepError(null);
+                  setStepStripOpen(true);
+                }}
+                className="data flex items-center gap-1 transition-colors hover:text-white"
+                title="Simulated clock — click to warp it or queue an outbound message"
+              >
+                <Clock3 size={12} />
+                {formatClock(stepState.virtualNow)}
+                <span className={stepState.clockOffsetMs ? "text-amber-400" : ""}>· {formatOffset(stepState.clockOffsetMs)}</span>
+              </button>
+              {stepError ? <span className="truncate text-red-400">{stepError}</span> : null}
+              <button onClick={() => void endStep()} className="ml-auto transition-colors hover:text-white" title={`End this ${isVoice ? "call" : "conversation"}`}>
+                End step
+              </button>
+            </div>
+          ) : stepState?.active && viewingLive && centerView === "transcript" ? (
             <div className="shrink-0 border-t border-primary/20 bg-primary/10 px-4 py-2.5">
               <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs">
                 <span className="flex items-center gap-1.5 font-medium text-primary">
