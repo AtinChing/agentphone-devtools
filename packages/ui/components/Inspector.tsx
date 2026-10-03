@@ -114,6 +114,9 @@ export function Inspector() {
   const [noteBusy, setNoteBusy] = useState(false);
   const [noteError, setNoteError] = useState<string | null>(null);
   const [forkTurn, setForkTurn] = useState<number | null>(null);
+  // "after" keeps the chosen turn and changes what comes next; "instead"
+  // rewinds one turn so the chosen message itself is what gets replaced.
+  const [forkMode, setForkMode] = useState<"after" | "instead">("after");
   const [forkText, setForkText] = useState("");
   const [forkBusy, setForkBusy] = useState(false);
   const [forkError, setForkError] = useState<string | null>(null);
@@ -441,12 +444,13 @@ export function Inspector() {
       const response = await fetch(`${SERVER_URL}/api/step/fork`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ sessionId: session.id, turnIndex: forkTurn, caller })
+        body: JSON.stringify({ sessionId: session.id, turnIndex: forkMode === "instead" ? forkTurn - 1 : forkTurn, caller })
       });
       const payload = (await response.json()) as StepState | { error?: string };
       if (!response.ok) throw new Error("error" in payload && payload.error ? payload.error : "Fork failed");
       setForkTurn(null);
       setForkText("");
+      setForkMode("after");
       showLive();
     } catch (error) {
       setForkError(error instanceof Error ? error.message : String(error));
@@ -1450,6 +1454,7 @@ export function Inspector() {
                               setForkError(null);
                               setForkText("");
                               setForkTurn((current) => (current === ordinal ? null : ordinal));
+                              setForkMode("after");
                             }}
                             className={`grid h-6 w-6 place-items-center rounded-[6px] transition-colors hover:bg-indigo-50 hover:text-indigo-600 ${forkTurn === ordinal ? "text-indigo-600" : ""}`}
                             title={`Fork the conversation from turn ${ordinal}`}
@@ -1472,9 +1477,37 @@ export function Inspector() {
                       ) : null}
                       {forkTurn === ordinal && ordinal !== null ? (
                         <div className="mb-2 ml-[60px] rounded-[12px] border border-indigo-200 bg-indigo-50 p-3">
-                          <div className="mb-2 text-xs font-medium text-indigo-700">
-                            New branch from the checkpoint after {words.unit} {ordinal} — same history and state, different next line:
-                          </div>
+                          {(() => {
+                            // Replacing the first message needs a checkpoint before it, which only exists when the run opens with an outbound send.
+                            const canReplace = ordinal > 1 || (session.outboundSeeds?.length ?? 0) > 0;
+                            const mode = canReplace ? forkMode : "after";
+                            return (
+                              <>
+                                <div className="mb-2 inline-flex gap-1 rounded-[10px] bg-white/[0.04] p-1" role="radiogroup" aria-label="Where the branch starts">
+                                  {(["after", "instead"] as const).map((option) => (
+                                    <button
+                                      key={option}
+                                      role="radio"
+                                      aria-checked={mode === option}
+                                      disabled={option === "instead" && !canReplace}
+                                      onClick={() => setForkMode(option)}
+                                      title={option === "instead" && !canReplace ? "Nothing comes before the first message to branch from" : undefined}
+                                      className={`rounded-[6px] px-2.5 py-1 text-[12px] leading-none transition-colors disabled:cursor-not-allowed disabled:opacity-30 ${
+                                        mode === option ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"
+                                      }`}
+                                    >
+                                      {option === "after" ? `After this ${words.unit}` : `Instead of this ${words.unit}`}
+                                    </button>
+                                  ))}
+                                </div>
+                                <div className="mb-2 text-xs font-medium text-indigo-700">
+                                  {mode === "after"
+                                    ? `Keeps ${words.unit} ${ordinal} and the reply to it. The ${words.you} says something different next:`
+                                    : `Rewinds to before ${words.unit} ${ordinal}. The ${words.you} says this instead:`}
+                                </div>
+                              </>
+                            );
+                          })()}
                           <div className="flex gap-2">
                             <input
                               value={forkText}
@@ -1483,7 +1516,7 @@ export function Inspector() {
                                 if (event.key === "Enter") void submitFork();
                               }}
                               className="h-9 min-w-0 flex-1 rounded-[10px] border border-indigo-200 bg-input px-3 text-[13px] text-white outline-none placeholder:text-white/30 focus:border-indigo-400"
-                              placeholder="What does the caller say instead?"
+                              placeholder={`What does the ${words.you} say?`}
                               aria-label="Caller text for the new branch"
                               autoFocus
                             />

@@ -254,7 +254,8 @@ export class StepController {
     const forked = this.runtime.forkFromSession(sourceId, turnIndex);
     this.active = true;
     this.channel = forked.channel;
-    this.scenarioName = this.scenarioName ?? `Fork of ${sourceId}`;
+    // Name the branch after what was forked, not whatever was stepped before.
+    this.scenarioName = forked.contact ? `Branch of the conversation with ${forked.contact.name}` : `Branch of ${sourceId}`;
     this.queue = options.caller?.trim() ? [{ caller: options.caller.trim() }] : [];
     this.lastResult = undefined;
     this.notify();

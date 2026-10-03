@@ -91,6 +91,8 @@ describe("step controller", () => {
     const forked = step.fork(1, { caller: "branch text" });
 
     expect(forked.queue).toEqual([{ caller: "branch text" }]);
+    // The branch is named after what was forked, not the earlier step session.
+    expect(forked.scenarioName).toBe(`Branch of ${beforeFork.sessionId}`);
     expect(forked.completedTurns).toBe(1);
     expect(forked.sessionId).not.toBe(beforeFork.sessionId);
     expect(runtime.getState().forkedFrom).toEqual({ sessionId: beforeFork.sessionId, turnIndex: 1 });

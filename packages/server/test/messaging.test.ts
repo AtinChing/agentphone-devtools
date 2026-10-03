@@ -248,6 +248,20 @@ describe("step controller messaging additions", () => {
     expect((delivery!.request.body as { data: { from: string } }).data.from).toBe("+15559876543");
   });
 
+  it("names a fork after the conversation it branched from", async () => {
+    const runtime = new DevtoolsRuntime(testConfig(temporaryDirectory(), await webhookTarget()));
+    const step = new StepController(runtime);
+    step.startBlank("imessage", { id: "ct_1", name: "Maya Chen", number: "+15559876543" });
+    step.addTurn("first");
+    await step.sendNext();
+    const mayaRun = runtime.getState().id;
+
+    step.startBlank("whatsapp", { id: "ct_2", name: "Lucía Fernández", number: "+15559876553" });
+    const forked = step.fork(1, { sessionId: mayaRun });
+    expect(forked.scenarioName).toBe("Branch of the conversation with Maya Chen");
+    expect(forked.channel).toBe("imessage");
+  });
+
   it("evaluates forbidden actions and reply patterns per step", async () => {
     const runtime = new DevtoolsRuntime(testConfig(temporaryDirectory(), await webhookTarget({ text: "Your code is FALL20", action: "issue_promo_code" })));
     const step = new StepController(runtime);
