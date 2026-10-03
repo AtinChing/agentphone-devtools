@@ -197,36 +197,40 @@ function ThreadHeader({
       <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
         <Bot size={19} />
       </span>
-      <div className="min-w-0">
+      <div className="min-w-0 flex-1 overflow-hidden">
         <div className="flex items-center gap-2">
-          <span className="truncate font-heading text-[16px] font-bold leading-tight text-white">Your agent</span>
-          <span className="rounded border border-primary/20 bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary">AI agent</span>
-          <ChannelBadge channel={channel} />
+          <span className="shrink-0 whitespace-nowrap font-heading text-[16px] font-bold leading-tight text-white">Your agent</span>
+          <span className="shrink-0 whitespace-nowrap">
+            <ChannelBadge channel={channel} />
+          </span>
         </div>
-        <div className="mt-0.5 flex min-w-0 items-center gap-x-1.5 overflow-hidden text-[12px] text-text-secondary">
-          <span className="whitespace-nowrap">Texting as</span>
+        <div className="mt-0.5 flex min-w-0 items-center gap-x-1.5 whitespace-nowrap text-[12px] text-text-secondary">
+          <span className="shrink-0">Texting as</span>
           <Avatar name={contact?.unknown ? "#" : name} size={16} />
-          <span className="whitespace-nowrap font-medium text-text">{name}</span>
-          {contact?.number && !contact.unknown ? <span className="whitespace-nowrap">· {formatPhone(contact.number)}</span> : null}
+          <span className="min-w-0 truncate font-medium text-text" title={contact?.number && !contact.unknown ? formatPhone(contact.number) : undefined}>
+            {name}
+          </span>
           {session.forkedFrom ? (
-            <>
-              <span className="text-text-dim">·</span>
-              <button type="button" onClick={() => onSelectRun(session.forkedFrom!.sessionId)} className="inline-flex items-center gap-1 whitespace-nowrap text-indigo-400 hover:text-indigo-700" title="Open the run this branch was forked from">
-                <GitBranch size={11} />
-                Branch {forkLabel(session.forkedFrom)}
-              </button>
-            </>
+            <button
+              type="button"
+              onClick={() => onSelectRun(session.forkedFrom!.sessionId)}
+              className="ml-1 hidden items-center gap-1 text-indigo-400 hover:text-indigo-700 2xl:inline-flex"
+              title="Open the run this branch was forked from"
+            >
+              <GitBranch size={11} />
+              Branch {forkLabel(session.forkedFrom)}
+            </button>
           ) : null}
         </div>
       </div>
-      <div className="ml-auto flex shrink-0 items-center gap-2">
+      <div className="flex shrink-0 items-center gap-2">
         {error ? (
           <span className="max-w-[220px] truncate text-[12px] text-red-400" title={error}>
             {error}
           </span>
         ) : null}
         {live && !ended ? (
-          <span className="inline-flex items-center gap-1.5 rounded border border-primary/20 bg-primary/15 px-2 py-0.5 text-[10px] font-medium leading-4 text-primary">
+          <span className={`hidden items-center gap-1.5 rounded border border-primary/20 bg-primary/15 px-2 py-0.5 text-[10px] font-medium leading-4 text-primary ${railOpen ? "2xl:inline-flex" : "xl:inline-flex"}`}>
             <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />
             Live
           </span>
@@ -250,10 +254,12 @@ function ThreadHeader({
                 setEnding(false);
               }
             }}
+            title="End conversation"
+            aria-label="End conversation"
             className="focus-ring inline-flex h-8 items-center gap-1.5 rounded-[8px] border border-surface-border bg-white/[0.03] px-3 text-[13px] font-medium text-white transition-colors hover:border-red-500/30 hover:bg-red-500/10 hover:text-red-400 active:scale-[0.96] disabled:opacity-50"
           >
             {ending ? <Loader2 size={13} className="animate-spin" /> : null}
-            End conversation
+            End
           </button>
         ) : null}
         <button
@@ -266,7 +272,7 @@ function ThreadHeader({
           }`}
         >
           <GitBranch size={13} />
-          Branches
+          <span className={railOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>Branches</span>
           {familyCount > 1 ? <span className="rounded bg-black/25 px-1 text-[11px]">{familyCount}</span> : null}
           {railOpen ? <PanelRightClose size={14} className="ml-0.5 opacity-70" /> : <PanelRightOpen size={14} className="ml-0.5 opacity-70" />}
         </button>
