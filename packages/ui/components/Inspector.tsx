@@ -785,6 +785,28 @@ export function Inspector() {
   // A conversation has one channel. Once the live session has a turn (or a
   // step session is running) the picker only applies to the next reset.
   const channelLocked = Boolean(stepState?.active) || (liveSession?.transcript.length ?? 0) > 0;
+
+  // Side panels are resizable by dragging the gutters; widths persist per browser.
+  const [panelWidths, setPanelWidths] = useState({ left: 320, right: 400 });
+  useEffect(() => {
+    try {
+      const saved = JSON.parse(window.localStorage.getItem("agentphone-devtools.inspector-panels") ?? "null") as { left?: number; right?: number } | null;
+      if (saved && typeof saved.left === "number" && typeof saved.right === "number") setPanelWidths({ left: saved.left, right: saved.right });
+    } catch {
+      /* ignore */
+    }
+  }, []);
+  function resizePanel(side: "left" | "right", delta: number) {
+    setPanelWidths((current) => {
+      const next = { ...current, [side]: Math.min(640, Math.max(220, current[side] + delta)) };
+      try {
+        window.localStorage.setItem("agentphone-devtools.inspector-panels", JSON.stringify(next));
+      } catch {
+        /* ignore */
+      }
+      return next;
+    });
+  }
   const headIsAgent = Boolean(viewingLive && queueHead && queueHead.agent !== undefined);
   const selectedListing = scenarios?.find((listing) => listing.path === stepScenarioPath);
   const scenarioGroups = groupScenarios(scenarios ?? []);
@@ -1126,7 +1148,10 @@ export function Inspector() {
         ) : null}
       </header>
 
-      <div className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-auto p-4 xl:grid-cols-[272px_minmax(0,1fr)_360px] xl:grid-rows-[minmax(0,1fr)] xl:overflow-hidden 2xl:grid-cols-[320px_minmax(0,1fr)_420px]">
+      <div
+        className="grid min-h-0 flex-1 grid-cols-1 content-start gap-4 overflow-auto p-4 xl:grid-cols-[var(--insp-left)_16px_minmax(320px,1fr)_16px_var(--insp-right)] xl:grid-rows-[minmax(0,1fr)] xl:gap-0 xl:overflow-hidden"
+        style={{ "--insp-left": `${panelWidths.left}px`, "--insp-right": `${panelWidths.right}px` } as React.CSSProperties}
+      >
         <section className={`flex h-[440px] min-h-0 flex-col overflow-hidden ${PANEL} xl:h-auto`}>
           <PanelHeader
             icon={leftView === "timeline" ? <Clock3 size={16} /> : <History size={16} />}
@@ -1169,15 +1194,16 @@ export function Inspector() {
               runs.map((run) => (
                 <div key={run.id} className={`group mb-2 flex items-center rounded-[12px] border transition-colors ${session?.id === run.id ? "border-primary/40 bg-primary/10" : "border-white/[0.06] bg-white/[0.02] hover:bg-white/[0.05]"}`}>
                   <button onClick={() => void openRun(run)} className="focus-ring min-w-0 flex-1 rounded-[12px] px-3 py-2.5 text-left">
-                    <span className="flex items-center gap-2 text-sm font-medium text-text">
-                      {run.id === liveSession?.id ? <Radio size={13} className="shrink-0 text-primary" /> : null}
-                      {run.contact ? <span className="truncate" title={run.contact.number}>{run.contact.name}</span> : null}
-                      <span className={`truncate ${run.contact ? "shrink-0 text-xs font-normal text-text-secondary" : ""}`}>{formatRunDate(run.startedAt)}</span>
+                    <span className="flex items-start gap-2 text-sm font-medium leading-snug text-text">
+                      {run.id === liveSession?.id ? <Radio size={13} className="mt-0.5 shrink-0 text-primary" /> : null}
+                      <span className="break-words" title={run.contact?.number}>{run.contact?.name ?? "Unknown caller"}</span>
                     </span>
-                    <span className="data mt-1 block truncate text-xs text-text-secondary">
-                      {channelLabel(run.channel)} / {run.transcriptTurns} turns / {run.deliveries} deliveries
+                    <span className="mt-0.5 block text-xs text-text-secondary">
+                      {channelLabel(run.channel)} · {formatRunDate(run.startedAt)}
                     </span>
-                    <span className="mt-1 block truncate text-xs text-text-dim">{run.status}</span>
+                    <span className="data mt-1 block text-xs text-text-dim">
+                      {run.transcriptTurns} turns · {run.deliveries} deliveries · {run.status}
+                    </span>
                     {run.baselineName ? <span className="mt-1 block truncate text-xs font-medium text-primary">Baseline: {run.baselineName}</span> : null}
                     {run.forkedFrom ? (
                       <span className="mt-1 flex items-center gap-1 truncate text-xs font-medium text-indigo-600">
@@ -1209,6 +1235,7 @@ export function Inspector() {
           </div>
         </section>
 
+        <PanelResizer label="Resize the timeline panel" onDrag={(dx) => resizePanel("left", dx)} />
         <section className={`flex h-[78vh] min-h-[560px] flex-col overflow-hidden ${PANEL} xl:h-auto xl:min-h-0`}>
           <PanelHeader
             icon={centerView === "transcript" ? <Play size={16} /> : <GitBranch size={16} />}
@@ -1631,6 +1658,7 @@ export function Inspector() {
           </div>
         </section>
 
+        <PanelResizer label="Resize the payload panel" onDrag={(dx) => resizePanel("right", -dx)} />
         <aside className="space-y-4 xl:min-h-0 xl:overflow-auto xl:pr-1">
           <section className={`overflow-hidden ${PANEL}`}>
             <PanelHeader icon={<Square size={16} />} title="Request" meta={selected?.event ?? ""} />
@@ -2117,4 +2145,42 @@ function summarizeLive(session: InspectorSession): InspectorSessionSummary {
     deliveries: session.deliveries.length,
     ...(session.contact ? { contact: session.contact } : {})
   };
+}
+
+/** A draggable gutter between Inspector panels (xl layouts only). Arrow keys resize too. */
+function PanelResizer({ label, onDrag }: { label: string; onDrag: (dx: number) => void }) {
+  return (
+    <div
+      role="separator"
+      aria-orientation="vertical"
+      aria-label={label}
+      tabIndex={0}
+      title="Drag to resize"
+      className="group hidden cursor-col-resize items-center justify-center outline-none xl:flex"
+      onKeyDown={(event) => {
+        if (event.key === "ArrowLeft") onDrag(-24);
+        if (event.key === "ArrowRight") onDrag(24);
+      }}
+      onPointerDown={(event) => {
+        event.preventDefault();
+        let last = event.clientX;
+        const move = (moveEvent: PointerEvent) => {
+          onDrag(moveEvent.clientX - last);
+          last = moveEvent.clientX;
+        };
+        const stop = () => {
+          window.removeEventListener("pointermove", move);
+          window.removeEventListener("pointerup", stop);
+          document.body.style.cursor = "";
+          document.body.style.userSelect = "";
+        };
+        document.body.style.cursor = "col-resize";
+        document.body.style.userSelect = "none";
+        window.addEventListener("pointermove", move);
+        window.addEventListener("pointerup", stop);
+      }}
+    >
+      <span className="h-12 w-1 rounded-full bg-white/[0.08] transition-colors group-hover:bg-primary group-focus-visible:bg-primary" />
+    </div>
+  );
 }
