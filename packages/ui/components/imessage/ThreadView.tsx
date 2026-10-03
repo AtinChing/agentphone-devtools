@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
-import { CircleAlert, GitBranch, Loader2, Lock, Megaphone, MessageCircle, PanelRightClose, PanelRightOpen, SquarePen, X } from "lucide-react";
+import { Bot, CircleAlert, GitBranch, Loader2, Lock, Megaphone, MessageCircle, PanelRightClose, PanelRightOpen, SquarePen, X } from "lucide-react";
 import { errorMessage } from "@/lib/api";
 import type { Contact, InspectorSession, StepExpectResult, StepQueueTurn, StepState } from "@/lib/types";
 import { Avatar, ChannelBadge, formatPhone } from "@/components/dashboard/ui";
@@ -145,6 +145,7 @@ export function ThreadView(props: {
               sending={props.sending}
               voiceAvailable={props.voiceAvailable}
               queued={props.stepLive ? props.queued : null}
+              asName={contact && !contact.unknown ? contact.name.split(" ")[0] : undefined}
               onSend={props.onSend}
               onSkipQueued={props.stepLive ? props.onSkipQueued : undefined}
             />
@@ -192,14 +193,21 @@ function ThreadHeader({
   const name = contact?.name ?? "Unknown number";
   return (
     <header className="flex h-[62px] shrink-0 items-center gap-3 border-b border-white/[0.06] px-5">
-      <Avatar name={contact?.unknown ? "#" : name} size={38} />
+      {/* The other party is the business's agent; the contact is who you are texting as. */}
+      <span className="flex h-[38px] w-[38px] shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary">
+        <Bot size={19} />
+      </span>
       <div className="min-w-0">
         <div className="flex items-center gap-2">
-          <span className="truncate font-heading text-[16px] font-bold leading-tight text-white">{name}</span>
+          <span className="truncate font-heading text-[16px] font-bold leading-tight text-white">Your agent</span>
+          <span className="rounded border border-primary/20 bg-primary/15 px-1.5 py-0.5 text-[10px] font-medium leading-4 text-primary">AI agent</span>
           <ChannelBadge channel={channel} />
         </div>
-        <div className="mt-0.5 flex min-w-0 flex-wrap items-center gap-x-1.5 text-[12px] text-text-secondary">
-          {contact?.number && !contact.unknown ? <span className="whitespace-nowrap">{formatPhone(contact.number)}</span> : <span>Not in contacts</span>}
+        <div className="mt-0.5 flex min-w-0 items-center gap-x-1.5 overflow-hidden text-[12px] text-text-secondary">
+          <span className="whitespace-nowrap">Texting as</span>
+          <Avatar name={contact?.unknown ? "#" : name} size={16} />
+          <span className="whitespace-nowrap font-medium text-text">{name}</span>
+          {contact?.number && !contact.unknown ? <span className="whitespace-nowrap">· {formatPhone(contact.number)}</span> : null}
           {session.forkedFrom ? (
             <>
               <span className="text-text-dim">·</span>
@@ -507,6 +515,11 @@ function AgentRow({
         <div className="mb-1 ml-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
           <Megaphone size={11} />
           Sent by business · via API
+        </div>
+      ) : !grouped ? (
+        <div className="mb-1 ml-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-[0.08em] text-text-secondary">
+          <Bot size={11} />
+          Your agent
         </div>
       ) : null}
       <div className="flex w-full items-center justify-start gap-2">

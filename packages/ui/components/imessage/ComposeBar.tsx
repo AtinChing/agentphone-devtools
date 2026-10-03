@@ -20,6 +20,7 @@ export function ComposeBar({
   queued,
   disabled,
   disabledHint,
+  asName,
   onSend,
   onSkipQueued
 }: {
@@ -30,6 +31,8 @@ export function ComposeBar({
   queued?: StepQueueTurn | null;
   disabled?: boolean;
   disabledHint?: string;
+  /** First name of the customer being played, for the placeholder. */
+  asName?: string;
   /** Empty text sends the queued turn as-is. */
   onSend: (text: string) => Promise<void>;
   onSkipQueued?: () => Promise<void>;
@@ -96,7 +99,9 @@ export function ComposeBar({
         ? "Transcribing…"
         : queued?.caller
           ? `${queued.caller}  (press Enter to send the scripted turn)`
-          : style.placeholder;
+          : asName
+            ? `Message as ${asName}…`
+            : style.placeholder;
 
   return (
     <div className="shrink-0 px-4 pb-3 pt-2" style={{ background: THREAD_BG }}>

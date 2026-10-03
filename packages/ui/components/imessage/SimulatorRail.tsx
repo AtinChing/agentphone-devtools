@@ -138,7 +138,7 @@ function ContactSection({
   const json = conversationState === undefined ? "null" : JSON.stringify(conversationState, null, 2);
   const sourceLabel = stateSource === "live" ? "live checkpoint" : stateSource === "run" ? "latest payload" : stateSource === "contact" ? "contact default" : "";
   return (
-    <Section title="Contact">
+    <Section title="Texting as">
       <div className="flex items-center gap-3">
         <Avatar name={contact.unknown ? "#" : contact.name} size={34} />
         <div className="min-w-0 flex-1">

@@ -66,6 +66,11 @@ export function ThreadList({
         </button>
       </div>
 
+      <div className="px-4 pb-2">
+        <div className="text-[11px] font-semibold uppercase tracking-[0.08em] text-white/35">Customers</div>
+        <div className="mt-0.5 text-[11.5px] leading-snug text-text-secondary">Pick who you are texting as. Your agent replies.</div>
+      </div>
+
       <div className="min-h-0 flex-1 overflow-y-auto px-2 pb-3">
         {composing ? (
           <div className="relative mb-0.5 flex items-center gap-3 rounded-[12px] bg-white/[0.06] px-3 py-2.5">
