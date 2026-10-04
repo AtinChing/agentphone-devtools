@@ -162,7 +162,7 @@ describe("outbound seeds (campaign sends outside the webhook)", () => {
     expect(session.turnTimes).toHaveLength(3);
   });
 
-  it("forks from turn 0 when the run opens with a seed, carrying the seed and the clock", async () => {
+  it("forks from turn 0 when the run opens with a seed, carrying the seed and resuming at its time", async () => {
     const runtime = new DevtoolsRuntime(testConfig(temporaryDirectory(), await webhookTarget()));
     runtime.setClock("2026-09-14T16:00:00.000Z");
     runtime.seedAgentMessage("Opener", "imessage");
@@ -175,12 +175,35 @@ describe("outbound seeds (campaign sends outside the webhook)", () => {
     expect(forked.transcript).toEqual([{ role: "agent", content: "Opener" }]);
     expect(forked.outboundSeeds).toEqual([0]);
     expect(forked.deliveries).toHaveLength(0);
-    expect(runtime.now().slice(0, 13)).toBe("2026-09-14T18");
+    // The branch resumes at the opener's time, not two hours later where the source went.
+    expect(runtime.now().slice(0, 13)).toBe("2026-09-14T16");
 
     // A run without seeds still cannot fork before its first caller turn.
     runtime.reset();
     await runtime.sendCallerTurn("Plain", "sms");
     expect(() => runtime.forkFromSession(runtime.getState().id, 0)).toThrow(/between 1 and 1/);
+  });
+});
+
+describe("forks and the clock", () => {
+  it("a fork resumes at its checkpoint's time, not where the source later travelled", async () => {
+    const runtime = new DevtoolsRuntime(testConfig(temporaryDirectory(), await webhookTarget()));
+    runtime.seedAgentMessage("Opener", "imessage");
+    const sourceId = runtime.getState().id;
+
+    // Late reply: branch from the opener, jump ten days, answer.
+    runtime.forkFromSession(sourceId, 0);
+    runtime.advanceClock(10 * DAY);
+    await runtime.sendCallerTurn("YES", "imessage");
+    const lateId = runtime.getState().id;
+    expect(runtime.clockOffset()).toBe(10 * DAY);
+
+    // Another branch off the opener, taken from the late branch, is not ten days late.
+    runtime.forkFromSession(lateId, 0);
+    expect(runtime.clockOffset()).toBe(0);
+    // Forking after the late reply keeps its ten days.
+    runtime.forkFromSession(lateId, 1);
+    expect(runtime.clockOffset()).toBe(10 * DAY);
   });
 });
 

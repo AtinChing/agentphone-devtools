@@ -144,6 +144,7 @@ export interface InspectorSession {
   /** Transcript indexes of agent messages seeded as outbound sends (campaign openers). */
   outboundSeeds?: number[];
   clockOffsetMs?: number;
+  turnOffsets?: number[];
   status: "idle" | "running" | "ended";
   startedAt: string;
   endedAt?: string;

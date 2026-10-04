@@ -5,6 +5,7 @@ import { Bot, CircleAlert, GitBranch, Loader2, Lock, Megaphone, MessageCircle, P
 import { errorMessage } from "@/lib/api";
 import type { Contact, InspectorSession, StepExpectResult, StepQueueTurn, StepState } from "@/lib/types";
 import { Avatar, ChannelBadge, formatPhone } from "@/components/dashboard/ui";
+import { ConversationTree, TreeLegend, type TurnNode } from "@/components/ConversationTree";
 import { BubbleShape, DateSeparator, DeliveredLabel, ForkButton, ForkPopover, ReplyMeta, TypingBubble, type ForkMode } from "./Bubbles";
 import { ComposeBar } from "./ComposeBar";
 import {
@@ -64,6 +65,10 @@ export function ThreadView(props: {
   voiceAvailable: boolean;
   draft: DraftState | null;
   contacts: Contact[];
+  /** Which face of the conversation fills the pane: the bubbles or the branch tree. */
+  view: "thread" | "branches";
+  onView: (view: "thread" | "branches") => void;
+  tree: { roots: TurnNode[]; liveSessionId: string | null; selectedKey: string | null; onSelectNode: (node: TurnNode) => void };
   onToggleRail: () => void;
   onEnd: () => Promise<void>;
   onSend: (text: string) => Promise<void>;
@@ -121,42 +126,77 @@ export function ThreadView(props: {
             onEnd={props.onEnd}
             onSelectRun={props.onSelectRun}
           />
-          <MessageList
-            session={session}
-            sourceSession={props.sourceSession}
-            channel={channel}
-            typing={props.typing}
-            optimistic={props.optimistic}
-            lastResult={props.stepLive ? props.lastResult : undefined}
-            highlight={props.highlight}
-            sending={props.sending}
-            onFork={props.onFork}
-            onSelectRun={props.onSelectRun}
-            footer={
-              props.ended ? (
-                <EndedNote name={contact?.name} onStartNew={props.onStartNew} />
-              ) : null
-            }
-          />
-          {props.composable ? (
-            <ComposeBar
-              key={session.id}
-              channel={channel}
-              sending={props.sending}
-              voiceAvailable={props.voiceAvailable}
-              queued={props.stepLive ? props.queued : null}
-              asName={contact && !contact.unknown ? contact.name.split(" ")[0] : undefined}
-              onSend={props.onSend}
-              onSkipQueued={props.stepLive ? props.onSkipQueued : undefined}
-            />
-          ) : !props.ended ? (
-            <div className="flex shrink-0 items-center justify-center gap-2 border-t border-white/[0.06] px-5 py-3.5 text-[12.5px] text-text-secondary">
-              <Lock size={13} className="shrink-0" />
-              <span>
-                Read-only · this run is saved. Fork from a message to branch it (hover a bubble, then <GitBranch size={12} className="inline -translate-y-px text-indigo-400" />).
-              </span>
+          <div className="flex shrink-0 items-center justify-between gap-3 border-b border-white/[0.06] px-5 py-2">
+            <div className="flex gap-1 rounded-[10px] bg-white/[0.04] p-1" role="tablist" aria-label="Conversation view">
+              {(["thread", "branches"] as const).map((option) => (
+                <button
+                  key={option}
+                  type="button"
+                  role="tab"
+                  aria-selected={props.view === option}
+                  onClick={() => props.onView(option)}
+                  className={`focus-ring inline-flex items-center gap-1.5 rounded-[6px] px-3 py-1.5 text-[13px] leading-none transition-colors ${
+                    props.view === option ? "bg-white/10 font-medium text-white" : "text-white/50 hover:text-white/80"
+                  }`}
+                >
+                  {option === "thread" ? <MessageCircle size={13} /> : <GitBranch size={13} />}
+                  {option === "thread" ? "Thread" : "Branches"}
+                  {option === "branches" && props.familyCount > 1 ? <span className="rounded bg-black/25 px-1 text-[11px]">{props.familyCount}</span> : null}
+                </button>
+              ))}
             </div>
-          ) : null}
+            {props.view === "branches" ? <TreeLegend /> : null}
+          </div>
+          {props.view === "branches" ? (
+            <div className="tree-canvas min-h-0 flex-1 overflow-auto">
+              {props.tree.roots.length ? (
+                <ConversationTree roots={props.tree.roots} liveSessionId={props.tree.liveSessionId} selectedKey={props.tree.selectedKey} onSelect={props.tree.onSelectNode} />
+              ) : (
+                <div className="flex h-full items-center justify-center px-8 text-center text-[13px] text-text-secondary">
+                  The tree grows one checkpoint per customer message. Branches you fork appear beside the original.
+                </div>
+              )}
+            </div>
+          ) : (
+            <>
+            <MessageList
+              session={session}
+              sourceSession={props.sourceSession}
+              channel={channel}
+              typing={props.typing}
+              optimistic={props.optimistic}
+              lastResult={props.stepLive ? props.lastResult : undefined}
+              highlight={props.highlight}
+              sending={props.sending}
+              onFork={props.onFork}
+              onSelectRun={props.onSelectRun}
+              footer={
+                props.ended ? (
+                  <EndedNote name={contact?.name} onStartNew={props.onStartNew} />
+                ) : null
+              }
+            />
+            {props.composable ? (
+              <ComposeBar
+                key={session.id}
+                channel={channel}
+                sending={props.sending}
+                voiceAvailable={props.voiceAvailable}
+                queued={props.stepLive ? props.queued : null}
+                asName={contact && !contact.unknown ? contact.name.split(" ")[0] : undefined}
+                onSend={props.onSend}
+                onSkipQueued={props.stepLive ? props.onSkipQueued : undefined}
+              />
+            ) : !props.ended ? (
+              <div className="flex shrink-0 items-center justify-center gap-2 border-t border-white/[0.06] px-5 py-3.5 text-[12.5px] text-text-secondary">
+                <Lock size={13} className="shrink-0" />
+                <span>
+                  Read-only · this run is saved. Fork from a message to branch it (hover a bubble, then <GitBranch size={12} className="inline -translate-y-px text-indigo-400" />).
+                </span>
+              </div>
+            ) : null}
+            </>
+          )}
         </>
       ) : null}
     </section>
@@ -266,14 +306,12 @@ function ThreadHeader({
           type="button"
           onClick={onToggleRail}
           aria-pressed={railOpen}
-          title={railOpen ? "Hide the simulator rail" : "Show branches, clock and campaign tools"}
+          title={railOpen ? "Hide the simulator panel" : "Show the clock, campaign tools and exports"}
           className={`focus-ring inline-flex h-8 items-center gap-1.5 rounded-[8px] border px-2.5 text-[13px] font-medium transition-colors active:scale-[0.96] ${
             railOpen ? "border-purple-500/20 bg-purple-500/15 text-purple-400 hover:bg-purple-500/20" : "border border-surface-border bg-white/[0.03] text-white hover:bg-white/[0.06]"
           }`}
         >
-          <GitBranch size={13} />
-          <span className={railOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>Branches</span>
-          {familyCount > 1 ? <span className="rounded bg-black/25 px-1 text-[11px]">{familyCount}</span> : null}
+          <span className={railOpen ? "hidden 2xl:inline" : "hidden xl:inline"}>Simulator</span>
           {railOpen ? <PanelRightClose size={14} className="ml-0.5 opacity-70" /> : <PanelRightOpen size={14} className="ml-0.5 opacity-70" />}
         </button>
       </div>

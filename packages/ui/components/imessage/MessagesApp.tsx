@@ -325,6 +325,7 @@ export function MessagesApp() {
   }
 
   // ── Branch family (rail) ───────────────────────────────────────────────────
+  const [centerView, setCenterView] = useState<"thread" | "branches">("thread");
   const familySessions = useMemo(
     () => familyIds.map((id) => sessions[id]).filter((candidate): candidate is InspectorSession => Boolean(candidate)),
     [familyIds, sessions]
@@ -360,6 +361,8 @@ export function MessagesApp() {
   }, [roots, selectedRunId, highlight]);
 
   function onSelectNode(node: TurnNode) {
+    // Picking a checkpoint in the tree returns to the bubbles of that branch.
+    setCenterView("thread");
     if (selectedRunId && node.runIds.includes(selectedRunId)) {
       if (node.turnNumber > 0) setHighlight({ ordinal: node.turnNumber, nonce: Date.now() });
     }
@@ -484,6 +487,9 @@ export function MessagesApp() {
         voiceAvailable={voice.available}
         draft={selection?.kind === "draft" ? { compose: selection.compose, contactId: selection.contactId, channel: selection.channel } : null}
         contacts={contacts}
+        view={centerView}
+        onView={setCenterView}
+        tree={{ roots, liveSessionId: stepLiveId ?? liveDotId, selectedKey: selectedNodeKey, onSelectNode }}
         onToggleRail={toggleRail}
         onEnd={endConversation}
         onSend={sendCustomer}
@@ -526,7 +532,8 @@ export function MessagesApp() {
                   liveSessionId: stepLiveId ?? liveDotId,
                   selectedKey: selectedNodeKey,
                   onSelectNode,
-                  onSelectRun: selectRun
+                  onSelectRun: selectRun,
+                  onOpenTree: () => setCenterView("branches")
                 }
               : null
           }

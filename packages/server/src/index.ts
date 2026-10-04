@@ -192,6 +192,12 @@ export interface InspectorSession {
   outboundSeeds?: number[];
   /** Virtual-clock offset from real time, in ms, at the last update. */
   clockOffsetMs?: number;
+  /**
+   * The clock offset in force when each transcript entry was recorded
+   * (aligned by index), so a fork resumes at its checkpoint's time rather
+   * than wherever the source conversation later travelled to.
+   */
+  turnOffsets?: number[];
   status: "idle" | "running" | "ended";
   startedAt: string;
   endedAt?: string;
@@ -742,7 +748,11 @@ export class DevtoolsRuntime {
     // than its last inherited turn.
     const lastInheritedAt = this.history.at(-1)?.at;
     const lastInheritedOffset = lastInheritedAt ? Date.parse(lastInheritedAt) - Date.now() : Number.NEGATIVE_INFINITY;
-    this.clockOffsetMs = Math.max(sourceClockOffset, lastInheritedOffset);
+    // Resume at the checkpoint's own clock. Runs recorded before offsets
+    // were kept fall back to the source's final clock.
+    const checkpointOffset = prefix.length ? source.turnOffsets?.[prefix.length - 1] : undefined;
+    this.clockOffsetMs = checkpointOffset ?? Math.max(sourceClockOffset, lastInheritedOffset);
+    if (this.session.turnOffsets) this.session.turnOffsets = prefix.map((_, index) => source.turnOffsets?.[index] ?? this.clockOffsetMs);
     this.session.clockOffsetMs = this.clockOffsetMs;
     this.session.deliveries = sourceTurnDeliveries
       .slice(0, callerTurns)
@@ -852,6 +862,7 @@ export class DevtoolsRuntime {
   private pushTranscript(turn: TranscriptTurn, at: string, channel: SessionChannel): void {
     this.session.transcript.push(turn);
     (this.session.turnTimes ??= []).push(at);
+    (this.session.turnOffsets ??= []).push(this.clockOffsetMs);
     this.history.push({ ...turn, at, channel });
   }
 

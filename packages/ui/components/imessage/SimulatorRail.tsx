@@ -44,6 +44,7 @@ export interface RailProps {
     selectedKey: string | null;
     onSelectNode: (node: TurnNode) => void;
     onSelectRun: (id: string) => void;
+    onOpenTree: () => void;
   } | null;
   checks: { results?: StepExpectResult[]; turnNumber?: number; scenario?: ScenarioResult } | null;
   exportRun: { id: string; defaultName: string } | null;
@@ -424,28 +425,17 @@ function QuickRepliesSection({
 
 // ── Branches ─────────────────────────────────────────────────────────────────
 
-function BranchesSection({
-  roots,
-  rows,
-  liveSessionId,
-  selectedKey,
-  onSelectNode,
-  onSelectRun
-}: NonNullable<RailProps["family"]>) {
+function BranchesSection({ rows, onSelectRun, onOpenTree }: NonNullable<RailProps["family"]>) {
   return (
     <Section title="Branches" aside={<span className={NEUTRAL_BADGE}>{rows.length === 1 ? "1 run" : `${rows.length} runs`}</span>}>
-      <div className="tree-canvas h-[260px] overflow-hidden rounded-[12px] border border-white/[0.06]">
-        {roots.length ? (
-          <ConversationTree roots={roots} liveSessionId={liveSessionId} selectedKey={selectedKey} onSelect={onSelectNode} />
-        ) : (
-          <div className="flex h-full items-center justify-center px-6 text-center text-[12px] leading-[17px] text-text-secondary">
-            The tree grows one checkpoint per customer message. Branches you fork appear beside the original.
-          </div>
-        )}
-      </div>
-      <div className="mt-2">
-        <TreeLegend />
-      </div>
+      <button
+        type="button"
+        onClick={onOpenTree}
+        className="focus-ring inline-flex h-8 w-full items-center justify-center gap-1.5 rounded-[8px] border border-purple-500/20 bg-purple-500/15 text-[13px] font-medium text-purple-400 transition-colors hover:bg-purple-500/20 active:scale-[0.98]"
+      >
+        <GitBranch size={13} />
+        Show the branch tree
+      </button>
       <div className="mt-3 space-y-0.5">
         {rows.map((row) => (
           <button
