@@ -1,0 +1,16 @@
+name: Messaging — HELP keyword answered
+description: Carrier-mandated HELP response must identify the sender, give a contact, and state how to opt out.
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "HELP"
+    expect:
+      actions:
+        - help
+      replyMatches: "North Lot EV Charging.*STOP"

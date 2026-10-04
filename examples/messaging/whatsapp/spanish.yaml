@@ -1,0 +1,26 @@
+name: WhatsApp in Spanish
+description: "A customer writes in Spanish; the agent answers in Spanish, resets the charger, and stays in Spanish for the rest of the thread."
+channel: whatsapp
+agentId: agt_local
+numberId: num_local
+from: "+15559876553"
+to: "+15551234567"
+conversationState:
+  customerName: Lucía Fernández
+  tier: gold
+  language: es
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hola, necesito ayuda con mi cargador"
+    expect:
+      actions: [language_es]
+      replyMatches: "estación"
+  - caller: "Es la EV-2204"
+    expect:
+      actions: [station_reset]
+      replyMatches: "conector"
+  - caller: "Gracias"
+    expect:
+      actions: [language_es]
+      forbiddenActions: [hangup]

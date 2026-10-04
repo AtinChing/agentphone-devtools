@@ -1,7 +1,9 @@
+import type { SessionChannel } from "@agentphone-devtools/core";
+
 export interface RuntimeConfigUpdate {
   targetUrl?: string;
   secret?: string;
-  channel?: "sms" | "voice";
+  channel?: SessionChannel;
   timeoutSeconds?: number;
   contextLimit?: number;
   retryOnNon200?: boolean;
@@ -53,8 +55,9 @@ export function parseRuntimeConfigUpdate(input: unknown): RuntimeConfigUpdate {
   }
 
   if (record.channel !== undefined) {
-    if (record.channel !== "sms" && record.channel !== "voice") issues.push("channel must be sms or voice");
-    else update.channel = record.channel;
+    if (record.channel !== "sms" && record.channel !== "imessage" && record.channel !== "whatsapp" && record.channel !== "voice") {
+      issues.push("channel must be sms, imessage, whatsapp, or voice");
+    } else update.channel = record.channel;
   }
 
   if (record.timeoutSeconds !== undefined) {

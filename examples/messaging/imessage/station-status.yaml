@@ -1,0 +1,25 @@
+name: Station status lookup
+description: "A customer asks whether chargers are free before driving over; known stations answer with live status, unknown IDs get a hint."
+channel: imessage
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState:
+  customerName: Maya Chen
+  stationGroup: North Lot
+  tier: gold
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Is EV-2204 free right now?"
+    expect:
+      actions: [station_status]
+      replyMatches: "available"
+  - caller: "What about EV-3310, is it working?"
+    expect:
+      actions: [station_status]
+      replyMatches: "maintenance"
+  - caller: "And EV-9999, is that one open?"
+    expect:
+      actions: [station_unknown]

@@ -1,19 +1,21 @@
 #!/usr/bin/env node
 import { spawn, type ChildProcess } from "node:child_process";
-import { existsSync } from "node:fs";
+import { existsSync, rmSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { createInterface } from "node:readline/promises";
 import { fileURLToPath } from "node:url";
 import open from "open";
-import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig } from "@agentphone-devtools/server";
+import { findAvailablePort, startDevtoolsServer, type DevtoolsServerConfig, seedSampleRuns } from "@agentphone-devtools/server";
+import type { SessionChannel } from "@agentphone-devtools/core";
 import { runScenarioInCi, runScenarioSuiteInCi } from "./ci.js";
 import { resolveScenarioInputs } from "./suite.js";
 import { loadBaselineArtifact } from "./baseline.js";
+import { runStepDebugger } from "./step.js";
 
 interface CliOptions {
   targetUrl: string;
   secret: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   timeoutSeconds: number;
   contextLimit: number;
   port: number;
@@ -21,9 +23,11 @@ interface CliOptions {
   scenarios: string[];
   scenarioDirectories: string[];
   noOpen: boolean;
+  noSamples: boolean;
   exitAfterScenario: boolean;
   retryOnNon200: boolean;
   interactive: boolean;
+  step: boolean;
   historyPath: string;
   historyLimit: number;
   ci: boolean;
@@ -40,6 +44,12 @@ const nextBin = join(repoRoot, "node_modules/next/dist/bin/next");
 async function main() {
   const options = parseArgs(process.argv.slice(2));
   const serverConfig = buildServerConfig(options);
+
+  if (options.step) {
+    const scenarioPath = resolve(process.cwd(), options.scenarios[0]);
+    process.exitCode = await runStepDebugger(serverConfig, scenarioPath);
+    return;
+  }
 
   if (options.ci) {
     const scenarioPaths = await resolveScenarioInputs({ files: options.scenarios, directories: options.scenarioDirectories });
@@ -80,6 +90,18 @@ async function main() {
   console.log(`AgentPhone DevTools inspector: ${uiUrl}`);
   console.log(`Target webhook: ${options.targetUrl}`);
 
+  // A first launch comes with conversations to look at: every sample
+  // scenario is run for real against the handler, one per default contact.
+  const hasRuns = server.runtime.getHistory().some((run) => run.transcriptTurns > 0 || run.deliveries > 0);
+  if (!options.noSamples && !hasRuns) {
+    try {
+      const seeded = await seedSampleRuns(server.runtime, server.contacts);
+      console.log(`Loaded ${seeded.runs} sample conversations across the default contacts (${seeded.passed} passed).`);
+    } catch (error) {
+      console.warn(`Sample conversations skipped: ${error instanceof Error ? error.message : String(error)}`);
+    }
+  }
+
   if (!options.noOpen) {
     await open(uiUrl);
   }
@@ -113,6 +135,15 @@ async function main() {
 }
 
 function startUi(uiPort: number, serverUrl: string): ChildProcess {
+  // `next build` and `next dev` share .next; leftover production artifacts
+  // make the dev server load mismatched chunks ("__webpack_modules__[moduleId]
+  // is not a function"). A BUILD_ID only exists after a production build, so
+  // its presence means the cache must go before dev starts.
+  const nextDir = join(uiDir, ".next");
+  if (existsSync(join(nextDir, "BUILD_ID"))) {
+    rmSync(nextDir, { recursive: true, force: true });
+    console.log("Cleared a production build from packages/ui/.next so the dev server starts clean.");
+  }
   const child = spawn(process.execPath, [nextBin, "dev", "-p", String(uiPort), "-H", "127.0.0.1"], {
     cwd: uiDir,
     env: {
@@ -152,7 +183,7 @@ async function waitForHttp(url: string, timeoutMs: number): Promise<void> {
   throw new Error(`Timed out waiting for ${url}: ${lastError instanceof Error ? lastError.message : String(lastError)}`);
 }
 
-async function runInteractive(runtime: Awaited<ReturnType<typeof startDevtoolsServer>>["runtime"], channel: "sms" | "voice") {
+async function runInteractive(runtime: Awaited<ReturnType<typeof startDevtoolsServer>>["runtime"], channel: SessionChannel) {
   const rl = createInterface({ input: process.stdin, output: process.stdout });
   console.log("Interactive caller prompt. Type `end call` to emit call-ended, `quit` to stop.");
   try {
@@ -184,9 +215,11 @@ function parseArgs(args: string[]): CliOptions {
     port: Number(process.env.AGENTPHONE_DEVTOOLS_SERVER_PORT ?? 4318),
     uiPort: Number(process.env.AGENTPHONE_DEVTOOLS_UI_PORT ?? 4319),
     noOpen: false,
+    noSamples: false,
     exitAfterScenario: false,
     retryOnNon200: false,
     interactive: true,
+    step: false,
     historyPath: resolve(process.env.AGENTPHONE_DEVTOOLS_HISTORY_PATH ?? join(process.cwd(), ".agentphone-devtools/history.json")),
     historyLimit: Number(process.env.AGENTPHONE_DEVTOOLS_HISTORY_LIMIT ?? 100),
     ci: false,
@@ -238,6 +271,9 @@ function parseArgs(args: string[]): CliOptions {
         options.scenarioDirectories.push(requireValue(args, ++i, arg));
         options.interactive = false;
         break;
+      case "--no-samples":
+        options.noSamples = true;
+        break;
       case "--no-open":
         options.noOpen = true;
         break;
@@ -268,6 +304,11 @@ function parseArgs(args: string[]): CliOptions {
       case "--interactive":
         options.interactive = true;
         break;
+      case "--step":
+        options.step = true;
+        options.noOpen = true;
+        options.interactive = false;
+        break;
       default:
         if (arg.startsWith("--target=")) options.targetUrl = arg.slice("--target=".length);
         else if (arg.startsWith("--secret=")) options.secret = arg.slice("--secret=".length);
@@ -295,6 +336,9 @@ function parseArgs(args: string[]): CliOptions {
   if (options.ci && options.scenarios.length === 0 && options.scenarioDirectories.length === 0) {
     throw new Error("--ci requires --scenario or --scenario-dir");
   }
+  if (options.step && options.ci) throw new Error("--step and --ci are mutually exclusive");
+  if (options.step && options.scenarios.length !== 1) throw new Error("--step requires exactly one --scenario");
+  if (options.step && options.scenarioDirectories.length > 0) throw new Error("--step takes --scenario, not --scenario-dir");
   if (!options.ci && options.scenarioDirectories.length > 0) throw new Error("--scenario-dir requires --ci");
   if (!options.ci && options.scenarios.length > 1) throw new Error("Repeated --scenario requires --ci");
   if (options.reportJson && !options.ci) throw new Error("--report-json requires --ci");
@@ -317,9 +361,9 @@ function buildServerConfig(options: CliOptions): DevtoolsServerConfig {
   };
 }
 
-function parseChannel(value: string): "sms" | "voice" {
-  if (value === "sms" || value === "voice") return value;
-  throw new Error("channel must be sms or voice");
+function parseChannel(value: string): SessionChannel {
+  if (value === "sms" || value === "imessage" || value === "whatsapp" || value === "voice") return value;
+  throw new Error("channel must be sms, imessage, whatsapp, or voice");
 }
 
 function requireValue(args: string[], index: number, flag: string): string {
@@ -338,9 +382,11 @@ Usage:
 Options:
   --target <url>             Webhook URL to receive simulated AgentPhone events
   --secret <secret>          Webhook signing secret
-  --channel <sms|voice>      Interactive channel, default voice
+  --channel <channel>        sms, imessage, whatsapp, or voice (default voice)
   --scenario <path>          Scenario to replay; repeat in CI mode to build a suite
   --scenario-dir <path>      Recursively run all YAML/JSON scenarios in CI mode
+  --step                     Step through one --scenario turn by turn: pause,
+                             inspect state, edit turns, label, fork, export
   --timeout <seconds>        Voice webhook timeout, default 30
   --context-limit <0-50>     recentHistory limit, default 10
   --server-port <port>       Simulator API port, default 4318
@@ -349,6 +395,7 @@ Options:
   --history-limit <count>    Runs to retain, default 100
   --retry-on-non-200         Retry non-200 responses with compressed backoff
   --no-open                  Do not open the browser
+  --no-samples               Do not load the sample conversations on an empty history
   --exit-after-scenario      Exit after scenario completes
   --ci                       Run one or more scenarios headlessly
   --report-json <path>       Write the full run report in CI mode

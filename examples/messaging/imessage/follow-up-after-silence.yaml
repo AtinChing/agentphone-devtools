@@ -1,0 +1,28 @@
+name: Follow-up after silence
+description: "The opener gets no reply; a follow-up goes out three days later (the customer's own cron); the customer says YES inside the window, gets the code, and asks how to use it."
+channel: imessage
+agentId: agt_local
+numberId: num_local
+from: "+15559876552"
+to: "+15551234567"
+conversationState:
+  customerName: Diego Alvarez
+  tier: standard
+  vehicle: Ioniq 5
+contextLimit: 10
+timeoutSeconds: 30
+startAt: "2026-09-14T16:00:00Z"
+turns:
+  - agent: "Hi Diego, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - agent: "Still interested in the fall tune-up special? Reply YES and we'll book you in."
+    after: 3d
+  - caller: "YES"
+    after: 2h
+    expect:
+      actions: [issue_promo_code]
+      forbiddenActions: [promo_expired]
+      replyMatches: "FALL20"
+  - caller: "How do I use the code?"
+    expect:
+      actions: [promo_instructions]
+      forbiddenActions: [campaign_info]

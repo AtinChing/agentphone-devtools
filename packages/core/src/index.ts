@@ -4,4 +4,5 @@ export * from "./faults.js";
 export * from "./scenario.js";
 export * from "./scenario-eval.js";
 export * from "./signer.js";
+export * from "./time.js";
 export * from "./types.js";

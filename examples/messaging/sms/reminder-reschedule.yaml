@@ -1,0 +1,29 @@
+name: Reminder — reschedule
+description: "The customer replies R to a reminder: the agent asks for a day, offers two slots, and moves the booking over text."
+channel: sms
+agentId: agt_local
+numberId: num_local
+from: "+15559876550"
+to: "+15551234567"
+conversationState:
+  customerName: Aisha Rahman
+  tier: standard
+  appointment: "2026-09-17T09:00"
+contextLimit: 10
+timeoutSeconds: 30
+startAt: "2026-09-16T16:00:00Z"
+turns:
+  - agent: "Reminder from North Lot EV Charging: your tune-up is tomorrow at 9:00 AM. Reply C to confirm or R to reschedule."
+  - caller: "R"
+    after: 45m
+    expect:
+      actions: [request_reschedule_day]
+      forbiddenActions: [opt_out, resubscribe]
+  - caller: "Friday"
+    expect:
+      actions: [offer_slots]
+      replyMatches: "Friday"
+  - caller: "9am"
+    expect:
+      actions: [reschedule_confirmed]
+      replyMatches: "Friday at 9:00 AM"

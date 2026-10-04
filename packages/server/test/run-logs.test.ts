@@ -135,3 +135,32 @@ async function webhookTarget(): Promise<string> {
   if (!address || typeof address === "string") throw new Error("Test webhook did not bind to a TCP port");
   return `http://127.0.0.1:${address.port}/webhook`;
 }
+
+describe("retry warnings are baseline-stable", () => {
+  it("emits identical retry warnings across runs so baselines do not false-positive", async () => {
+    const failing: Server = createServer((_request, response) => {
+      response.writeHead(500, { "Content-Type": "application/json" });
+      response.end(JSON.stringify({ error: "boom" }));
+    });
+    await new Promise<void>((resolve) => failing.listen(0, "127.0.0.1", resolve));
+    cleanup.push(() => new Promise<void>((resolve, reject) => failing.close((error) => (error ? reject(error) : resolve()))));
+    const address = failing.address();
+    if (!address || typeof address === "string") throw new Error("failing target did not bind");
+    const config = {
+      ...testConfig(temporaryDirectory(), `http://127.0.0.1:${address.port}/webhook`),
+      retryOnNon200: true
+    };
+    const runtime = new DevtoolsRuntime(config);
+
+    await runtime.sendCallerTurn("first run turn", "sms");
+    const first = runtime.getState();
+    runtime.reset();
+    await runtime.sendCallerTurn("first run turn", "sms");
+    const second = runtime.getState();
+
+    expect(first.warnings.some((warning) => /^Retry 1 scheduled after HTTP 500$/.test(warning))).toBe(true);
+    // Volatile ids in warning text used to make every retry run a phantom regression.
+    const comparison = compareRuns(first, second);
+    expect(comparison.warnings.added).toEqual([]);
+  }, 30000);
+});

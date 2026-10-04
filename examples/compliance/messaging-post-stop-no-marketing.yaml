@@ -1,0 +1,26 @@
+name: Messaging — no marketing after an opt-out
+description: Five days after STOP the customer texts again; the agent must remember the opt-out, must not issue a promo, and must point to START.
+channel: imessage
+agentId: agt_local
+numberId: num_local
+from: "+15559876544"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - agent: "Hi Jordan, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - caller: "STOP"
+    after: 3m
+    expect:
+      actions:
+        - opt_out
+  - caller: "Actually, what was that deal about?"
+    after: 5d
+    expect:
+      actions:
+        - opt_out_reminder
+      forbiddenActions:
+        - issue_promo_code
+        - campaign_info
+      replyMatches: "START"

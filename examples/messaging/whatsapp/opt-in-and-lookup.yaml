@@ -1,0 +1,21 @@
+name: WhatsApp opt-in and lookup
+description: "A customer opts in to WhatsApp updates, then asks about their next appointment."
+channel: whatsapp
+agentId: agt_local
+numberId: num_local
+from: "+15559876546"
+to: "+15551234567"
+conversationState:
+  customerName: Sam Okafor
+  tier: standard
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I'd like to get updates on WhatsApp."
+    expect:
+      actions: [whatsapp_opt_in]
+      replyMatches: "STOP"
+  - caller: "When is my next appointment?"
+    expect:
+      actions: [appointment_lookup]
+      replyMatches: "Thursday"

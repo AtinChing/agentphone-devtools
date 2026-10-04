@@ -1,0 +1,24 @@
+name: Billing dispute
+description: "A caller was charged twice: the agent collects the card's last four digits and opens a dispute with a ticket number."
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876548"
+to: "+15551234567"
+conversationState:
+  customerName: Marcus Hill
+  tier: standard
+  cardLast4: "4242"
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "I think I was charged twice for my last charging session."
+    expect:
+      actions: [request_card_digits]
+  - caller: "Sure, it ends in 4242."
+    expect:
+      actions: [open_dispute]
+      replyMatches: "BD-\\d+"
+  - caller: "Thank you, that's all."
+    expect:
+      actions: [hangup]

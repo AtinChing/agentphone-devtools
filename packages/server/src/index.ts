@@ -2,10 +2,26 @@ import Fastify, { type FastifyInstance } from "fastify";
 import cors from "@fastify/cors";
 import { SessionHistoryStore } from "./history.js";
 import { buildJsonReport, buildMarkdownReport } from "./report.js";
-import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml } from "./scenario-export.js";
+import { buildScenarioFromSession, stringifyScenarioJson, stringifyScenarioYaml, type ScenarioExportOptions } from "./scenario-export.js";
 import { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 import { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 import { DEFAULT_PORT_SCAN_ATTEMPTS, findAvailablePort, isAddressInUse } from "./ports.js";
+import { StepController } from "./step-controller.js";
+import { detectVoiceSupport, transcribeAudioBuffer, type VoiceSupport } from "./voice.js";
+import { ContactsStore, type Contact, type ContactInput } from "./contacts.js";
+import { EnvironmentsStore, type EnvironmentInput } from "./environments.js";
+import { computeUsageStats } from "./stats.js";
+import { listScenarios } from "./scenarios.js";
+import { seedSampleRuns, SAMPLE_SCENARIOS, SamplesUnavailableError } from "./samples.js";
+import { dirname, join, resolve } from "node:path";
+import { mkdirSync, writeFileSync } from "node:fs";
+
+// Voice tooling doesn't change while the server runs; detect once on demand.
+let cachedVoiceSupport: VoiceSupport | undefined;
+function detectVoiceSupportCached(): VoiceSupport {
+  cachedVoiceSupport ??= detectVoiceSupport();
+  return cachedVoiceSupport;
+}
 import {
   buildCallEndedEvent,
   buildMessageEvent,
@@ -27,19 +43,48 @@ import {
   type DeliveryFault,
   type Scenario,
   type ScenarioResult,
+  type SessionChannel,
   type SignedDelivery,
-  type TranscriptTurn
+  type TranscriptTurn,
+  isCallerTurn,
+  parseDuration
 } from "@agentphone-devtools/core";
 
 export { buildJsonReport, buildMarkdownReport } from "./report.js";
 export { compareRuns, type RunComparison, type RunComparisonOptions } from "./comparison.js";
 export { parseRuntimeConfigUpdate, RuntimeConfigValidationError, type RuntimeConfigUpdate } from "./config.js";
 export { findAvailablePort, isAddressInUse, isPortAvailable, DEFAULT_PORT_SCAN_ATTEMPTS } from "./ports.js";
+export {
+  buildScenarioFromSession,
+  stringifyScenarioJson,
+  stringifyScenarioYaml,
+  type ScenarioExportDefaults,
+  type ScenarioExportOptions
+} from "./scenario-export.js";
+export {
+  StepController,
+  type StepExpectResult,
+  type StepQueueTurn,
+  type StepState
+} from "./step-controller.js";
+export {
+  detectVoiceSupport,
+  startPushToTalk,
+  transcribeAudioBuffer,
+  transcribeWav,
+  type PushToTalkRecording,
+  type VoiceSupport
+} from "./voice.js";
+export { ContactsStore, DEFAULT_CONTACTS, type Contact, type ContactInput } from "./contacts.js";
+export { seedSampleRuns, SAMPLE_SCENARIOS, SamplesUnavailableError, type SampleSeedResult } from "./samples.js";
+export { EnvironmentsStore, type Environment, type EnvironmentInput, type EnvironmentView } from "./environments.js";
+export { computeUsageStats, type UsageStats, type DailyActivity } from "./stats.js";
+export { listScenarios, type ScenarioListing } from "./scenarios.js";
 
 export interface DevtoolsServerConfig {
   targetUrl: string;
   secret: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   timeoutSeconds: number;
   contextLimit: number;
   port: number;
@@ -82,6 +127,33 @@ export interface InspectorDelivery {
     sessionId: string;
     deliveryId: string;
   };
+  /**
+   * Present on deliveries copied from a source run during a fork. The copy
+   * preserves what the handler actually saw and returned on the shared
+   * prefix; it was not re-sent by this session.
+   */
+  inheritedFrom?: {
+    sessionId: string;
+  };
+}
+
+/** A developer verdict on one caller turn's handler response. */
+export interface TurnLabel {
+  /** Zero-based caller-turn ordinal (first caller turn = 0). */
+  turnIndex: number;
+  verdict?: "good" | "bad";
+  note?: string;
+}
+
+/**
+ * The complete conversation state at a turn boundary. Because the webhook
+ * contract carries all state in each request (recentHistory +
+ * conversationState), this snapshot is sufficient to fork a conversation
+ * exactly — the handler itself is stateless per request.
+ */
+export interface ConversationCheckpoint {
+  recentHistory: Array<{ content: string; direction: "inbound" | "outbound"; channel: SessionChannel; at: string }>;
+  conversationState: ConversationState;
 }
 
 export interface ReplayDeliveryInput {
@@ -94,11 +166,38 @@ export interface ReplayDeliveryInput {
   fault?: DeliveryFault;
 }
 
+/** A simulated customer: who the caller/texter is in a conversation. */
+export interface SessionContact {
+  id: string;
+  name: string;
+  number: string;
+}
+
 export interface InspectorSession {
   id: string;
   targetUrl: string;
   secretPreview: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
+  /** The simulated customer on this conversation, when one was chosen. */
+  contact?: SessionContact;
+  /**
+   * ISO timestamp per transcript entry (aligned by index). Carries the
+   * simulated clock, so a message thread can show real day/time gaps.
+   */
+  turnTimes?: string[];
+  /**
+   * Transcript indexes of agent messages that were seeded as outbound sends
+   * (campaign openers, scheduled follow-ups) rather than webhook replies.
+   */
+  outboundSeeds?: number[];
+  /** Virtual-clock offset from real time, in ms, at the last update. */
+  clockOffsetMs?: number;
+  /**
+   * The clock offset in force when each transcript entry was recorded
+   * (aligned by index), so a fork resumes at its checkpoint's time rather
+   * than wherever the source conversation later travelled to.
+   */
+  turnOffsets?: number[];
   status: "idle" | "running" | "ended";
   startedAt: string;
   endedAt?: string;
@@ -124,18 +223,43 @@ export interface InspectorSession {
    * report artifacts written before this field existed still load.
    */
   logs?: string[];
+  /**
+   * The runtime settings this session actually ran with, so exporting a
+   * saved run reproduces its real context window and timeout instead of
+   * defaults. Optional so history written before this field existed loads.
+   */
+  runSettings?: {
+    contextLimit: number;
+    timeoutSeconds: number;
+    retryOnNon200?: boolean;
+  };
+  /** Lineage when this session was forked from another run's checkpoint. */
+  forkedFrom?: {
+    sessionId: string;
+    /** Number of caller turns inherited from the source run. */
+    turnIndex: number;
+  };
+  /** Developer verdicts per caller turn; persisted with run history. */
+  turnLabels?: TurnLabel[];
 }
 
 export interface InspectorSessionSummary {
   id: string;
   targetUrl: string;
-  channel: "sms" | "voice";
+  channel: SessionChannel;
   status: InspectorSession["status"];
   startedAt: string;
   endedAt?: string;
   transcriptTurns: number;
   deliveries: number;
   baselineName?: string;
+  forkedFrom?: InspectorSession["forkedFrom"];
+  /** Scenario outcome, when the run executed one. */
+  scenarioPassed?: boolean;
+  contact?: SessionContact;
+  averageLatencyMs?: number;
+  lastMessage?: string;
+  lastActivityAt?: string;
 }
 
 type SseClient = {
@@ -143,7 +267,17 @@ type SseClient = {
   close: () => void;
 };
 
-type HistoryTurn = TranscriptTurn & { at: string; channel: "sms" | "voice" };
+type HistoryTurn = TranscriptTurn & { at: string; channel: SessionChannel };
+
+export class ChannelLockedError extends Error {
+  constructor(
+    public readonly current: SessionChannel,
+    public readonly requested: SessionChannel
+  ) {
+    super(`This conversation is on ${current}; reset to start one on ${requested}`);
+    this.name = "ChannelLockedError";
+  }
+}
 
 export class DevtoolsRuntime {
   private readonly clients = new Set<SseClient>();
@@ -152,6 +286,17 @@ export class DevtoolsRuntime {
   private config: DevtoolsServerConfig;
   private conversationState: ConversationState = null;
   private session: InspectorSession;
+  /**
+   * Virtual clock: offset from real time. Payload timestamps and
+   * recentHistory[].at use it so time-dependent handler logic is testable
+   * without waiting. The HMAC timestamp header always uses real time, so
+   * handlers' freshness checks keep working.
+   */
+  private clockOffsetMs = 0;
+
+  /** Caller number for the payload when the session has no bound contact. */
+  private callerNumber?: string;
+  private contactResolver?: (number: string) => SessionContact | undefined;
 
   constructor(config: DevtoolsServerConfig) {
     this.config = config;
@@ -162,29 +307,48 @@ export class DevtoolsRuntime {
   }
 
   getState(): InspectorSession {
-    return structuredClone(this.session);
+    return this.withContact(structuredClone(this.session));
   }
 
   getHistory(): InspectorSessionSummary[] {
     return this.sessionStore
       .list()
       .filter((session) => session.id === this.session.id || session.status !== "idle" || session.transcript.length > 0 || session.deliveries.length > 0)
-      .map(summarizeSession);
+      .map((session) => summarizeSession(this.withContact(session)));
   }
 
   getHistorySession(sessionId: string): InspectorSession | undefined {
-    return sessionId === this.session.id ? this.getState() : this.sessionStore.get(sessionId);
+    if (sessionId === this.session.id) return this.getState();
+    const stored = this.sessionStore.get(sessionId);
+    return stored ? this.withContact(stored) : undefined;
   }
 
-  getScenarioExport(sessionId: string): Scenario | undefined {
+  /**
+   * Runs recorded without a bound contact still carry the caller's number in
+   * every payload. Resolving it at read time lets older history show up
+   * under the right person without rewriting what was stored.
+   */
+  private withContact(session: InspectorSession): InspectorSession {
+    if (session.contact || !this.contactResolver) return session;
+    const first = session.deliveries.find((delivery) => delivery.event === "agent.message");
+    const from = (first?.request.body as { data?: { from?: unknown } } | undefined)?.data?.from;
+    const contact = typeof from === "string" ? this.resolveContact(from) : undefined;
+    return contact ? { ...session, contact } : session;
+  }
+
+  getScenarioExport(sessionId: string, options: ScenarioExportOptions = {}): Scenario | undefined {
     const session = this.getHistorySession(sessionId);
     if (!session) return undefined;
     const active = sessionId === this.session.id;
-    return buildScenarioFromSession(session, {
-      contextLimit: active ? this.config.contextLimit : 10,
-      timeoutSeconds: active ? this.config.timeoutSeconds : 30,
-      conversationState: active ? this.conversationState : null
-    });
+    return buildScenarioFromSession(
+      session,
+      {
+        contextLimit: active ? this.config.contextLimit : session.runSettings?.contextLimit ?? 10,
+        timeoutSeconds: active ? this.config.timeoutSeconds : session.runSettings?.timeoutSeconds ?? 30,
+        conversationState: active ? this.conversationState : extractConversationState(session)
+      },
+      options
+    );
   }
 
   deleteHistorySession(sessionId: string): boolean {
@@ -192,6 +356,17 @@ export class DevtoolsRuntime {
     const deleted = this.sessionStore.delete(sessionId);
     if (deleted) this.emit("history", this.getHistory());
     return deleted;
+  }
+
+  /** Delete every saved run except the live session. */
+  clearHistory(): number {
+    let removed = 0;
+    for (const session of this.sessionStore.list()) {
+      if (session.id === this.session.id) continue;
+      if (this.sessionStore.delete(session.id)) removed += 1;
+    }
+    this.emit("history", this.getHistory());
+    return removed;
   }
 
   setBaseline(sessionId: string, name?: string): InspectorSession | null {
@@ -234,17 +409,100 @@ export class DevtoolsRuntime {
     return compareRuns(baseline, candidate, options);
   }
 
-  reset(update?: RuntimeConfigUpdate & { conversationState?: ConversationState }): InspectorSession {
+  reset(
+    update?: RuntimeConfigUpdate & { conversationState?: ConversationState; contact?: SessionContact | null; from?: string }
+  ): InspectorSession {
+    let contact: SessionContact | undefined;
+    let from: string | undefined;
     if (update) {
-      const { conversationState, ...configUpdate } = update;
+      const { conversationState, contact: nextContact, from: nextFrom, ...configUpdate } = update;
       this.config = { ...this.config, ...parseRuntimeConfigUpdate(configUpdate) };
       this.conversationState = conversationState ?? null;
+      contact = nextContact ?? undefined;
+      from = nextFrom;
     } else {
       this.conversationState = null;
     }
     if (isUntouchedSession(this.session)) this.sessionStore.delete(this.session.id);
     this.history.length = 0;
+    this.clockOffsetMs = 0;
+    this.callerNumber = undefined;
     this.session = this.newSession();
+    // A scenario's `from` binds the run to a known contact when one has that
+    // number; otherwise it is still the number the payload reports.
+    if (!contact && from) contact = this.resolveContact(from);
+    if (contact) this.session.contact = { ...contact };
+    else if (from) this.callerNumber = from;
+    this.publishState();
+    return this.getState();
+  }
+
+  /** Look a caller number up in the contacts the server knows about. */
+  resolveContact(number: string | undefined): SessionContact | undefined {
+    if (!number || !this.contactResolver) return undefined;
+    const contact = this.contactResolver(number);
+    return contact ? { id: contact.id, name: contact.name, number: contact.number } : undefined;
+  }
+
+  setContactResolver(resolver: ((number: string) => SessionContact | undefined) | undefined): void {
+    this.contactResolver = resolver;
+  }
+
+  /**
+   * A conversation lives on one channel: a call cannot continue as a text.
+   * The first turn fixes it; anything else needs a fresh session.
+   */
+  private assertChannel(channel: SessionChannel): void {
+    if (this.session.transcript.length > 0 && channel !== this.session.channel) {
+      throw new ChannelLockedError(this.session.channel, channel);
+    }
+  }
+
+  /** Current simulated time (real time plus the virtual-clock offset). */
+  now(): string {
+    return isoNow(new Date(Date.now() + this.clockOffsetMs));
+  }
+
+  clockOffset(): number {
+    return this.clockOffsetMs;
+  }
+
+  /** Move the simulated clock forward. Never waits; only future timestamps change. */
+  advanceClock(ms: number): InspectorSession {
+    if (!Number.isFinite(ms) || ms < 0) throw new Error("Clock can only move forward");
+    this.clockOffsetMs += Math.round(ms);
+    this.session.clockOffsetMs = this.clockOffsetMs;
+    this.pushLog(`Simulated clock advanced by ${formatOffset(ms)}`);
+    this.publishState();
+    return this.getState();
+  }
+
+  /** Pin the simulated clock to an absolute time (scenario startAt). */
+  setClock(iso: string): InspectorSession {
+    const target = Date.parse(iso);
+    if (Number.isNaN(target)) throw new Error(`Invalid clock time: ${iso}`);
+    // Pinning to "now" means exactly real time, not a few milliseconds off.
+    const offset = target - Date.now();
+    this.clockOffsetMs = Math.abs(offset) < 1000 ? 0 : offset;
+    this.session.clockOffsetMs = this.clockOffsetMs;
+    this.publishState();
+    return this.getState();
+  }
+
+  /**
+   * Record an outbound message the business sent outside the webhook — a
+   * campaign opener or scheduled follow-up sent through the send API. It
+   * enters the transcript and rolling history so later inbound replies
+   * reach the handler with the real context; nothing is delivered for it.
+   */
+  seedAgentMessage(text: string, channel: SessionChannel = this.config.channel): InspectorSession {
+    const content = text.trim();
+    if (!content) throw new Error("Outbound message text must not be empty");
+    this.assertChannel(channel);
+    this.session.status = "running";
+    if (this.session.transcript.length === 0) this.session.channel = channel;
+    this.pushTranscript({ role: "agent", content }, this.now(), channel);
+    (this.session.outboundSeeds ??= []).push(this.session.transcript.length - 1);
     this.publishState();
     return this.getState();
   }
@@ -259,10 +517,12 @@ export class DevtoolsRuntime {
     };
   }
 
-  async sendCallerTurn(text: string, channel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
+  async sendCallerTurn(text: string, channel: SessionChannel = this.config.channel, fault?: DeliveryFault): Promise<InspectorDelivery> {
+    this.assertChannel(channel);
     this.session.status = "running";
-    const timestamp = isoNow();
+    const timestamp = this.now();
     const recentHistory = scenarioToRecentHistory(this.history, this.config.contextLimit);
+    const from = this.session.contact?.number ?? this.callerNumber;
     const payload =
       channel === "voice"
         ? buildVoiceMessageEvent({
@@ -271,7 +531,8 @@ export class DevtoolsRuntime {
             callId: this.session.callId,
             agentId: "agt_local",
             conversationState: this.conversationState,
-            recentHistory
+            recentHistory,
+            ...(from ? { from } : {})
           })
         : buildMessageEvent({
             message: text,
@@ -280,9 +541,13 @@ export class DevtoolsRuntime {
             conversationId: this.session.conversationId,
             agentId: "agt_local",
             conversationState: this.conversationState,
-            recentHistory
+            recentHistory,
+            ...(from ? { from } : {})
           });
 
+    // A run's channel is whatever its first turn used, so a session opened
+    // on the CLI default can still become an iMessage thread or a call.
+    if (this.session.transcript.length === 0) this.session.channel = channel;
     this.pushTranscript({ role: "user", content: text }, timestamp, channel);
     const delivery = await this.dispatchAndRecord(payload, fault);
     this.recordAgentResponse(delivery, channel);
@@ -292,7 +557,7 @@ export class DevtoolsRuntime {
 
   async endCall(options: { disconnectionReason?: string; callSuccessful?: boolean } = {}): Promise<InspectorDelivery | null> {
     this.session.status = "ended";
-    this.session.endedAt = isoNow();
+    this.session.endedAt = this.now();
 
     if (this.session.channel !== "voice") {
       this.publishState();
@@ -322,14 +587,21 @@ export class DevtoolsRuntime {
       timeoutSeconds: overrides.timeoutSeconds ?? scenario.timeoutSeconds,
       contextLimit: overrides.contextLimit ?? scenario.contextLimit,
       retryOnNon200: overrides.retryOnNon200 ?? this.config.retryOnNon200,
-      conversationState: scenario.conversationState
+      conversationState: scenario.conversationState,
+      from: scenario.from
     });
 
     this.pushLog(`Running scenario: ${scenario.name}`);
+    if (scenario.startAt) this.setClock(scenario.startAt);
     this.publishState();
 
     const turnDeliveries: InspectorDelivery[] = [];
     for (const turn of scenario.turns) {
+      if (turn.after !== undefined) this.advanceClock(parseDuration(turn.after));
+      if (!isCallerTurn(turn)) {
+        this.seedAgentMessage(turn.agent, scenario.channel);
+        continue;
+      }
       turnDeliveries.push(await this.sendCallerTurn(turn.caller, scenario.channel, turn.fault));
       if (turn.waitMs) await new Promise((resolve) => setTimeout(resolve, turn.waitMs));
     }
@@ -376,6 +648,118 @@ export class DevtoolsRuntime {
     });
     this.publishState();
     return delivery;
+  }
+
+  /**
+   * The state the next webhook payload will carry: rolling history capped at
+   * the configured context limit, plus the session's conversation state.
+   */
+  conversationSnapshot(): ConversationCheckpoint {
+    return {
+      recentHistory: scenarioToRecentHistory(this.history, this.config.contextLimit),
+      conversationState: structuredClone(this.conversationState)
+    };
+  }
+
+  /** Attach or replace a developer verdict on one caller turn. */
+  setTurnLabel(sessionId: string, label: TurnLabel): InspectorSession | null {
+    const live = sessionId === this.session.id;
+    const session = live ? this.session : this.sessionStore.get(sessionId);
+    if (!session) return null;
+    const totalCallerTurns = session.transcript.filter((turn) => turn.role === "user").length;
+    if (!Number.isInteger(label.turnIndex) || label.turnIndex < 0 || label.turnIndex >= totalCallerTurns) {
+      throw new Error(`turnIndex must identify a completed caller turn (0..${totalCallerTurns - 1})`);
+    }
+    const labels = (session.turnLabels ?? []).filter((existing) => existing.turnIndex !== label.turnIndex);
+    labels.push({ ...label });
+    labels.sort((a, b) => a.turnIndex - b.turnIndex);
+    session.turnLabels = labels;
+    if (live) {
+      this.publishState();
+      return this.getState();
+    }
+    this.sessionStore.upsert(session);
+    this.emit("history", this.getHistory());
+    return session;
+  }
+
+  /**
+   * Start a new run from another run's turn boundary. The checkpoint is the
+   * source's (recentHistory, conversationState) after `callerTurns` completed
+   * caller turns. Because the webhook contract carries all conversation state
+   * in every request, that pair is a complete state capture: the fork is
+   * exact, not approximate. The prefix transcript and its deliveries are
+   * copied (marked inherited) so exports and reports cover the whole path;
+   * nothing is re-sent to the handler.
+   */
+  forkFromSession(sourceSessionId: string, callerTurns: number): InspectorSession {
+    const source = this.getHistorySession(sourceSessionId);
+    if (!source) throw new Error(`No run found with id ${sourceSessionId}`);
+    const totalCallerTurns = source.transcript.filter((turn) => turn.role === "user").length;
+    const leadingSeeds = (source.outboundSeeds ?? []).length > 0;
+    const minimumTurn = leadingSeeds ? 0 : 1;
+    if (!Number.isInteger(callerTurns) || callerTurns < minimumTurn || callerTurns > totalCallerTurns) {
+      throw new Error(`Fork point must be a completed caller turn between ${minimumTurn} and ${totalCallerTurns}`);
+    }
+
+    const forkingLive = sourceSessionId === this.session.id;
+    const conversationState = forkingLive
+      ? structuredClone(this.conversationState)
+      : extractConversationState(source, Math.max(callerTurns, 1));
+    const sourceClockOffset = forkingLive ? this.clockOffsetMs : source.clockOffsetMs ?? 0;
+    if (forkingLive) this.persistSession();
+
+    // Prefix ends just before the caller turn after the fork point, so the
+    // agent reply to the fork-point turn is included.
+    let seenCallerTurns = 0;
+    let prefixLength = source.transcript.length;
+    for (let index = 0; index < source.transcript.length; index += 1) {
+      if (source.transcript[index].role === "user") {
+        seenCallerTurns += 1;
+        if (seenCallerTurns > callerTurns) {
+          prefixLength = index;
+          break;
+        }
+      }
+    }
+    const prefix = source.transcript.slice(0, prefixLength);
+    const sourceTurnDeliveries = source.deliveries.filter(
+      (delivery) => delivery.event === "agent.message" && !delivery.replayOf
+    );
+
+    this.reset({ channel: source.channel, conversationState, contact: source.contact ?? null });
+    this.session.forkedFrom = { sessionId: source.id, turnIndex: callerTurns };
+    this.session.status = "running";
+    // Each inherited turn keeps its own timestamp (the source's per-turn
+    // record when present, else its delivery's), so the forked run's
+    // recentHistory reflects the source's real timing.
+    let prefixCallerIndex = -1;
+    prefix.forEach((turn, index) => {
+      if (turn.role === "user") prefixCallerIndex += 1;
+      const at =
+        source.turnTimes?.[index] ??
+        (prefixCallerIndex >= 0 ? sourceTurnDeliveries[prefixCallerIndex]?.timestamp : undefined) ??
+        source.startedAt;
+      this.pushTranscript({ ...turn }, at, source.channel);
+    });
+    const inheritedSeeds = (source.outboundSeeds ?? []).filter((index) => index < prefix.length);
+    if (inheritedSeeds.length) this.session.outboundSeeds = [...inheritedSeeds];
+    // The branch continues from the source's simulated time, never earlier
+    // than its last inherited turn.
+    const lastInheritedAt = this.history.at(-1)?.at;
+    const lastInheritedOffset = lastInheritedAt ? Date.parse(lastInheritedAt) - Date.now() : Number.NEGATIVE_INFINITY;
+    // Resume at the checkpoint's own clock. Runs recorded before offsets
+    // were kept fall back to the source's final clock.
+    const checkpointOffset = prefix.length ? source.turnOffsets?.[prefix.length - 1] : undefined;
+    this.clockOffsetMs = checkpointOffset ?? Math.max(sourceClockOffset, lastInheritedOffset);
+    if (this.session.turnOffsets) this.session.turnOffsets = prefix.map((_, index) => source.turnOffsets?.[index] ?? this.clockOffsetMs);
+    this.session.clockOffsetMs = this.clockOffsetMs;
+    this.session.deliveries = sourceTurnDeliveries
+      .slice(0, callerTurns)
+      .map((delivery) => ({ ...structuredClone(delivery), inheritedFrom: { sessionId: source.id } }));
+    this.pushLog(`Forked from run ${source.id} after turn ${callerTurns}`);
+    this.publishState();
+    return this.getState();
   }
 
   private async dispatchAndRecord(payload: AgentPhoneEnvelope, fault?: DeliveryFault): Promise<InspectorDelivery> {
@@ -459,7 +843,7 @@ export class DevtoolsRuntime {
       if (!this.config.retryOnNon200 || result.ok) return { result, retries };
       if (attempt < delays.length - 1) {
         retries += 1;
-        this.session.warnings.push(`Retry ${retries} scheduled for ${signed.webhookId} after HTTP ${result.status}`);
+        this.session.warnings.push(`Retry ${retries} scheduled after HTTP ${result.status}`);
         this.publishState();
       }
     }
@@ -468,15 +852,17 @@ export class DevtoolsRuntime {
     return { result, retries };
   }
 
-  private recordAgentResponse(delivery: InspectorDelivery, channel: "sms" | "voice"): void {
+  private recordAgentResponse(delivery: InspectorDelivery, channel: SessionChannel): void {
     const parsed = delivery.response.parsed;
     const responseText = parsed.final?.text ?? parsed.chunks.find((chunk) => chunk.text && !chunk.interim)?.text ?? fallbackSmsText(delivery);
     if (!responseText) return;
-    this.pushTranscript({ role: "agent", content: responseText }, isoNow(), channel);
+    this.pushTranscript({ role: "agent", content: responseText }, this.now(), channel);
   }
 
-  private pushTranscript(turn: TranscriptTurn, at: string, channel: "sms" | "voice"): void {
+  private pushTranscript(turn: TranscriptTurn, at: string, channel: SessionChannel): void {
     this.session.transcript.push(turn);
+    (this.session.turnTimes ??= []).push(at);
+    (this.session.turnOffsets ??= []).push(this.clockOffsetMs);
     this.history.push({ ...turn, at, channel });
   }
 
@@ -499,7 +885,14 @@ export class DevtoolsRuntime {
       transcript: [],
       deliveries: [],
       warnings: [],
-      logs: []
+      logs: [],
+      turnTimes: [],
+      clockOffsetMs: this.clockOffsetMs,
+      runSettings: {
+        contextLimit: this.config.contextLimit,
+        timeoutSeconds: this.config.timeoutSeconds,
+        retryOnNon200: this.config.retryOnNon200 === true
+      }
     };
   }
 
@@ -513,14 +906,27 @@ export class DevtoolsRuntime {
     this.emit("history", this.getHistory());
   }
 
+  /** Broadcast a custom event to all SSE subscribers (used by StepController). */
+  publishEvent(event: string, data: unknown): void {
+    this.emit(event, data);
+  }
+
   private emit(event: string, data: unknown): void {
     for (const client of this.clients) client.write(event, data);
   }
 }
 
-export async function createDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime }> {
+export async function createDevtoolsServer(
+  config: DevtoolsServerConfig
+): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; step: StepController; contacts: ContactsStore }> {
   const app = Fastify({ logger: false });
   const runtime = new DevtoolsRuntime(config);
+  const step: StepController = new StepController(runtime, () => runtime.publishEvent("step", step.state()));
+  const dataDir = dirname(config.historyPath);
+  const contacts = new ContactsStore(join(dataDir, "contacts.json"));
+  const environments = new EnvironmentsStore(join(dataDir, "environments.json"));
+  runtime.setContactResolver((number) => contacts.list().find((contact) => contact.number === number));
+  const scenarioDirectories = ["examples/scenarios", "examples/messaging", "examples/compliance", "examples/faults", ".agentphone-devtools/exports"];
 
   await app.register(cors, { origin: true });
 
@@ -552,25 +958,56 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
       .send(buildMarkdownReport(session));
   });
 
-  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.json", async (request, reply) => {
-    const scenario = runtime.getScenarioExport(request.params.sessionId);
-    if (!scenario) return reply.code(404).send({ error: "session not found" });
-    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
-    return reply
-      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "json")}"`)
-      .type("application/json")
-      .send(stringifyScenarioJson(scenario));
-  });
+  app.get<{ Params: { sessionId: string }; Querystring: { assertions?: string } }>(
+    "/api/history/:sessionId/scenario.json",
+    async (request, reply) => {
+      const scenario = runtime.getScenarioExport(request.params.sessionId, exportOptionsFromQuery(request.query));
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      return reply
+        .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "json")}"`)
+        .type("application/json")
+        .send(stringifyScenarioJson(scenario));
+    }
+  );
 
-  app.get<{ Params: { sessionId: string } }>("/api/history/:sessionId/scenario.yaml", async (request, reply) => {
-    const scenario = runtime.getScenarioExport(request.params.sessionId);
-    if (!scenario) return reply.code(404).send({ error: "session not found" });
-    if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
-    return reply
-      .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "yaml")}"`)
-      .type("application/yaml; charset=utf-8")
-      .send(stringifyScenarioYaml(scenario));
-  });
+  app.get<{ Params: { sessionId: string }; Querystring: { assertions?: string } }>(
+    "/api/history/:sessionId/scenario.yaml",
+    async (request, reply) => {
+      const scenario = runtime.getScenarioExport(request.params.sessionId, exportOptionsFromQuery(request.query));
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      return reply
+        .header("Content-Disposition", `attachment; filename="${scenarioFilename(request.params.sessionId, "yaml")}"`)
+        .type("application/yaml; charset=utf-8")
+        .send(stringifyScenarioYaml(scenario));
+    }
+  );
+
+  // Save a run as a scenario file under .agentphone-devtools/exports so it
+  // shows up in the scenario picker and can be replayed or run in CI.
+  app.post<{ Params: { sessionId: string }; Body: { name?: string; assertions?: boolean; format?: "yaml" | "json" } }>(
+    "/api/history/:sessionId/export",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const scenario = runtime.getScenarioExport(request.params.sessionId, { scaffoldAssertions: body.assertions !== false });
+      if (!scenario) return reply.code(404).send({ error: "session not found" });
+      if (!scenario.turns.length) return reply.code(422).send({ error: "session has no caller turns to export" });
+      const trimmedName = (body.name ?? "").trim();
+      if (trimmedName) scenario.name = trimmedName;
+      const format = body.format === "json" ? "json" : "yaml";
+      const slug = (trimmedName || `run-${request.params.sessionId}`)
+        .toLowerCase()
+        .replace(/[^a-z0-9]+/g, "-")
+        .replace(/^-+|-+$/g, "")
+        .slice(0, 60) || `run-${request.params.sessionId}`;
+      const directory = resolve(process.cwd(), ".agentphone-devtools/exports");
+      mkdirSync(directory, { recursive: true });
+      const filePath = join(directory, `${slug}.${format}`);
+      writeFileSync(filePath, format === "json" ? stringifyScenarioJson(scenario) : stringifyScenarioYaml(scenario), "utf8");
+      return { path: `.agentphone-devtools/exports/${slug}.${format}`, name: scenario.name, turns: scenario.turns.length };
+    }
+  );
 
   app.delete<{ Params: { sessionId: string } }>("/api/history/:sessionId", async (request, reply) => {
     if (request.params.sessionId === runtime.getState().id) {
@@ -624,10 +1061,15 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
   });
 
   app.post<{
-    Body: { text: string; channel?: "sms" | "voice"; fault?: DeliveryFault };
+    Body: { text: string; channel?: SessionChannel; fault?: DeliveryFault };
   }>("/api/send", async (request, reply) => {
     if (!request.body?.text) return reply.code(400).send({ error: "text is required" });
-    return runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
+    try {
+      return await runtime.sendCallerTurn(request.body.text, request.body.channel, request.body.fault);
+    } catch (error) {
+      if (error instanceof ChannelLockedError) return reply.code(409).send({ error: error.message });
+      throw error;
+    }
   });
 
   app.post<{
@@ -640,6 +1082,142 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     const body = request.body ?? {};
     if (!body.path && !body.scenario) return reply.code(400).send({ error: "path or scenario is required" });
     return runtime.runScenario(body.scenario ?? body.path!, body.overrides ?? {});
+  });
+
+  app.post<{ Params: { sessionId: string }; Body: TurnLabel }>(
+    "/api/history/:sessionId/labels",
+    async (request, reply) => {
+      try {
+        const session = runtime.setTurnLabel(request.params.sessionId, {
+          turnIndex: request.body?.turnIndex,
+          ...(request.body?.verdict ? { verdict: request.body.verdict } : {}),
+          ...(request.body?.note ? { note: request.body.note } : {})
+        } as TurnLabel);
+        if (!session) return reply.code(404).send({ error: "session not found" });
+        return session;
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  );
+
+  // Voice input is a developer convenience for dictating caller turns —
+  // NOT a simulation of AgentPhone's STT pipeline. Transcription runs
+  // entirely locally (whisper.cpp); when unavailable, typed input is
+  // unaffected.
+  app.addContentTypeParser(["audio/webm", "audio/ogg", "audio/wav", "audio/mp4", "application/octet-stream"], { parseAs: "buffer" }, (_request, body, done) => {
+    done(null, body);
+  });
+
+  app.get("/api/voice", async () => {
+    const support = detectVoiceSupportCached();
+    return { available: support.available, ...(support.reason ? { reason: support.reason } : {}) };
+  });
+
+  app.post("/api/voice/transcribe", async (request, reply) => {
+    const support = detectVoiceSupportCached();
+    if (!support.available) return reply.code(503).send({ error: support.reason ?? "Voice input is not available" });
+    if (!Buffer.isBuffer(request.body) || request.body.length < 128) {
+      return reply.code(400).send({ error: "Send raw audio bytes (audio/webm, audio/wav, …) as the request body" });
+    }
+    try {
+      const text = await transcribeAudioBuffer(request.body, support);
+      return { text };
+    } catch (error) {
+      return reply.code(422).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.get("/api/step", async () => step.state());
+
+  app.post<{
+    Body: { scenarioPath?: string; sessionId?: string; contactId?: string; channel?: SessionChannel; blank?: boolean };
+  }>("/api/step/start", async (request, reply) => {
+    const body = request.body ?? {};
+    try {
+      const contact = body.contactId ? contacts.get(body.contactId) : undefined;
+      if (body.contactId && !contact) return reply.code(404).send({ error: "contact not found" });
+      const sessionContact = contact ? { id: contact.id, name: contact.name, number: contact.number } : undefined;
+      if (body.scenarioPath) return step.startFromScenario(await loadScenarioFile(body.scenarioPath), sessionContact);
+      if (body.sessionId) return step.startFromSession(body.sessionId);
+      if (body.blank || contact) {
+        return step.startBlank(body.channel ?? contact?.channel ?? runtime.getState().channel, sessionContact, contact?.conversationState ?? null);
+      }
+      return reply.code(400).send({ error: "scenarioPath, sessionId, contactId, or blank is required" });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/step/drop", async (_request, reply) => {
+    try {
+      return step.dropNext();
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { duration?: string | number } }>("/api/step/warp", async (request, reply) => {
+    try {
+      return step.warp(request.body?.duration ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { text?: string; after?: string | number } }>("/api/step/agent", async (request, reply) => {
+    try {
+      return step.addAgentTurn(request.body?.text ?? "", request.body?.after);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post("/api/step/send", async (_request, reply) => {
+    try {
+      return (await step.sendNext()).state;
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { caller?: string } }>("/api/step/edit", async (request, reply) => {
+    try {
+      return step.editNext(request.body?.caller ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { caller?: string } }>("/api/step/add", async (request, reply) => {
+    try {
+      return step.addTurn(request.body?.caller ?? "");
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { turnIndex?: number; caller?: string; sessionId?: string } }>(
+    "/api/step/fork",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      try {
+        return step.fork(Number(body.turnIndex), {
+          ...(body.sessionId ? { sessionId: body.sessionId } : {}),
+          ...(body.caller ? { caller: body.caller } : {})
+        });
+      } catch (error) {
+        return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+      }
+    }
+  );
+
+  app.post("/api/step/end", async (_request, reply) => {
+    try {
+      return await step.end();
+    } catch (error) {
+      return reply.code(409).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.post<{
@@ -660,6 +1238,145 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     }
     if (!delivery) return reply.code(404).send({ error: "source delivery not found" });
     return delivery;
+  });
+
+  // ── Simulated clock ───────────────────────────────────────────────────────
+  app.get("/api/clock", async () => ({ offsetMs: runtime.clockOffset(), now: runtime.now() }));
+
+  app.post<{ Body: { duration?: string | number } }>("/api/clock/advance", async (request, reply) => {
+    try {
+      const ms = parseDuration(request.body?.duration ?? "");
+      runtime.advanceClock(ms);
+      step.state();
+      runtime.publishEvent("step", step.state());
+      return { offsetMs: runtime.clockOffset(), now: runtime.now() };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  app.post<{ Body: { at?: string } }>("/api/clock/set", async (request, reply) => {
+    try {
+      runtime.setClock(request.body?.at ?? "");
+      runtime.publishEvent("step", step.state());
+      return { offsetMs: runtime.clockOffset(), now: runtime.now() };
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ── Outbound seeds (campaign openers, follow-ups sent outside the webhook) ─
+  app.post<{ Body: { text?: string; channel?: SessionChannel } }>("/api/seed-agent-message", async (request, reply) => {
+    try {
+      return runtime.seedAgentMessage(request.body?.text ?? "", request.body?.channel);
+    } catch (error) {
+      const status = error instanceof ChannelLockedError ? 409 : 400;
+      return reply.code(status).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+
+  // ── Conversations: start a fresh live session with a contact ─────────────
+  app.post<{ Body: { contactId?: string; channel?: SessionChannel; conversationState?: ConversationState } }>(
+    "/api/conversations/start",
+    async (request, reply) => {
+      const body = request.body ?? {};
+      const contact = body.contactId ? contacts.get(body.contactId) : undefined;
+      if (body.contactId && !contact) return reply.code(404).send({ error: "contact not found" });
+      try {
+        return runtime.reset({
+          ...(body.channel ?? contact?.channel ? { channel: body.channel ?? contact?.channel } : {}),
+          conversationState: body.conversationState ?? contact?.conversationState ?? null,
+          ...(contact ? { contact: { id: contact.id, name: contact.name, number: contact.number } } : {})
+        });
+      } catch (error) {
+        return sendConfigValidationError(reply, error);
+      }
+    }
+  );
+
+  // ── Scenario discovery ────────────────────────────────────────────────────
+  app.get("/api/scenarios", async () => listScenarios(scenarioDirectories));
+
+  // ── Contacts ──────────────────────────────────────────────────────────────
+  app.get("/api/contacts", async () => contacts.list());
+  app.post<{ Body: ContactInput }>("/api/contacts", async (request, reply) => {
+    try {
+      return contacts.upsert(request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.put<{ Params: { contactId: string }; Body: ContactInput }>("/api/contacts/:contactId", async (request, reply) => {
+    if (!contacts.get(request.params.contactId)) return reply.code(404).send({ error: "contact not found" });
+    try {
+      return contacts.upsert({ ...request.body, id: request.params.contactId });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.delete<{ Params: { contactId: string } }>("/api/contacts/:contactId", async (request, reply) => {
+    if (!contacts.delete(request.params.contactId)) return reply.code(404).send({ error: "contact not found" });
+    return reply.code(204).send();
+  });
+
+  // ── Environments (sub-accounts): named simulator targets ──────────────────
+  app.get("/api/environments", async () => ({
+    active: { targetUrl: runtime.getState().targetUrl, secretPreview: runtime.getState().secretPreview, channel: runtime.getState().channel },
+    environments: environments.list()
+  }));
+  app.post<{ Body: EnvironmentInput }>("/api/environments", async (request, reply) => {
+    try {
+      return environments.upsert(request.body);
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.put<{ Params: { environmentId: string }; Body: EnvironmentInput }>("/api/environments/:environmentId", async (request, reply) => {
+    if (!environments.get(request.params.environmentId)) return reply.code(404).send({ error: "environment not found" });
+    try {
+      return environments.upsert({ ...request.body, id: request.params.environmentId });
+    } catch (error) {
+      return reply.code(400).send({ error: error instanceof Error ? error.message : String(error) });
+    }
+  });
+  app.delete<{ Params: { environmentId: string } }>("/api/environments/:environmentId", async (request, reply) => {
+    if (!environments.delete(request.params.environmentId)) return reply.code(404).send({ error: "environment not found" });
+    return reply.code(204).send();
+  });
+  app.post<{ Params: { environmentId: string } }>("/api/environments/:environmentId/activate", async (request, reply) => {
+    const environment = environments.get(request.params.environmentId);
+    if (!environment) return reply.code(404).send({ error: "environment not found" });
+    try {
+      return runtime.reset({
+        targetUrl: environment.targetUrl,
+        secret: environment.secret,
+        ...(environment.channel ? { channel: environment.channel } : {})
+      });
+    } catch (error) {
+      return sendConfigValidationError(reply, error);
+    }
+  });
+
+  // ── Usage / overview aggregates ───────────────────────────────────────────
+  app.get("/api/stats", async () => {
+    const sessions = runtime.getHistory().map((summary) => runtime.getHistorySession(summary.id)).filter((session): session is InspectorSession => Boolean(session));
+    return computeUsageStats(sessions);
+  });
+
+  app.delete("/api/history", async () => ({ removed: runtime.clearHistory() }));
+
+  // ── Sample conversations: one real run per scenario, for every default contact ─
+  app.get("/api/samples", async () => ({
+    scenarios: SAMPLE_SCENARIOS.length,
+    loaded: runtime.getHistory().filter((run) => run.scenarioPassed !== undefined).length
+  }));
+  app.post("/api/samples/seed", async (_request, reply) => {
+    try {
+      return await seedSampleRuns(runtime, contacts);
+    } catch (error) {
+      if (error instanceof SamplesUnavailableError) return reply.code(502).send({ error: error.message });
+      return reply.code(500).send({ error: error instanceof Error ? error.message : String(error) });
+    }
   });
 
   app.get("/api/events", async (request, reply) => {
@@ -685,20 +1402,29 @@ export async function createDevtoolsServer(config: DevtoolsServerConfig): Promis
     }, 15_000);
 
     const unsubscribe = runtime.subscribe(client);
+    client.write("step", step.state());
     request.raw.on("close", unsubscribe);
   });
 
-  return { app, runtime };
+  return { app, runtime, step, contacts };
 }
 
-export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{ app: FastifyInstance; runtime: DevtoolsRuntime; url: string; port: number; close: () => Promise<void> }> {
-  const { app, runtime } = await createDevtoolsServer(config);
+export async function startDevtoolsServer(config: DevtoolsServerConfig): Promise<{
+  app: FastifyInstance;
+  runtime: DevtoolsRuntime;
+  contacts: ContactsStore;
+  url: string;
+  port: number;
+  close: () => Promise<void>;
+}> {
+  const { app, runtime, contacts } = await createDevtoolsServer(config);
   const host = config.host ?? "127.0.0.1";
   const port = await listenWithPortFallback(app, config.port, host);
   const url = `http://${host}:${port}`;
   return {
     app,
     runtime,
+    contacts,
     url,
     port,
     close: () => app.close()
@@ -751,6 +1477,20 @@ function fallbackSmsText(delivery: InspectorDelivery): string | undefined {
   return undefined;
 }
 
+/**
+ * Recover the conversation state a saved run was using, from the request
+ * bodies it actually sent. Pass `atCallerTurn` to read the state as of that
+ * turn (what a fork checkpoint needs); omit it for the run's initial state
+ * (what a scenario export needs). Identical today because handler responses
+ * do not yet update state mid-run, but the checkpoint contract should not
+ * depend on that staying true.
+ */
+function extractConversationState(session: InspectorSession, atCallerTurn?: number): ConversationState {
+  const deliveries = session.deliveries.filter((candidate) => candidate.event === "agent.message" && !candidate.replayOf);
+  const delivery = atCallerTurn !== undefined ? (deliveries[atCallerTurn - 1] ?? deliveries.at(-1)) : deliveries[0];
+  return structuredClone(delivery?.request.body.conversationState ?? null);
+}
+
 function maskSecret(secret: string): string {
   if (secret.length <= 8) return "***";
   return `${secret.slice(0, 6)}...${secret.slice(-4)}`;
@@ -778,8 +1518,27 @@ function summarizeSession(session: InspectorSession): InspectorSessionSummary {
     endedAt: session.endedAt,
     transcriptTurns: session.transcript.length,
     deliveries: session.deliveries.length,
-    baselineName: session.baseline?.name
+    baselineName: session.baseline?.name,
+    ...(session.forkedFrom ? { forkedFrom: session.forkedFrom } : {}),
+    ...(session.scenarioResult ? { scenarioPassed: session.scenarioResult.passed } : {}),
+    ...(session.contact ? { contact: session.contact } : {}),
+    ...(session.deliveries.length
+      ? {
+          averageLatencyMs: Math.round(
+            session.deliveries.reduce((total, delivery) => total + delivery.latencyMs, 0) / session.deliveries.length
+          )
+        }
+      : {}),
+    ...(session.transcript.length ? { lastMessage: session.transcript[session.transcript.length - 1].content } : {}),
+    lastActivityAt: session.turnTimes?.at(-1) ?? session.endedAt ?? session.startedAt
   };
+}
+
+function formatOffset(ms: number): string {
+  if (ms < 60_000) return `${Math.round(ms / 1000)}s`;
+  if (ms < 3_600_000) return `${Math.round(ms / 60_000)}m`;
+  if (ms < 172_800_000) return `${Math.round(ms / 3_600_000)}h`;
+  return `${Math.round(ms / 86_400_000)}d`;
 }
 
 function isUntouchedSession(session: InspectorSession): boolean {
@@ -825,6 +1584,10 @@ function isAgentPhoneEnvelope(value: unknown): value is AgentPhoneEnvelope {
     Boolean(envelope.data && typeof envelope.data === "object") &&
     Array.isArray(envelope.recentHistory)
   );
+}
+
+function exportOptionsFromQuery(query: { assertions?: string }): ScenarioExportOptions {
+  return query.assertions === "1" || query.assertions === "true" ? { scaffoldAssertions: true } : {};
 }
 
 function comparisonOptionsFromQuery(query: {

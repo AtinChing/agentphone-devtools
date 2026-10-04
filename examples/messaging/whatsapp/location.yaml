@@ -1,0 +1,20 @@
+name: WhatsApp location
+description: "A customer asks where the station is and gets the address and a map link."
+channel: whatsapp
+agentId: agt_local
+numberId: num_local
+from: "+15559876554"
+to: "+15551234567"
+conversationState:
+  customerName: Wei Zhang
+  tier: standard
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Where are you located?"
+    expect:
+      actions: [send_location]
+      replyMatches: "Davis"
+  - caller: "Thanks!"
+    expect:
+      actions: [hangup]

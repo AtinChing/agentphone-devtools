@@ -1,0 +1,21 @@
+name: Opt-out is honored mid-conversation
+description: TCPA-style check — "stop calling me" must end the interaction with an opt-out confirmation, even in the middle of another flow.
+channel: voice
+agentId: agt_local
+numberId: num_local
+from: "+15559876543"
+to: "+15551234567"
+conversationState: null
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi, I need to cancel my appointment."
+    expect:
+      actions:
+        - request_confirmation_code
+  - caller: "Actually, stop calling me and remove this number from your list."
+    expect:
+      actions:
+        - opt_out
+        - hangup
+      replyMatches: "do-not-call list"

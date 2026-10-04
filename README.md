@@ -17,7 +17,10 @@ The CLI starts the simulator API and the inspector UI together, opens the inspec
 
 ## What Ships
 
-- Simulator for `agent.message` over SMS and voice plus `agent.call_ended` builders.
+- Simulator for `agent.message` over SMS, iMessage and WhatsApp, voice, plus `agent.call_ended` builders.
+- Outbound campaign sends (`agent:` turns) seeded into history the way the send API does it, so the customer's reply reaches the handler with the real context.
+- A simulated clock: `startAt`, per-turn `after: 2h`, and `warp 10d` in the debugger move payload timestamps and history times without touching the HMAC header.
+- An AgentPhone-style dashboard (Overview, Agents, Contacts, Messages, Voice Calls, Sub-accounts, Webhooks, Usage, …) with an **iMessage** tab that renders conversations the way the customer's phone does and forks them from any bubble.
 - HMAC-SHA256 signing over the exact raw request bytes sent to the webhook.
 - Required AgentPhone security headers: `X-Webhook-Signature`, `X-Webhook-Timestamp`, `X-Webhook-ID`, and `X-Webhook-Event`.
 - Voice response parsing for JSON and NDJSON, including interim chunks and final chunks.
@@ -258,10 +261,13 @@ Transcript changes remain visible for review but do not fail regression gates be
 ```text
 packages/core      payload builders, signer, dispatcher, scenarios, assertions
 packages/server    Fastify simulator API and SSE stream
-packages/ui        Next.js inspector
-packages/cli       npx-runnable entrypoint
-examples/handler-express
-examples/scenarios
+packages/ui        Next.js dashboard: AgentPhone-style console, iMessage tab, Inspector
+packages/cli       npx-runnable entrypoint (GUI, --ci, --step)
+examples/handler-express   reference handler: appointments, EV support, campaigns, STOP/HELP/START
+examples/scenarios         business-logic scenarios (voice + sms; voice/ = reschedule, billing, after-hours)
+examples/messaging         campaigns/ (outbound opener + simulated time), sms/, imessage/, whatsapp/
+examples/compliance        voice + messaging compliance pack
+examples/faults            security fault injection
 ```
 
 ## Demo Script
@@ -296,6 +302,181 @@ AGENTPHONE_DEVTOOLS_HISTORY_LIMIT=100
 ```
 
 These defaults keep the simulator fully local. They do not place calls, send texts, or require paid services.
+
+## Voice Input (developer convenience)
+
+Step mode can take dictated caller turns. This is **not** a simulation of
+AgentPhone's speech-to-text pipeline — it is a faster way for a developer to
+type. The transcript lands in the normal, editable caller-text input and is
+sent through exactly the same path as typed text; nothing about telephony
+audio, streaming, timing, or confidence is modeled.
+
+Transcription is fully local (whisper.cpp; no network calls). macOS setup:
+
+```bash
+brew install whisper-cpp ffmpeg
+mkdir -p .agentphone-devtools/models
+curl -L -o .agentphone-devtools/models/ggml-tiny.en.bin \
+  https://huggingface.co/ggerganov/whisper.cpp/resolve/main/ggml-tiny.en.bin
+```
+
+Then either:
+
+- **CLI step mode**: the `v` command records push-to-talk (Enter stops),
+  transcribes, and fills the next caller turn — edit with `e`, send with `c`.
+- **Inspector**: a microphone button appears beside the caller input and the
+  tree's fork panel; click to record, click again to stop, and the
+  transcript fills the input for editing.
+- **Inspector, hands-free**: hold the space bar to speak a caller turn and
+  release to send it — held means "for the agent," released means "for the
+  humans," so narrating a demo never becomes a ghost turn. (Deliberately
+  push-to-talk rather than open-mic silence detection: endpointing a live
+  mic is a real telephony problem, not something to fake with a timer.)
+
+If whisper, a model, or ffmpeg is missing — or the microphone is denied —
+the feature reports why and typed input works exactly as before. Overrides:
+`AGENTPHONE_DEVTOOLS_WHISPER_BIN`, `AGENTPHONE_DEVTOOLS_WHISPER_MODEL`, and
+`AGENTPHONE_DEVTOOLS_VOICE_WAV` (CLI: transcribe a prerecorded file instead
+of recording — the scripted-demo hook).
+
+## Compliance Suite
+
+Compliance for a voice agent is runtime behavior, not a policy document — and
+behavior that is not regression-tested will regress. `examples/compliance/`
+turns three universal obligations into executable scenarios that run in the
+same CI gate as everything else:
+
+- **Opt-out honoring** — "stop calling me" must end the interaction with an
+  opt-out confirmation, even mid-flow.
+- **AI disclosure** — "am I talking to a robot?" must produce the mandated
+  automated-assistant disclosure.
+- **Human escalation** — asking for a person must transfer, not deflect.
+
+```bash
+npx agentphone-devtools --ci \
+  --target http://localhost:3000/webhook --secret whsec_demo \
+  --scenario-dir examples/compliance \
+  --report-junit .agentphone-devtools/ci/compliance.xml
+```
+
+Unlike business-logic scenarios (which only the handler's owner can write),
+compliance rules are the same for every agent, so the suite ships in the box.
+The JSON/JUnit artifacts double as an audit trail: proof, on every release,
+that the agent still meets its obligations. `./compliance-demo.sh` shows the
+gate catching a broken opt-out rule as a red build.
+
+These checks use `expect.replyMatches`: a case-insensitive regular expression
+the agent's reply text must match. It exists for mandated fixed phrases where
+exact wording is required. It is deliberately not a general transcript
+assertion — model wording varies, so ordinary scenarios should keep gating on
+actions, not words.
+
+```yaml
+turns:
+  - caller: "Actually, stop calling me."
+    expect:
+      actions:
+        - opt_out
+        - hangup
+      replyMatches: "do-not-call list"
+```
+
+The reference Express handler implements each rule (opt-out before everything
+else, disclosure on question forms, transfer on request) as documentation of
+what a compliant handler looks like.
+
+The messaging half of the pack covers carrier keywords and opt-out memory:
+`messaging-stop-keyword`, `messaging-help-keyword`,
+`messaging-start-resubscribe`, and `messaging-post-stop-no-marketing` (a STOP,
+then a question five days later that must get no offer). They run in the same
+suite; `./imessage-demo.sh` shows them alongside the campaign branches.
+
+## iMessage, SMS and Campaigns
+
+Marketing campaigns are the messaging case that is hardest to test by hand:
+the business sends first, replies arrive hours or days later, and the same
+send fans out into customers who say yes, ask a question, decline, opt out,
+or answer after the offer ended. The simulator models each piece faithfully.
+
+**Outbound sends never hit the webhook.** In AgentPhone the campaign opener
+(and any scheduled follow-up) goes out through the send API; only the
+customer's reply reaches the handler, with the opener in `recentHistory`. An
+`agent:` turn does exactly that — it is seeded into history and nothing is
+delivered:
+
+```yaml
+name: Campaign reply — interested
+channel: imessage
+startAt: "2026-09-14T16:00:00Z"
+from: "+15559876544"
+turns:
+  - agent: "Hi Jordan, it's North Lot EV Charging. Fall tune-up special: 20% off any service booked this week. Reply YES to claim, or STOP to opt out."
+  - caller: "YES"
+    after: 2h
+    expect:
+      actions: [issue_promo_code]
+      forbiddenActions: [opt_out]
+      replyMatches: "FALL20"
+```
+
+**Simulated time.** `startAt` pins the scenario clock; `after` on any turn
+moves it forward (`90s`, `45m`, `3h`, `2d`, `1h30m`). Only the payload
+`timestamp` and `recentHistory[].at` change — the `X-Webhook-Timestamp`
+signing header stays real, so the handler's replay window still accepts the
+request. Handlers that read time from the event (the reference handler does)
+see the simulated moment; a promo window, a 24-hour session rule, or a
+"reply within a week" rule can be tested in seconds. In the step debugger,
+`warp 10d` does the same interactively; `say <text>` queues an outbound send.
+
+**Customer archetypes as branches.** `examples/messaging/campaigns/` holds four
+scenarios that share one opener and diverge on the reply: interested,
+has a question, declines, replies ten days late. Beside them,
+`examples/messaging/{sms,imessage,whatsapp}/` and `examples/scenarios/voice/`
+hold three scenarios per channel for the rest of the reference agent:
+reminders (confirm or reschedule by text), a wrong-number reply, booking over
+iMessage, a follow-up send after silence, station status lookups, WhatsApp
+opt-in and location, a Spanish thread, voice rescheduling, a billing dispute,
+and after-hours escalation that routes by the event's hour. In the iMessage tab every
+customer bubble has a fork button, and after a campaign opener the quick
+replies (YES / a question / no thanks / late reply / STOP) each create a
+branch off the same send. Exports keep the seeds and the gaps, so a
+conversation explored by hand becomes a regression scenario as-is.
+
+```bash
+npx agentphone-devtools --ci \
+  --target http://localhost:3000/webhook --secret whsec_demo \
+  --scenario-dir examples/messaging
+```
+
+`./imessage-demo.sh` runs the campaign suite green, time-travels one branch
+in the debugger, breaks the handler's promo window (a bug that only exists
+eight days after launch) to show the red build, then runs the messaging
+compliance pack.
+
+## Dashboard
+
+`npx agentphone-devtools` opens a local console modeled on the AgentPhone
+dashboard, so what you test looks like what you ship. Every tab is backed by
+the local server, not mock data. On a first launch it loads sample
+conversations: twelve default contacts (three per channel) and one real run
+per sample scenario against your handler, so every tab has something to show
+before you type anything. Skip that with `--no-samples`, or load it later
+from Settings; the runs are ordinary history and can be cleared.
+
+- **Overview, Usage** — run/delivery/latency tiles, 30-day activity, webhook health, a one-click compliance run.
+- **Agents, Sub-accounts, Webhooks** — the handler target, secret, context limit and timeout; named environments to switch between handlers; the exact payload and signing headers of the last delivery.
+- **Contacts, Phone Numbers** — simulated customers with a channel and `conversationState`, persisted in `.agentphone-devtools/contacts.json`.
+- **Messages, Voice Calls, WhatsApp** — every saved run by channel with transcripts, deliveries, reports and exports.
+- **SIP Trunks** — transport settings and one-click fault probes (bad signature, stale timestamp, tampered body, duplicate id, timeout) with the expected verdict.
+- **iMessage** — a Messages-style view of any thread: blue/green bubbles for the customer, gray for the business, delivery state, typing while the handler works, the simulated clock, "send as business" for campaign openers, fork-from-bubble, archetype quick replies, the branch tree, and one-click export.
+- **Inspector** — the step debugger: queue, expectations, forks, labels with notes, scenario picker, delivery payloads.
+- **Documentation, Support, Settings** — in-app reference, diagnostics, defaults and data controls.
+
+The console look is reproduced from agentphone.ai's dashboard (its layout,
+tokens, Alte Haas Grotesk headings, Phosphor icons and wordmark) so the
+simulator feels like the product it tests. The wordmark and logo under
+`packages/ui/public/brand/` are AgentPhone's; they are here only for this
+local tool.
 
 ## License
 

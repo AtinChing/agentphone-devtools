@@ -1,0 +1,25 @@
+name: Booking over iMessage
+description: "A customer books a tune-up by text: day, slot, confirmation code."
+channel: imessage
+agentId: agt_local
+numberId: num_local
+from: "+15559876545"
+to: "+15551234567"
+conversationState:
+  customerName: Priya Natarajan
+  tier: gold
+contextLimit: 10
+timeoutSeconds: 30
+turns:
+  - caller: "Hi! Can I book a tune-up for next week?"
+    expect:
+      actions: [request_booking_day]
+  - caller: "Wednesday works"
+    expect:
+      actions: [offer_slots]
+      replyMatches: "Wednesday"
+  - caller: "9 AM please"
+    expect:
+      actions: [booking_confirmed]
+      forbiddenActions: [reschedule_confirmed]
+      replyMatches: "Wednesday at 9:00 AM"
